@@ -17,6 +17,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .ctrl-grp{display:flex;flex-direction:column;gap:2px}
 .ctrl-lbl{font-size:10px;color:#8EB4D8;letter-spacing:.5px}
 .ctrl{background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.25);color:#fff;padding:4px 8px;border-radius:3px;font-size:11px}
+.ctrl option{background:#1B2A4A;color:#fff;}
 .tog{display:inline-flex;border:1px solid rgba(255,255,255,.3);border-radius:4px;overflow:hidden}
 .tog button{padding:4px 9px;border:none;background:transparent;cursor:pointer;font-size:11px;font-weight:600;color:rgba(255,255,255,.6)}
 .tog button.on{background:rgba(255,255,255,.25);color:#fff}
@@ -157,6 +158,8 @@ tr.risk-a td{background:#FEF9F0}
   <div class="tab" onclick="switchTab('horizon',this)">12-Week Horizon</div>
   <div class="tab" onclick="switchTab('dispatch',this)">Dispatch Calendar</div>
   <div class="tab" onclick="switchTab('alerts',this)">Alerts</div>
+  <div class="tab" onclick="switchTab('actuals',this)">Actuals vs Plan</div>
+  <div class="tab" onclick="switchTab('stock',this)">Stock</div>
 </div>
 
 <div id="main">
@@ -268,6 +271,85 @@ tr.risk-a td{background:#FEF9F0}
     <div style="padding:12px" id="alertsPanel"></div></div>
 </div>
 
+<!-- ACTUALS VS PLAN -->
+<div id="tab-actuals" class="tc">
+  <div class="panel">
+    <div class="ph navy">Upload Actuals — NetSuite Assembly Build Report
+      <span id="actualsUploadDate" style="font-size:10px;opacity:.7;margin-left:8px"></span></div>
+    <div style="padding:12px">
+      <div class="drop-zone" id="dzActuals" style="max-width:420px;flex:1"
+        ondragover="dzO(event,'Actuals')" ondragleave="dzL('Actuals')" ondrop="dzD(event,'Actuals')"
+        onclick="document.getElementById('fiActuals').click()">
+        <div class="dz-icon">📊</div>
+        <div class="dz-label">NetSuite Assembly Build Report (.xls)</div>
+        <div class="dz-sub">Drop or click — MTD file accepted, filtered to current week</div>
+        <div class="dz-status" id="actualsStat">No actuals loaded</div>
+      </div>
+      <input type="file" id="fiActuals" accept=".xls,.xlsx" style="display:none"
+        onchange="handleFile(this.files[0],'Actuals')">
+    </div>
+  </div>
+
+  <div id="actualsContent" style="display:none">
+
+    <!-- At-risk deliveries — most important, shown first -->
+    <div class="panel">
+      <div class="ph red" id="riskHdr">Delivery Risk After Replan</div>
+      <div style="padding:12px" id="riskPanel"></div>
+    </div>
+
+    <!-- SKU summary: planned vs actual vs gap -->
+    <div class="sku-strips" id="actualsSKUStrips"></div>
+
+    <!-- Replan for remaining days -->
+    <div class="panel">
+      <div class="ph blue" id="replanHdr">Replan — Remaining Days to Recover</div>
+      <div style="padding:8px 12px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border)">
+        Today and remaining days at planned capacity. Saturday available for HMPS, Line A and Line B.
+      </div>
+      <div class="tscroll"><table id="replanTable"></table></div>
+    </div>
+
+    <!-- Day-by-day variance table -->
+    <div class="panel">
+      <div class="ph red">Actual vs Plan — Pallets by Day, Line &amp; Shift</div>
+      <div class="tscroll"><table id="varianceTable"></table></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- STOCK -->
+<div id="tab-stock" class="tc">
+  <div class="panel">
+    <div class="ph navy">Upload Inventory — NetSuite Inventory Valuation Summary
+      <span style="font-size:10px;opacity:.7">Updates stock on hand across all planning tabs instantly</span></div>
+    <div style="padding:12px;display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+      <div class="drop-zone" id="dzInventory" style="max-width:420px;flex:1"
+        ondragover="dzO(event,'Inventory')" ondragleave="dzL('Inventory')" ondrop="dzD(event,'Inventory')"
+        onclick="document.getElementById('fiInventory').click()">
+        <div class="dz-icon">📦</div>
+        <div class="dz-label">NetSuite Inventory Valuation Summary (.xls)</div>
+        <div class="dz-sub">Drop or click — updates all stock figures instantly</div>
+        <div class="dz-status" id="inventoryStat">Using embedded stock figures</div>
+      </div>
+      <input type="file" id="fiInventory" accept=".xls,.xlsx" style="display:none"
+        onchange="handleFile(this.files[0],'Inventory')">
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="ph blue">Current Stock on Hand <span id="stockUploadDate" style="font-size:10px;opacity:.7;margin-left:12px"></span></div>
+    <div class="tscroll"><table id="stockDetailTable"></table></div>
+  </div>
+
+  <div class="panel">
+    <div class="ph navy">Manual Stock Override
+      <span style="font-size:10px;opacity:.7">Edit individual SKUs if inventory file is not available</span></div>
+    <div class="oc-grid" id="manualStockGrid" style="padding:12px"></div>
+  </div>
+</div>
+
 </div><!-- /main -->
 
 <script>
@@ -300,6 +382,25 @@ let otherDemand = {'10L Cask':0,'5L Cask':0,'2L Bottle':0,'600ml 12pk':0,'600ml 
 let wwOverride  = null;
 let colesOvr    = null;
 let metcashOvr  = null;
+let actualsData    = null;  // parsed NetSuite runs filtered to current week
+let rawActualsData = null;  // all runs from uploaded file (unfiltered)
+
+// Planned pallets per shift by line config (matches planning engine)
+const PLAN_TARGETS = {
+  'Line A':        {'10L Cask': 40},
+  'Line B':        {'5L Cask': 35, '10L Cask': 40},
+  'SM Bottle line':{'2L Bottle': 52},
+  'HMPS - Dual':   {'10L Cask': 80},
+  'HMPS - Single': {'10L Cask': 40},
+  'EP new line':   {'600ml 12pk': 34, '600ml 6pk': 32},
+};
+const SKU_MAP_NS = {
+  'Pureau 10L cask':      '10L Cask',
+  'Pureau 5L cask':       '5L Cask',
+  'Pureau 2L':            '2L Bottle',
+  'Pureau 600ml 12 pack': '600ml 12pk',
+  'Pureau 600ml 6 pack':  '600ml 6pk',
+};
 let wwDispatchOffset   = 2;  // days before need_arrival ABH must dispatch to WW
 let colesDispatchOffset = 1;  // days before Coles DC arrival ABH must dispatch
 let epChangeoverMins    = 45; // EP New Line changeover time loss in minutes
@@ -308,10 +409,15 @@ let epChangeoverMins    = 45; // EP New Line changeover time loss in minutes
 const fmt  = n => n==null||isNaN(n) ? '—' : Number(n).toLocaleString('en-AU');
 const fmtF = (n,dp=1) => isNaN(n)||n==null ? '—' : Number(n).toFixed(dp);
 const fmtD = s => { if(!s) return '—'; const d=new Date(s+'T00:00:00'); return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`; };
-const addDays = (s,n) => { const d=new Date(s+'T00:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); };
+const addDays = (s,n) => { const d=new Date(s+'T00:00:00'); d.setDate(d.getDate()+n); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 const monOf  = s => { const d=new Date(s+'T00:00:00'); const day=d.getDay(); const df=day===0?-6:1-day; d.setDate(d.getDate()+df); return d.toISOString().slice(0,10); };
 const isoD   = d => { if(!d) return null; if(typeof d==='string') return d.slice(0,10); if(d instanceof Date) return d.toISOString().slice(0,10); return null; };
 const getEff = () => parseFloat(document.getElementById('effSel').value)||0.8;
+// Use local date to avoid UTC offset issues (Brisbane = UTC+10)
+const localToday = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+};
 const wkLabel= w => `${fmtD(w)} - ${fmtD(addDays(w,4))}`;
 
 // ══ DEMAND ═══════════════════════════════════════════════════════════════════
@@ -529,7 +635,7 @@ function planWeek(week) {
 
   // Check at-risk deliveries (individual order lines due this week not coverable)
   const atRiskOrders = [];
-  const today = new Date().toISOString().slice(0,10);
+  const today = localToday();
   WW_ORDERS.forEach(o => {
     if (o.need_arrival >= addDays(week,-1) && o.need_arrival <= addDays(week,6)) {
       if ((stockPal[o.sku]||0) < o.pallets) {
@@ -858,7 +964,7 @@ function renderHorizon() {
 //      We apply colesDispatchOffset days: default 1 (dispatch day before arrival).
 // FIX: Other customer orders appear as dispatch events with required dates.
 function renderDispatch() {
-  const today=new Date().toISOString().slice(0,10);
+  const today=localToday();
   const end=addDays(today,21);  // extended to 3 weeks for better forward view
   const all=[];
   // WW: use need_arrival as-is (already ABH's arrival date; WW manages lead time)
@@ -1014,11 +1120,493 @@ function parseMetcash(text, fname) {
   setStat('Metcash',`✓ ${fname} — ${cnt} lines, ${Object.keys(weekly).length} weeks`,true);
 }
 
+function parseActuals(xmlText, fname) {
+  // NetSuite exports SpreadsheetML XML disguised as .xls
+  // Parse rows, filter to selected week, extract line/shift/pallets
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xmlText, 'text/xml');
+    const ns = 'urn:schemas-microsoft-com:office:spreadsheet';
+
+    const rows = doc.getElementsByTagNameNS(ns, 'Row');
+    if (!rows.length) { setStat('Actuals','❌ No data rows found',false); return; }
+
+    // Read header row
+    const headers = [];
+    const headerCells = rows[0].getElementsByTagNameNS(ns, 'Cell');
+    for (let c = 0; c < headerCells.length; c++) {
+      const d = headerCells[c].getElementsByTagNameNS(ns, 'Data')[0];
+      headers.push(d ? d.textContent.trim() : '');
+    }
+
+    const colIdx = name => headers.findIndex(h => h.toLowerCase().includes(name.toLowerCase()));
+    const iDate   = colIdx('Production Date');
+    const iLoc    = colIdx('Location');
+    const iShift  = colIdx('Shift');
+    const iLine   = colIdx('Line Used');
+    const iItem   = colIdx('Item');
+    const iPal    = colIdx('Pallets made');
+
+    if (iDate < 0 || iPal < 0) { setStat('Actuals','❌ Expected columns not found',false); return; }
+
+    // Week boundaries for selected week
+    const wkStart = currentWeek;
+    const wkEnd   = addDays(currentWeek, 6);
+
+    rawActualsData = [];  // store all runs unfiltered
+    const runs = [];
+    for (let r = 1; r < rows.length; r++) {
+      const cells = rows[r].getElementsByTagNameNS(ns, 'Cell');
+      const getCell = i => {
+        if (i < 0 || i >= cells.length) return '';
+        const d = cells[i].getElementsByTagNameNS(ns, 'Data')[0];
+        return d ? d.textContent.trim() : '';
+      };
+
+      const dateRaw = getCell(iDate).slice(0, 10);  // YYYY-MM-DD
+      if (!dateRaw || dateRaw < wkStart || dateRaw > wkEnd) continue;
+
+      const itemRaw = getCell(iItem);
+      const sku = SKU_MAP_NS[itemRaw];
+      if (!sku) continue;
+
+      const pallets = parseInt(getCell(iPal)) || 0;
+      const line    = getCell(iLine).trim();
+      const shift   = getCell(iShift).trim();
+      const loc     = getCell(iLoc).trim();
+
+      rawActualsData.push({ date: dateRaw, loc, shift, line, sku, pallets });
+      runs.push({ date: dateRaw, loc, shift, line, sku, pallets });
+    }
+
+    if (!runs.length) {
+      setStat('Actuals', `⚠ No runs found for week ${fmtD(currentWeek)}`, false);
+      return;
+    }
+
+    // Cutoff = last date where both Day and Afternoon shifts are present
+    const shiftsByDate = {};
+    runs.forEach(r => {
+      if (!shiftsByDate[r.date]) shiftsByDate[r.date] = new Set();
+      shiftsByDate[r.date].add(r.shift.includes('Day') ? 'Day' : 'Aft');
+    });
+    // A complete day has both Day and Afternoon shifts
+    const completeDates = Object.entries(shiftsByDate)
+      .filter(([d, shifts]) => shifts.has('Day') && shifts.has('Aft'))
+      .map(([d]) => d)
+      .sort();
+    const cutoffDate = completeDates.length ? completeDates[completeDates.length - 1] : '';
+    actualsData = runs;
+    actualsData._cutoff = cutoffDate;
+    actualsData._completeDates = completeDates;
+    actualsData._fname = fname;
+    const daysMsg = completeDates.length
+      ? completeDates.map(d => {const dt=new Date(d+'T00:00:00');return ['Mon','Tue','Wed','Thu','Fri'][dt.getDay()-1];}).join(', ')
+      : 'none';
+    const actTs = new Date();
+    const actTsStr = `${String(actTs.getDate()).padStart(2,'0')}/${String(actTs.getMonth()+1).padStart(2,'0')}/${actTs.getFullYear()} ${String(actTs.getHours()).padStart(2,'0')}:${String(actTs.getMinutes()).padStart(2,'0')}`;
+    setStat('Actuals', `✓ ${fname} — ${completeDates.length} complete day${completeDates.length!==1?'s':''} (${daysMsg})`, true);
+    const actDtEl = document.getElementById('actualsUploadDate');
+    if (actDtEl) actDtEl.textContent = `Uploaded: ${actTsStr} | ${completeDates.length} complete day${completeDates.length!==1?'s':''}: ${daysMsg}`;
+    document.getElementById('actualsContent').style.display = 'block';
+    renderActuals();
+
+  } catch(err) {
+    setStat('Actuals', '❌ Parse error: ' + err.message, false);
+  }
+}
+
+function renderActuals() {
+  if (!actualsData || !currentWeek) return;
+  document.getElementById('actualsContent').style.display = 'block';
+  const pr = planWeek(currentWeek);
+  const eff = getEff();
+
+  // ── Build planned pallets per day/line/shift from schedule ─────────────────
+  const sched = buildSchedule(currentWeek, pr);
+  const planned = {};  // key: date|line|shift → pallets
+  sched.forEach(s => {
+    const date = addDays(currentWeek, s.day);
+    const key  = `${date}|${s.label}|${s.shift}`;
+    planned[key] = (planned[key] || 0) + s.pallets;
+  });
+
+  // ── Aggregate actuals by date/line/shift ────────────────────────────────────
+  const actByKey = {};  // date|line|shift → {sku, pallets, notes}
+  actualsData.forEach(r => {
+    // Normalise line label to match schedule labels
+    const lineLabel = normaliseLineLabel(r.line, r.loc);
+    const key = `${r.date}|${lineLabel}|${r.shift === 'Day Shift' ? 'Day' : 'Aft'}`;
+    if (!actByKey[key]) actByKey[key] = { sku: r.sku, pallets: 0 };
+    actByKey[key].pallets += r.pallets;
+    actByKey[key].sku      = r.sku;
+  });
+
+  // ── SKU-level WTD summary ──────────────────────────────────────────────────
+  const skuPlan   = {};
+  const skuActual = {};
+  SKUS.forEach(s => { skuPlan[s] = 0; skuActual[s] = 0; });
+
+  const wtdCutoff = (actualsData && actualsData._cutoff) || addDays(new Date().toISOString().slice(0,10), -1);
+  sched.forEach(s => {
+    const date = addDays(currentWeek, s.day);
+    if (date > wtdCutoff) return;  // only count completed days
+    skuPlan[s.sku] = (skuPlan[s.sku] || 0) + s.pallets;
+  });
+  // Only sum runs up to and including last complete day (cutoff)
+  const wtdCutoffActuals = actualsData._cutoff || '';
+  actualsData.forEach(r => {
+    if (wtdCutoffActuals && r.date > wtdCutoffActuals) return;
+    skuActual[r.sku] = (skuActual[r.sku] || 0) + r.pallets;
+  });
+
+  // Render SKU strips
+  let strips = '';
+  SKUS.forEach(s => {
+    const pl = skuPlan[s] || 0;
+    const ac = skuActual[s] || 0;
+    const gap = ac - pl;
+    if (pl === 0 && ac === 0) return;
+    const cls = gap >= 0 ? 'ok' : gap >= -10 ? 'warn' : 'crit';
+    const gapCls = gap >= 0 ? 'green' : gap >= -10 ? 'amber' : 'red';
+    strips += `<div class="sku-strip ${cls}">
+      <div class="sku-label"><span class="chip ${CHIP[s]}">${s}</span></div>
+      <div class="ktile navy"><div class="kv">${fmt(pl)}</div><div class="kl">Planned (pal)</div></div>
+      <div class="ktile blue"><div class="kv">${fmt(ac)}</div><div class="kl">Actual (pal)</div></div>
+      <div class="ktile ${gapCls}"><div class="kv">${gap >= 0 ? '+' : ''}${fmt(gap)}</div><div class="kl">Variance</div></div>
+      <div class="ktile ${gap >= 0 ? 'green' : 'red'}">
+        <div class="kv" style="font-size:12px">${gap >= 0 ? 'On or ahead' : `${fmt(Math.abs(gap))} pal short`}</div>
+        <div class="kl">Status</div>
+      </div>
+    </div>`;
+  });
+  document.getElementById('actualsSKUStrips').innerHTML = strips;
+
+  // ── Day-by-day variance table ──────────────────────────────────────────────
+  const today = localToday();
+  // Use last date present in actuals file as cutoff
+  const cutoff = actualsData._cutoff || addDays(today, -1);
+  const completedDays = [];
+  for (let d = 0; d < 5; d++) {
+    const dt = addDays(currentWeek, d);
+    if (dt <= cutoff) completedDays.push({ d, dt });
+  }
+
+  let vt = `<thead><tr><th>Date</th><th>Shift</th><th>Line</th><th>SKU</th>
+    <th class="num">Planned (pal)</th><th class="num">Actual (pal)</th>
+    <th class="num">Variance</th><th>Notes</th></tr></thead><tbody>`;
+
+  // Combine all keys from planned and actuals for completed days
+  const allKeys = new Set();
+  completedDays.forEach(({dt}) => {
+    Object.keys(planned).filter(k => k.startsWith(dt)).forEach(k => allKeys.add(k));
+    Object.keys(actByKey).filter(k => k.startsWith(dt)).forEach(k => allKeys.add(k));
+  });
+
+  [...allKeys].sort().forEach(key => {
+    const [date, line, shift] = key.split('|');
+    const pl  = planned[key]   || 0;
+    const ac  = (actByKey[key] || {}).pallets || 0;
+    const sku = (actByKey[key] || {}).sku || (sched.find(s => addDays(currentWeek,s.day)===date && s.label===line && s.shift===shift) || {}).sku || '—';
+    const gap = ac - pl;
+    const gCls = gap >= 0 ? 'g' : gap >= -5 ? 'a' : 'r';
+    vt += `<tr>
+      <td>${fmtD(date)}</td>
+      <td><span class="badge ${shift==='Day'?'bb':'bn'}">${shift}</span></td>
+      <td><strong>${line}</strong></td>
+      <td><span class="chip ${CHIP[sku]||''}">${sku}</span></td>
+      <td class="num">${fmt(pl)}</td>
+      <td class="num">${fmt(ac)}</td>
+      <td class="num ${gCls}">${gap>=0?'+':''}${fmt(gap)}</td>
+      <td style="font-size:10px;color:var(--muted);max-width:300px"></td>
+    </tr>`;
+  });
+  document.getElementById('varianceTable').innerHTML = vt + '</tbody>';
+
+  // ── Replan remaining days ──────────────────────────────────────────────────
+  renderReplan(pr, skuPlan, skuActual);
+}
+
+function normaliseLineLabel(line, loc) {
+  // Map NetSuite line names to schedule label format
+  const isSite = s => loc && loc.toLowerCase().includes(s);
+  if (line === 'Line A')          return 'AS Line A (10L)';
+  if (line === 'Line B')          return `AS Line B (${lineBSku})`;
+  if (line === 'SM Bottle line')  return 'AS Bottle Line (2L)';
+  if (line === 'HMPS - Dual')     return `EP HMPS (Dual)`;
+  if (line === 'HMPS - Single')   return `EP HMPS (Single)`;
+  if (line === 'EP new line')     return 'EP New Line';
+  return line;
+}
+
+function renderReplan(pr, skuPlan, skuActual) {
+  const eff = getEff();
+  const today = localToday();
+  const tomorrow = addDays(today, 1);
+
+  // Completed days count (from actuals file)
+  const completedDates = (actualsData && actualsData._completeDates) || [];
+  const nComplete = completedDates.length;
+
+  // Today estimate = planned capacity (same as Thu/Fri)
+  // WTD average is unreliable if line config changed mid-week (e.g. HMPS Single → Dual)
+  // Planned capacity reflects current line settings selected in the header
+  const todayEst = {};
+  const hmpsTgt0 = hmpsConfig === 'Dual' ? 80 : 40;
+  const lineBTgt0 = lineBSku === '5L' ? 35 : 40;
+  const todayCapPerDay = {
+    '10L Cask':   (hmpsTgt0 + 40) * 2 * eff,
+    '5L Cask':    lineBTgt0 * 2 * eff,
+    '2L Bottle':  52 * 2 * eff,
+    '600ml 12pk': 34 * 2 * eff,
+    '600ml 6pk':  32 * 2 * eff,
+  };
+  SKUS.forEach(s => { todayEst[s] = todayCapPerDay[s] || 0; });
+
+  // Remaining days: today (estimated) + Thu/Fri (planned capacity)
+  // futureDays = tomorrow through end of week = strictly planned days
+  // Today is handled separately as an estimate
+  const futureDays = [];
+  for (let d = 0; d < 5; d++) {
+    const dt = addDays(currentWeek, d);
+    if (dt > today) futureDays.push(dt);
+  }
+  const nFuture = futureDays.length;
+
+  // Is today a production day this week?
+  // Check today is Mon-Fri of selected week (d=0..4)
+  let todayIsThisWeek = false;
+  for (let d = 0; d < 5; d++) { if (addDays(currentWeek,d) === today) { todayIsThisWeek = true; break; } }
+
+  const todayName = ['Mon','Tue','Wed','Thu','Fri'][new Date(today+'T00:00:00').getDay()-1] || today;
+  const futureNames = futureDays.map(dt => ['Mon','Tue','Wed','Thu','Fri'][new Date(dt+'T00:00:00').getDay()-1] || dt);
+
+  document.getElementById('replanHdr').childNodes[0].textContent =
+    `Replan — ${todayIsThisWeek ? todayName+' + ' : ''}${nFuture} more day${nFuture!==1?'s':''}: ${[todayIsThisWeek?todayName:'',...futureNames].filter(Boolean).join(', ')} at planned capacity`;
+
+  // Full week demand still to produce = week demand - actual so far
+  const demand = getDemand(currentWeek);
+  const stillNeeded = {};
+  SKUS.forEach(s => {
+    const produced = skuActual[s] || 0;
+    stillNeeded[s] = Math.max(0, demand[s].total - produced);
+  });
+
+  // Planned capacity per full day (2 shifts at efficiency)
+  const hmpsTgt = hmpsConfig === 'Dual' ? 80 : 40;
+  const lineBTgt = lineBSku === '5L' ? 35 : 40;
+  const capPerDay = {
+    '10L Cask':   (hmpsTgt + 40) * 2 * eff,
+    '5L Cask':    lineBTgt * 2 * eff,
+    '2L Bottle':  52 * 2 * eff,
+    '600ml 12pk': 34 * 2 * eff,
+    '600ml 6pk':  32 * 2 * eff,
+  };
+
+  // Total expected output for rest of week:
+  // today = WTD average, remaining days = planned capacity
+  const expectedRemaining = {};
+  SKUS.forEach(s => {
+    const todayOut  = todayIsThisWeek ? (todayEst[s] || 0) : 0;
+    const futureOut = nFuture * (capPerDay[s] || 0);
+    expectedRemaining[s] = todayOut + futureOut;
+  });
+
+  let rt = `<thead><tr>
+    <th>SKU</th>
+    <th class="num">Actual WTD</th>
+    <th class="num">Today Est.</th>
+    <th class="num">Remaining Days</th>
+    <th class="num">Still Needed</th>
+    <th class="num">Expected Total</th>
+    <th>Outlook</th>
+  </tr></thead><tbody>`;
+
+  const riskSkus = [];
+  SKUS.forEach(s => {
+    const needed   = stillNeeded[s] || 0;
+    if (needed === 0 && (skuActual[s]||0) === 0) return;
+    const expected = expectedRemaining[s] || 0;
+    const fullExpected = (skuActual[s]||0) + expected;  // actual WTD + remaining
+    const gap      = fullExpected - needed;  // positive = on track, negative = short
+    const ok       = gap >= 0;
+    const close    = !ok && gap >= -10;
+    const cls      = ok ? 'g' : close ? 'a' : 'r';
+    const todayOut = todayIsThisWeek ? (todayEst[s] || 0) : 0;
+
+    // Available stock can cover part or all of the shortfall
+    const availStock = Math.max(0, (stockPal[s] || 0) - (onHoldPal[s] || 0));
+    const netGap = gap + availStock;  // positive = covered by production + stock (gap already includes actuals)
+    const okWithStock  = netGap >= 0;
+    const closeWithStock = !okWithStock && netGap >= -10;
+
+    let statusBadge;
+    if (ok) {
+      statusBadge = `<span class="badge bg">On track — production sufficient${gap > 0 ? ' (+'+fmt(Math.round(gap))+' surplus)' : ''}</span>`;
+    } else if (okWithStock) {
+      const stockCover = Math.min(availStock, Math.abs(Math.round(gap)));
+      statusBadge = `<span class="badge bg">Covered — ${fmt(stockCover)} pal drawn from stock</span>`;
+    } else if (closeWithStock) {
+      statusBadge = `<span class="badge ba">Tight — ${fmt(Math.abs(Math.round(netGap)))} pal short even with stock, consider SAT</span>`;
+      riskSkus.push({ s, gap: Math.abs(Math.round(netGap)), needed, expected, availStock });
+    } else {
+      statusBadge = `<span class="badge br">At risk — ${fmt(Math.abs(Math.round(netGap)))} pal short after stock</span>`;
+      riskSkus.push({ s, gap: Math.abs(Math.round(netGap)), needed, expected, availStock });
+    }
+
+    rt += `<tr>
+      <td><span class="chip ${CHIP[s]}">${s}</span></td>
+      <td class="num">${fmt(skuActual[s]||0)}</td>
+      <td class="num" style="color:var(--amber);font-weight:700">${todayIsThisWeek ? fmt(todayOut) : '—'}</td>
+      <td class="num">Today est + ${nFuture}d planned</td>
+      <td class="num ${needed>0?'r':''}">${fmt(needed)}</td>
+      <td class="num ${cls}">${fmt(Math.round((skuActual[s]||0) + expected))}</td>
+      <td>${statusBadge}</td>
+    </tr>`;
+  });
+  document.getElementById('replanTable').innerHTML = rt + '</tbody>';
+
+  // Saturday capacity — HMPS, Line A, Line B available on Saturday
+  const satCap = {
+    '10L Cask':   (hmpsTgt + 40) * eff,   // HMPS + Line A, single shift
+    '5L Cask':    lineBTgt * eff,           // Line B single shift
+    '2L Bottle':  52 * eff,                 // Bottle line single shift
+    '600ml 12pk': 34 * eff,
+    '600ml 6pk':  32 * eff,
+  };
+
+  // Note explaining today estimate and Saturday
+  const noteEl = document.createElement('div');
+  noteEl.style.cssText = 'padding:8px 12px;font-size:10px;color:var(--muted);border-top:1px solid var(--border)';
+  noteEl.innerHTML = `Today and remaining days at ${Math.round(eff*100)}% planned capacity (${nComplete} complete day${nComplete!==1?'s':''} already in actuals). <strong>Saturday available: HMPS + Line A (${fmt(Math.round(satCap['10L Cask']))} pal 10L), Line B (${fmt(Math.round(satCap['5L Cask']))} pal 5L).</strong>`;
+  const tbl = document.getElementById('replanTable');
+  if (tbl.parentNode) tbl.parentNode.appendChild(noteEl);
+
+  // Risk panel
+  const rp = document.getElementById('riskPanel');
+  document.getElementById('riskHdr').childNodes[0].textContent =
+    riskSkus.length ? `Delivery Risk — ${riskSkus.length} SKU${riskSkus.length>1?'s':''} at risk` : 'Delivery Risk';
+  if (!riskSkus.length) {
+    rp.innerHTML = '<div class="alert alert-g">✓ All SKUs on track — expected production plus available stock covers week demand.</div>';
+  } else {
+    rp.innerHTML = riskSkus.map(({s, gap, needed, expected, availStock}) => {
+      const stockNote = availStock > 0 ? ` (${fmt(availStock)} pal available stock already factored in)` : '';
+      return `<div class="alert alert-r">⚠ <div><strong>${s}</strong> — expected total production ${fmt(Math.round((skuActual[r2]||0)+expected))} pal + available stock ${fmt(availStock)} pal vs ${fmt(needed)} pal still needed. Short by ${fmt(gap)} pal after stock${stockNote}. Consider Saturday shift or review dispatch commitments.</div></div>`;
+    }).join('');
+  }
+}
+
+const INV_MAP_NS = {
+  'Pureau 10L cask':      '10L Cask',
+  'Pureau 5L cask':       '5L Cask',
+  'Pureau 2L':            '2L Bottle',
+  'Pureau 600ml 12 pack': '600ml 12pk',
+  'Pureau 600ml 6 pack':  '600ml 6pk',
+};
+
+function parseInventory(xmlText, fname) {
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xmlText, 'text/xml');
+    const ns = 'urn:schemas-microsoft-com:office:spreadsheet';
+    const rows = doc.getElementsByTagNameNS(ns, 'Row');
+    if (!rows.length) { setStat('Inventory','❌ No data found',false); return; }
+
+    let reportDate = '';
+    let updated = 0;
+    const newStock = {};
+    const newUnits = {};
+
+    for (let r = 0; r < rows.length; r++) {
+      const cells = rows[r].getElementsByTagNameNS(ns, 'Cell');
+      const getCell = i => {
+        if (i >= cells.length) return '';
+        const d = cells[i].getElementsByTagNameNS(ns, 'Data')[0];
+        return d ? (d.textContent || '').trim() : '';
+      };
+
+      // Capture report date
+      const c0 = getCell(0);
+      if (c0.startsWith('As of')) reportDate = c0;
+
+      // Match Pureau SKUs — item name in col 0, units on hand in col 4
+      const sku = INV_MAP_NS[c0];
+      if (!sku) continue;
+      const onHand = parseFloat(getCell(4)) || 0;
+      const pallets = Math.floor(onHand / UPP[sku]);
+      newStock[sku] = pallets;
+      newUnits[sku]  = Math.round(onHand);
+      updated++;
+    }
+
+    if (!updated) { setStat('Inventory','❌ No Pureau SKUs found',false); return; }
+
+    // Update global stock
+    SKUS.forEach(s => {
+      if (newStock[s] !== undefined) {
+        stockPal[s]    = newStock[s];
+        STOCK_UNITS[s] = newUnits[s];
+      }
+    });
+
+    const uploadTs = new Date();
+    const tsStr = `${String(uploadTs.getDate()).padStart(2,'0')}/${String(uploadTs.getMonth()+1).padStart(2,'0')}/${uploadTs.getFullYear()} ${String(uploadTs.getHours()).padStart(2,'0')}:${String(uploadTs.getMinutes()).padStart(2,'0')}`;
+    setStat('Inventory', `✓ ${fname}${reportDate ? ' — '+reportDate : ''} — ${updated} SKUs updated`, true);
+    const dtEl = document.getElementById('stockUploadDate');
+    if (dtEl) dtEl.textContent = `Last uploaded: ${tsStr}`;
+    renderStockDetail(newStock, newUnits, reportDate);
+    renderManualStockGrid();
+    onWeekChange();  // refresh all planning tabs with new stock
+
+  } catch(err) {
+    setStat('Inventory','❌ Parse error: ' + err.message, false);
+  }
+}
+
+function renderStockDetail(stockPalLocal, stockUnitsLocal, reportDate) {
+  let h = `<thead><tr>
+    <th>SKU</th>
+    <th class="num">Units on Hand</th>
+    <th class="num">Pallets</th>
+    <th class="num">On Hold (pal)</th>
+    <th class="num">Available (pal)</th>
+    <th>Source</th>
+  </tr></thead><tbody>`;
+  SKUS.forEach(s => {
+    const units = stockUnitsLocal ? (stockUnitsLocal[s] || STOCK_UNITS[s] || 0) : (STOCK_UNITS[s] || 0);
+    const pal   = stockPalLocal   ? (stockPalLocal[s]   || stockPal[s]   || 0) : (stockPal[s]   || 0);
+    const hold  = onHoldPal[s] || 0;
+    const avail = Math.max(0, pal - hold);
+    h += `<tr>
+      <td><span class="chip ${CHIP[s]}">${s}</span></td>
+      <td class="num">${fmt(units)}</td>
+      <td class="num"><strong>${fmt(Math.round(pal))}</strong></td>
+      <td class="num ${hold>0?'a':''}">${hold>0?fmt(hold):'—'}</td>
+      <td class="num g"><strong>${fmt(avail)}</strong></td>
+      <td style="font-size:10px;color:var(--muted)">${reportDate||'Manual / embedded'}</td>
+    </tr>`;
+  });
+  document.getElementById('stockDetailTable').innerHTML = h + '</tbody>';
+}
+
+function renderManualStockGrid() {
+  const g = document.getElementById('manualStockGrid');
+  if (!g) return;
+  g.innerHTML = SKUS.map(s => `<div class="oc-cell">
+    <span class="chip ${CHIP[s]}" style="margin-bottom:4px">${s}</span>
+    <label>Stock (pallets)</label>
+    <input type="number" min="0" value="${Math.round(stockPal[s]||0)}"
+      onchange="stockPal['${s}']=parseFloat(this.value)||0;STOCK_UNITS['${s}']=Math.round((parseFloat(this.value)||0)*UPP['${s}']);onWeekChange();renderStockDetail(null,null,'Manual')">
+  </div>`).join('');
+}
+
 function handleFile(file,retailer) {
   const reader=new FileReader();
   reader.onload=e=>{
     try {
       if(retailer==='Metcash'){parseMetcash(e.target.result,file.name);return;}
+      if(retailer==='Actuals'){parseActuals(e.target.result,file.name);return;}
+      if(retailer==='Inventory'){parseInventory(e.target.result,file.name);return;}
       const wb=XLSX.read(e.target.result,{type:'array',cellDates:true});
       if(retailer==='WW') parseWW(wb,file.name);
       else parseColes(wb,file.name);
@@ -1026,7 +1614,7 @@ function handleFile(file,retailer) {
       setStat(retailer,'❌ Error: '+err.message,false);
     }
   };
-  if(retailer==='Metcash') reader.readAsText(file);
+  if(retailer==='Metcash'||retailer==='Actuals'||retailer==='Inventory') reader.readAsText(file);
   else reader.readAsArrayBuffer(file);
 }
 
@@ -1210,6 +1798,31 @@ function onWeekChange() {
   renderHorizon();
   renderDispatch();
   renderAlerts(pr);
+  // Re-filter actuals for newly selected week
+  if(rawActualsData && rawActualsData.length) {
+    const wkS = currentWeek;
+    const wkE = addDays(currentWeek, 6);
+    const refiltered = rawActualsData.filter(r => r.date >= wkS && r.date <= wkE);
+    if (refiltered.length) {
+      // Recalculate complete dates for new week
+      const shiftsByDate = {};
+      refiltered.forEach(r => {
+        if (!shiftsByDate[r.date]) shiftsByDate[r.date] = new Set();
+        shiftsByDate[r.date].add(r.shift.includes('Day') ? 'Day' : 'Aft');
+      });
+      const completeDates = Object.entries(shiftsByDate)
+        .filter(([d,shifts]) => shifts.has('Day') && shifts.has('Aft'))
+        .map(([d]) => d).sort();
+      actualsData = refiltered;
+      actualsData._cutoff = completeDates.length ? completeDates[completeDates.length-1] : '';
+      actualsData._completeDates = completeDates;
+    } else {
+      actualsData = null;
+      document.getElementById('actualsContent').style.display = 'none';
+      setStat('Actuals', `No actuals for week ${fmtD(currentWeek)} — drop file to load`, false);
+    }
+  }
+  if(actualsData){renderActuals();}
 }
 
 function init() {
@@ -1222,6 +1835,8 @@ function init() {
   sel.value=dw;currentWeek=dw;
   renderOCGrid();
   renderHoldGrid();
+  renderManualStockGrid();
+  renderStockDetail(null, null, 'Embedded');
   onWeekChange();
 }
 
