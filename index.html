@@ -643,22 +643,27 @@ function renderSkuStrips(pr) {
 // ══ RENDER: DEMAND TABLE ══════════════════════════════════════════════════════
 function renderDemTable(pr) {
   const {demand} = pr;
-  let h=`<thead><tr><th>SKU</th><th class="num">WW</th><th class="num">Coles</th><th class="num">Metcash</th><th class="num">Other</th><th class="num">Total (pal)</th><th class="num">Units</th></tr></thead><tbody>`;
+  let h=`<thead><tr><th>SKU</th><th class="num">WW (pal)</th><th class="num">Coles (pal)</th><th class="num">Metcash (pal)</th><th class="num">Other (pal)</th><th class="num">Total (pal)</th><th class="num">Units</th></tr></thead><tbody>`;
   let tw=0,tc=0,tm2=0,to=0,tt=0;
   SKUS.forEach(s=>{
     const d=demand[s]; if(d.total===0) return;
-    tw+=d.ww;tc+=d.coles;to+=d.other||0;tt+=d.total;
     const tm=d.metcash||0;
+    tw+=d.ww; tc+=d.coles; tm2+=tm; to+=d.other||0; tt+=d.total;
     h+=`<tr><td><span class="chip ${CHIP[s]}">${s}</span></td>
-      <td class="num">${fmt(d.ww)}</td><td class="num">${fmt(d.coles)}</td>
+      <td class="num">${fmt(d.ww)}</td>
+      <td class="num">${fmt(d.coles)}</td>
       <td class="num">${tm?`<strong>${fmt(tm)}</strong>`:'—'}</td>
       <td class="num">${d.other?`<strong>${fmt(d.other)}</strong>`:'—'}</td>
       <td class="num"><strong>${fmt(d.total)}</strong></td>
       <td class="num">${fmt(Math.round(d.total*UPP[s]))}</td></tr>`;
   });
-  h+=`<tr style="background:var(--light)"><td><strong>TOTAL</strong></td>
-    <td class="num"><strong>${fmt(tw)}</strong></td><td class="num"><strong>${fmt(tc)}</strong></td>
-    <td class="num"><strong>${to?fmt(to):'—'}</strong></td><td class="num"><strong>${fmt(tt)}</strong></td><td></td></tr></tbody>`;
+  h+=`<tr style="background:var(--light)"><td><strong>TOTAL PALLETS</strong></td>
+    <td class="num"><strong>${fmt(tw)}</strong></td>
+    <td class="num"><strong>${fmt(tc)}</strong></td>
+    <td class="num"><strong>${tm2?fmt(tm2):'—'}</strong></td>
+    <td class="num"><strong>${to?fmt(to):'—'}</strong></td>
+    <td class="num"><strong>${fmt(tt)}</strong></td>
+    <td></td></tr></tbody>`;
   document.getElementById('demTable').innerHTML=h;
 }
 
