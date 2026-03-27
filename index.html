@@ -1868,60 +1868,50 @@ function sbStatus(msg, colour) {
 
 // ── PUSH: called after any file is parsed ─────────────────────────────────────
 async function sbPush(dataset, rows) {
-  // dataset: 'ww_forecast' | 'coles_forecast' | 'metcash_forecast' | 'actuals' | 'stock'
   sbStatus('⏫ Pushing ' + dataset + '...', 'info');
   try {
-    // Delete existing rows for this dataset then insert fresh
-    // ww_forecast / coles_forecast / metcash_forecast share the same table structure
-    const tableMap = {
-      ww_forecast:      'ww_forecast',
-      coles_forecast:   'coles_forecast',
-      metcash_forecast: 'metcash_forecast',
-      actuals:          'actuals',
-      stock:            'stock'
-    };
-    const table = tableMap[dataset];
-    if (!table) return;
+    const table = dataset;  // table name matches dataset name directly
 
-    // Delete all existing rows
-    const delRes = await fetch(`${SB_URL}/rest/v1/${table}?id=gte.0`, {
-      method: 'DELETE',
-      headers: sbHeaders()
-    });
-    // id=gte.0 won't match if id column is bigint identity — use a safer delete
-    // Use a filter that always matches: delete where updated_at is not null
-    if (!delRes.ok) {
-      // Try alternative delete
+    if (dataset === 'stock') {
+      // Stock table has unique constraint on sku — use upsert (merge-duplicates)
+      if (!rows || !rows.length) { sbStatus('✓ stock cleared', 'ok'); return; }
+      const res = await fetch(`${SB_URL}/rest/v1/${table}`, {
+        method: 'POST',
+        headers: { ...sbHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+        body: JSON.stringify(rows)
+      });
+      if (!res.ok) { const err = await res.text(); throw new Error(err); }
+    } else {
+      // All other tables: delete all rows then insert fresh batch
+      // Use updated_at filter which always matches existing rows
       await fetch(`${SB_URL}/rest/v1/${table}?updated_at=not.is.null`, {
         method: 'DELETE',
         headers: sbHeaders()
       });
-    }
-
-    if (!rows || !rows.length) {
-      sbStatus('✓ ' + dataset + ' cleared', 'ok');
-      return;
-    }
-
-    // Insert new rows in batches of 500
-    const BATCH = 500;
-    for (let i = 0; i < rows.length; i += BATCH) {
-      const batch = rows.slice(i, i + BATCH);
-      const res = await fetch(`${SB_URL}/rest/v1/${table}`, {
-        method: 'POST',
-        headers: { ...sbHeaders(), 'Prefer': 'return=minimal' },
-        body: JSON.stringify(batch)
+      // Also try id-based delete as fallback (catches any rows where updated_at is null)
+      await fetch(`${SB_URL}/rest/v1/${table}?id=gt.0`, {
+        method: 'DELETE',
+        headers: sbHeaders()
       });
-      if (!res.ok) {
-        const err = await res.text();
-        throw new Error(err);
+
+      if (!rows || !rows.length) { sbStatus('✓ ' + dataset + ' cleared', 'ok'); return; }
+
+      const BATCH = 500;
+      for (let i = 0; i < rows.length; i += BATCH) {
+        const batch = rows.slice(i, i + BATCH);
+        const res = await fetch(`${SB_URL}/rest/v1/${table}`, {
+          method: 'POST',
+          headers: { ...sbHeaders(), 'Prefer': 'return=minimal' },
+          body: JSON.stringify(batch)
+        });
+        if (!res.ok) { const err = await res.text(); throw new Error(err); }
       }
     }
 
     // Update upload_log
     await fetch(`${SB_URL}/rest/v1/upload_log`, {
       method: 'POST',
-      headers: { ...sbHeaders(), 'Prefer': 'resolution=merge-duplicates' },
+      headers: { ...sbHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
       body: JSON.stringify([{ dataset, uploaded_at: new Date().toISOString() }])
     });
 
