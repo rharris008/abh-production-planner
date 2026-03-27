@@ -1839,8 +1839,6 @@ function init() {
   renderManualStockGrid();
   renderStockDetail(null, null, 'Embedded');
   onWeekChange();
-  // Pull live data from Supabase after initial render
-  sbPull();
 }
 
 document.addEventListener('DOMContentLoaded',init);
@@ -1866,18 +1864,14 @@ function sbStatus(msg, colour) {
   el.textContent = msg;
 }
 
-// ── PUSH: called after any file is parsed ─────────────────────────────────────
+// ── PUSH ──────────────────────────────────────────────────────────────────────
 async function sbPush(dataset, rows) {
   sbStatus('⏫ Pushing ' + dataset + '...', 'info');
   try {
-    const table = dataset;  // table name matches dataset name directly
-
     if (dataset === 'stock') {
-      // Stock: PATCH each SKU row directly — no delete needed, no unique constraint issue
+      // Stock table has unique constraint on sku — PATCH each row individually
       if (!rows || !rows.length) { sbStatus('✓ stock cleared', 'ok'); return; }
       for (const row of rows) {
-        // Always PATCH — this updates the existing row in place
-        // If no row exists yet, fall through to a separate insert pass below
         await fetch(`${SB_URL}/rest/v1/stock?sku=eq.${encodeURIComponent(row.sku)}`, {
           method: 'PATCH',
           headers: { ...sbHeaders(), 'Prefer': 'return=minimal' },
@@ -1885,36 +1879,20 @@ async function sbPush(dataset, rows) {
         });
       }
     } else {
-          // PATCH failed — try insert
-          await fetch(`${SB_URL}/rest/v1/stock`, {
-            method: 'POST',
-            headers: { ...sbHeaders(), 'Prefer': 'return=minimal' },
-            body: JSON.stringify([row])
-          });
-        }
-      }
-    } else {
-      // All other tables: delete all rows then insert fresh batch
-      // Use updated_at filter which always matches existing rows
-      await fetch(`${SB_URL}/rest/v1/${table}?updated_at=not.is.null`, {
-        method: 'DELETE',
-        headers: sbHeaders()
+      // All other tables: delete all then insert fresh
+      await fetch(`${SB_URL}/rest/v1/${dataset}?updated_at=not.is.null`, {
+        method: 'DELETE', headers: sbHeaders()
       });
-      // Also try id-based delete as fallback (catches any rows where updated_at is null)
-      await fetch(`${SB_URL}/rest/v1/${table}?id=gt.0`, {
-        method: 'DELETE',
-        headers: sbHeaders()
+      await fetch(`${SB_URL}/rest/v1/${dataset}?id=gt.0`, {
+        method: 'DELETE', headers: sbHeaders()
       });
-
       if (!rows || !rows.length) { sbStatus('✓ ' + dataset + ' cleared', 'ok'); return; }
-
       const BATCH = 500;
       for (let i = 0; i < rows.length; i += BATCH) {
-        const batch = rows.slice(i, i + BATCH);
-        const res = await fetch(`${SB_URL}/rest/v1/${table}`, {
+        const res = await fetch(`${SB_URL}/rest/v1/${dataset}`, {
           method: 'POST',
           headers: { ...sbHeaders(), 'Prefer': 'return=minimal' },
-          body: JSON.stringify(batch)
+          body: JSON.stringify(rows.slice(i, i + BATCH))
         });
         if (!res.ok) { const err = await res.text(); throw new Error(err); }
       }
@@ -1935,11 +1913,10 @@ async function sbPush(dataset, rows) {
   }
 }
 
-// ── PULL: called on page load ──────────────────────────────────────────────────
+// ── PULL ──────────────────────────────────────────────────────────────────────
 async function sbPull() {
   sbStatus('⏳ Loading live data...', 'info');
   try {
-    // Fetch upload log first to check what exists
     const logRes = await fetch(`${SB_URL}/rest/v1/upload_log?select=dataset,uploaded_at`, {
       headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
     });
@@ -1947,9 +1924,8 @@ async function sbPull() {
     const log = await logRes.json();
     if (!log.length) { sbStatus('ℹ No uploaded data yet — using embedded', 'info'); return; }
 
-    // Pull each dataset that exists in the log
     const datasets = log.map(l => l.dataset);
-    let loaded = [];
+    const loaded = [];
 
     if (datasets.includes('ww_forecast')) {
       const r = await sbFetch('ww_forecast');
@@ -1973,7 +1949,6 @@ async function sbPull() {
     }
 
     if (loaded.length) {
-      // Rebuild demand data and re-render
       rebuildData();
       const ts = new Date().toLocaleString('en-AU', { timeZone: 'Australia/Brisbane', hour12: false });
       sbStatus(`✓ Live: ${loaded.join(', ')} — ${ts}`, 'ok');
@@ -1994,47 +1969,32 @@ async function sbFetch(table) {
   return await res.json();
 }
 
-// ── APPLY functions: convert Supabase rows → local data structures ─────────────
-
+// ── APPLY functions ────────────────────────────────────────────────────────────
 function applyWWFromSB(rows) {
-  // rows: [{week_date, sku, pallets}]
-  const weekly = {};
-  const daily  = {};
+  const weekly = {}, daily = {};
   rows.forEach(r => {
-    const w = r.week_date;
-    const s = r.sku;
-    const p = parseFloat(r.pallets) || 0;
-    if (!weekly[w]) weekly[w] = {};
-    weekly[w][s] = (weekly[w][s] || 0) + p;
+    if (!weekly[r.week_date]) weekly[r.week_date] = {};
+    weekly[r.week_date][r.sku] = (weekly[r.week_date][r.sku] || 0) + (parseFloat(r.pallets) || 0);
   });
   wwOverride = { weekly, daily };
   setStat('WW', `✓ Live data from Supabase (${rows.length} rows)`, true);
 }
 
 function applyColesFromSB(rows) {
-  const weekly = {};
-  const daily  = {};
+  const weekly = {}, daily = {};
   rows.forEach(r => {
-    const w = r.week_date;
-    const s = r.sku;
-    const p = parseFloat(r.pallets) || 0;
-    if (!weekly[w]) weekly[w] = {};
-    weekly[w][s] = (weekly[w][s] || 0) + p;
+    if (!weekly[r.week_date]) weekly[r.week_date] = {};
+    weekly[r.week_date][r.sku] = (weekly[r.week_date][r.sku] || 0) + (parseFloat(r.pallets) || 0);
   });
   colesOvr = { weekly, daily };
   setStat('Coles', `✓ Live data from Supabase (${rows.length} rows)`, true);
 }
 
 function applyMetcashFromSB(rows) {
-  const weekly = {};
-  const daily  = {};
-  const orders = [];
+  const weekly = {}, daily = {}, orders = [];
   rows.forEach(r => {
-    const w = r.week_date;
-    const s = r.sku;
-    const p = parseFloat(r.pallets) || 0;
-    if (!weekly[w]) weekly[w] = {};
-    weekly[w][s] = (weekly[w][s] || 0) + p;
+    if (!weekly[r.week_date]) weekly[r.week_date] = {};
+    weekly[r.week_date][r.sku] = (weekly[r.week_date][r.sku] || 0) + (parseFloat(r.pallets) || 0);
   });
   metcashOvr = { weekly, daily, orders };
   const el = document.getElementById('metcashStat');
@@ -2043,71 +2003,56 @@ function applyMetcashFromSB(rows) {
 }
 
 function applyActualsFromSB(rows) {
-  // rows: [{production_date, sku, pallets, location, shift}]
   if (!rows.length) return;
   const wkStart = currentWeek;
-  const wkEnd   = addDays(currentWeek, 6);
-  const filtered = rows.filter(r => r.production_date >= wkStart && r.production_date <= wkEnd);
-  if (!filtered.length) return;
-
+  const wkEnd = addDays(currentWeek, 6);
   rawActualsData = rows.map(r => ({
     date: r.production_date, loc: r.location || '', shift: r.shift || '',
     line: r.shift || '', sku: r.sku, pallets: parseFloat(r.pallets) || 0
   }));
-
-  const thisWeek = filtered.map(r => ({
-    date: r.production_date, loc: r.location || '', shift: r.shift || '',
-    line: r.shift || '', sku: r.sku, pallets: parseFloat(r.pallets) || 0
-  }));
-
+  const filtered = rawActualsData.filter(r => r.date >= wkStart && r.date <= wkEnd);
+  if (!filtered.length) return;
   const shiftsByDate = {};
-  thisWeek.forEach(r => {
+  filtered.forEach(r => {
     if (!shiftsByDate[r.date]) shiftsByDate[r.date] = new Set();
     shiftsByDate[r.date].add(r.shift.includes('Day') ? 'Day' : 'Aft');
   });
   const completeDates = Object.entries(shiftsByDate)
-    .filter(([, shifts]) => shifts.has('Day') && shifts.has('Aft'))
+    .filter(([, s]) => s.has('Day') && s.has('Aft'))
     .map(([d]) => d).sort();
-
-  actualsData = thisWeek;
+  actualsData = filtered;
   actualsData._cutoff = completeDates.length ? completeDates[completeDates.length - 1] : '';
   actualsData._completeDates = completeDates;
-
   document.getElementById('actualsContent').style.display = 'block';
   const el = document.getElementById('actualsStat');
-  if (el) el.textContent = `✓ Live data from Supabase (${thisWeek.length} runs)`;
+  if (el) el.textContent = `✓ Live data from Supabase (${filtered.length} runs)`;
 }
 
 function applyStockFromSB(rows) {
-  const newStock = {};
-  const newUnits = {};
+  const newStock = {}, newUnits = {};
   rows.forEach(r => {
     if (stockPal[r.sku] !== undefined) {
-      stockPal[r.sku]    = parseFloat(r.pallets) || 0;
-      STOCK_UNITS[r.sku] = parseInt(r.units)     || 0;
-      newStock[r.sku]    = stockPal[r.sku];
-      newUnits[r.sku]    = STOCK_UNITS[r.sku];
+      stockPal[r.sku] = parseFloat(r.pallets) || 0;
+      STOCK_UNITS[r.sku] = parseInt(r.units) || 0;
+      newStock[r.sku] = stockPal[r.sku];
+      newUnits[r.sku] = STOCK_UNITS[r.sku];
     }
   });
   const el = document.getElementById('inventoryStat');
-  if (el) el.textContent = `✓ Live stock from Supabase`;
+  if (el) el.textContent = '✓ Live stock from Supabase';
   document.getElementById('dzInventory')?.classList.add('dz-loaded');
   renderStockDetail(newStock, newUnits, 'Supabase (live)');
   renderManualStockGrid();
 }
 
-// ── HOOK INTO EXISTING PARSE FUNCTIONS ────────────────────────────────────────
-// Wrap the existing parseWW to also push to Supabase after parsing
+// ── HOOK INTO PARSE FUNCTIONS ─────────────────────────────────────────────────
 const _origParseWW = parseWW;
 parseWW = function(wb, fname) {
   _origParseWW(wb, fname);
   if (!wwOverride) return;
-  // Convert wwOverride.weekly to Supabase rows
   const rows = [];
   Object.entries(wwOverride.weekly).forEach(([week_date, skus]) => {
-    Object.entries(skus).forEach(([sku, pallets]) => {
-      rows.push({ week_date, sku, pallets });
-    });
+    Object.entries(skus).forEach(([sku, pallets]) => rows.push({ week_date, sku, pallets }));
   });
   sbPush('ww_forecast', rows);
 };
@@ -2118,9 +2063,7 @@ parseColes = function(wb, fname) {
   if (!colesOvr) return;
   const rows = [];
   Object.entries(colesOvr.weekly).forEach(([week_date, skus]) => {
-    Object.entries(skus).forEach(([sku, pallets]) => {
-      rows.push({ week_date, sku, pallets });
-    });
+    Object.entries(skus).forEach(([sku, pallets]) => rows.push({ week_date, sku, pallets }));
   });
   sbPush('coles_forecast', rows);
 };
@@ -2131,9 +2074,7 @@ parseMetcash = function(text, fname) {
   if (!metcashOvr) return;
   const rows = [];
   Object.entries(metcashOvr.weekly).forEach(([week_date, skus]) => {
-    Object.entries(skus).forEach(([sku, pallets]) => {
-      rows.push({ week_date, sku, pallets });
-    });
+    Object.entries(skus).forEach(([sku, pallets]) => rows.push({ week_date, sku, pallets }));
   });
   sbPush('metcash_forecast', rows);
 };
@@ -2143,11 +2084,8 @@ parseActuals = function(xmlText, fname) {
   _origParseActuals(xmlText, fname);
   if (!actualsData) return;
   const rows = (rawActualsData || []).map(r => ({
-    production_date: r.date,
-    sku:             r.sku,
-    pallets:         r.pallets,
-    location:        r.loc  || '',
-    shift:           r.shift || ''
+    production_date: r.date, sku: r.sku, pallets: r.pallets,
+    location: r.loc || '', shift: r.shift || ''
   }));
   sbPush('actuals', rows);
 };
@@ -2155,14 +2093,10 @@ parseActuals = function(xmlText, fname) {
 const _origParseInventory = parseInventory;
 parseInventory = function(xmlText, fname) {
   _origParseInventory(xmlText, fname);
-  // Push current stockPal state
-  const rows = SKUS.map(s => ({
-    sku:     s,
-    pallets: stockPal[s]    || 0,
-    units:   STOCK_UNITS[s] || 0
-  }));
+  const rows = SKUS.map(s => ({ sku: s, pallets: stockPal[s] || 0, units: STOCK_UNITS[s] || 0 }));
   sbPush('stock', rows);
 };
+
 </script>
 </body>
 </html>
