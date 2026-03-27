@@ -1873,14 +1873,26 @@ async function sbPush(dataset, rows) {
     const table = dataset;  // table name matches dataset name directly
 
     if (dataset === 'stock') {
-      // Stock table has unique constraint on sku — use upsert (merge-duplicates)
+      // Stock: PATCH each SKU row directly — no delete needed, no unique constraint issue
       if (!rows || !rows.length) { sbStatus('✓ stock cleared', 'ok'); return; }
-      const res = await fetch(`${SB_URL}/rest/v1/${table}`, {
-        method: 'POST',
-        headers: { ...sbHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
-        body: JSON.stringify(rows)
-      });
-      if (!res.ok) { const err = await res.text(); throw new Error(err); }
+      for (const row of rows) {
+        // Always PATCH — this updates the existing row in place
+        // If no row exists yet, fall through to a separate insert pass below
+        await fetch(`${SB_URL}/rest/v1/stock?sku=eq.${encodeURIComponent(row.sku)}`, {
+          method: 'PATCH',
+          headers: { ...sbHeaders(), 'Prefer': 'return=minimal' },
+          body: JSON.stringify({ pallets: row.pallets, units: row.units, updated_at: new Date().toISOString() })
+        });
+      }
+    } else {
+          // PATCH failed — try insert
+          await fetch(`${SB_URL}/rest/v1/stock`, {
+            method: 'POST',
+            headers: { ...sbHeaders(), 'Prefer': 'return=minimal' },
+            body: JSON.stringify([row])
+          });
+        }
+      }
     } else {
       // All other tables: delete all rows then insert fresh batch
       // Use updated_at filter which always matches existing rows
