@@ -2077,15 +2077,21 @@ function applyActualsFromSB(rows) {
 }
 
 function applyStockFromSB(rows) {
-  // rows: [{sku, pallets, units}]
+  const newStock = {};
+  const newUnits = {};
   rows.forEach(r => {
     if (stockPal[r.sku] !== undefined) {
       stockPal[r.sku]    = parseFloat(r.pallets) || 0;
       STOCK_UNITS[r.sku] = parseInt(r.units)     || 0;
+      newStock[r.sku]    = stockPal[r.sku];
+      newUnits[r.sku]    = STOCK_UNITS[r.sku];
     }
   });
   const el = document.getElementById('inventoryStat');
   if (el) el.textContent = `✓ Live stock from Supabase`;
+  document.getElementById('dzInventory')?.classList.add('dz-loaded');
+  renderStockDetail(newStock, newUnits, 'Supabase (live)');
+  renderManualStockGrid();
 }
 
 // ── HOOK INTO EXISTING PARSE FUNCTIONS ────────────────────────────────────────
