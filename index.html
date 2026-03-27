@@ -130,7 +130,7 @@ tr.risk-a td{background:#FEF9F0}
     <div class="brand">ABH Pureau</div>
     <div class="title">Production Planning Tool</div>
     <div class="meta" id="hdrMeta">Select a week</div>
-    <div class="meta" id="sbStatus" style="font-size:10px;color:#8EB4D8;margin-top:2px">⏳ Loading live data...</div>
+    <div class="meta" id="sbStatus" style="font-size:10px;color:#8EB4D8;margin-top:2px">⏳ Connecting...</div>
   </div>
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
     <div class="ctrl-grp"><span class="ctrl-lbl">WEEK</span>
@@ -1846,6 +1846,7 @@ document.addEventListener('DOMContentLoaded',init);
 // ══ SUPABASE SYNC LAYER ═══════════════════════════════════════════════════════
 const SB_URL = 'https://yxaebxkkclbjezffmerw.supabase.co';
 const SB_KEY = 'sb_publishable_yLmaFw0myJv-rHuCC2LsHw_WW7d8lJn';
+const SB_TIMEOUT_MS = 5000;  // 5 second timeout — planner loads regardless
 
 function sbHeaders() {
   return {
@@ -1864,41 +1865,60 @@ function sbStatus(msg, colour) {
   el.textContent = msg;
 }
 
+// Fetch with timeout — never hangs the page
+async function sbFetchTimeout(url, options, ms) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(timer);
+    return res;
+  } catch (e) {
+    clearTimeout(timer);
+    throw e;
+  }
+}
+
 async function sbPush(dataset, rows) {
   sbStatus('⏫ Pushing ' + dataset + '...', 'info');
   try {
     if (dataset === 'stock') {
       if (!rows || !rows.length) { sbStatus('✓ stock cleared', 'ok'); return; }
       for (const row of rows) {
-        await fetch(`${SB_URL}/rest/v1/stock?sku=eq.${encodeURIComponent(row.sku)}`, {
-          method: 'PATCH',
-          headers: { ...sbHeaders(), 'Prefer': 'return=minimal' },
-          body: JSON.stringify({ pallets: row.pallets, units: row.units, updated_at: new Date().toISOString() })
-        });
+        await sbFetchTimeout(
+          `${SB_URL}/rest/v1/stock?sku=eq.${encodeURIComponent(row.sku)}`,
+          { method: 'PATCH', headers: { ...sbHeaders(), 'Prefer': 'return=minimal' }, body: JSON.stringify({ pallets: row.pallets, units: row.units, updated_at: new Date().toISOString() }) },
+          SB_TIMEOUT_MS
+        );
       }
     } else {
-      await fetch(`${SB_URL}/rest/v1/${dataset}?updated_at=not.is.null`, { method: 'DELETE', headers: sbHeaders() });
-      await fetch(`${SB_URL}/rest/v1/${dataset}?id=gt.0`, { method: 'DELETE', headers: sbHeaders() });
+      await sbFetchTimeout(`${SB_URL}/rest/v1/${dataset}?updated_at=not.is.null`, { method: 'DELETE', headers: sbHeaders() }, SB_TIMEOUT_MS);
+      await sbFetchTimeout(`${SB_URL}/rest/v1/${dataset}?id=gt.0`, { method: 'DELETE', headers: sbHeaders() }, SB_TIMEOUT_MS);
       if (!rows || !rows.length) { sbStatus('✓ ' + dataset + ' cleared', 'ok'); return; }
       const BATCH = 500;
       for (let i = 0; i < rows.length; i += BATCH) {
-        const res = await fetch(`${SB_URL}/rest/v1/${dataset}`, {
-          method: 'POST',
-          headers: { ...sbHeaders(), 'Prefer': 'return=minimal' },
-          body: JSON.stringify(rows.slice(i, i + BATCH))
-        });
+        const res = await sbFetchTimeout(
+          `${SB_URL}/rest/v1/${dataset}`,
+          { method: 'POST', headers: { ...sbHeaders(), 'Prefer': 'return=minimal' }, body: JSON.stringify(rows.slice(i, i + BATCH)) },
+          SB_TIMEOUT_MS
+        );
         if (!res.ok) { const err = await res.text(); throw new Error(err); }
       }
     }
-    await fetch(`${SB_URL}/rest/v1/upload_log`, {
-      method: 'POST',
-      headers: { ...sbHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify([{ dataset, uploaded_at: new Date().toISOString() }])
-    });
+    // Update upload_log
+    await sbFetchTimeout(
+      `${SB_URL}/rest/v1/upload_log`,
+      { method: 'POST', headers: { ...sbHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify([{ dataset, uploaded_at: new Date().toISOString() }]) },
+      SB_TIMEOUT_MS
+    );
     const ts = new Date().toLocaleString('en-AU', { timeZone: 'Australia/Brisbane', hour12: false });
-    sbStatus(`✓ ${dataset} synced ${ts}`, 'ok');
+    sbStatus(`✓ ${dataset} synced — ${ts}`, 'ok');
   } catch (e) {
-    sbStatus('⚠ Push failed: ' + e.message, 'err');
+    if (e.name === 'AbortError') {
+      sbStatus('⚠ Push timed out — check connection', 'err');
+    } else {
+      sbStatus('⚠ Push failed: ' + e.message, 'err');
+    }
     console.error('Supabase push error:', e);
   }
 }
@@ -1906,19 +1926,24 @@ async function sbPush(dataset, rows) {
 async function sbPull() {
   sbStatus('⏳ Loading live data...', 'info');
   try {
-    const logRes = await fetch(`${SB_URL}/rest/v1/upload_log?select=dataset,uploaded_at`, {
-      headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
-    });
-    if (!logRes.ok) { sbStatus('⚠ Using embedded data', 'warn'); return; }
+    const logRes = await sbFetchTimeout(
+      `${SB_URL}/rest/v1/upload_log?select=dataset,uploaded_at`,
+      { headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY } },
+      SB_TIMEOUT_MS
+    );
+    if (!logRes.ok) { sbStatus('ℹ Using embedded data', 'info'); return; }
     const log = await logRes.json();
-    if (!log.length) { sbStatus('ℹ No uploaded data yet — using embedded', 'info'); return; }
+    if (!log.length) { sbStatus('ℹ No live data yet — using embedded', 'info'); return; }
+
     const datasets = log.map(l => l.dataset);
     const loaded = [];
-    if (datasets.includes('ww_forecast')) { const r = await sbFetch('ww_forecast'); if (r && r.length) { applyWWFromSB(r); loaded.push('WW'); } }
-    if (datasets.includes('coles_forecast')) { const r = await sbFetch('coles_forecast'); if (r && r.length) { applyColesFromSB(r); loaded.push('Coles'); } }
-    if (datasets.includes('metcash_forecast')) { const r = await sbFetch('metcash_forecast'); if (r && r.length) { applyMetcashFromSB(r); loaded.push('Metcash'); } }
-    if (datasets.includes('actuals')) { const r = await sbFetch('actuals'); if (r && r.length) { applyActualsFromSB(r); loaded.push('Actuals'); } }
-    if (datasets.includes('stock')) { const r = await sbFetch('stock'); if (r && r.length) { applyStockFromSB(r); loaded.push('Stock'); } }
+
+    if (datasets.includes('ww_forecast'))     { const r = await sbFetch('ww_forecast');     if (r && r.length) { applyWWFromSB(r);      loaded.push('WW'); } }
+    if (datasets.includes('coles_forecast'))  { const r = await sbFetch('coles_forecast');  if (r && r.length) { applyColesFromSB(r);   loaded.push('Coles'); } }
+    if (datasets.includes('metcash_forecast')){ const r = await sbFetch('metcash_forecast'); if (r && r.length) { applyMetcashFromSB(r); loaded.push('Metcash'); } }
+    if (datasets.includes('actuals'))         { const r = await sbFetch('actuals');         if (r && r.length) { applyActualsFromSB(r); loaded.push('Actuals'); } }
+    if (datasets.includes('stock'))           { const r = await sbFetch('stock');           if (r && r.length) { applyStockFromSB(r);   loaded.push('Stock'); } }
+
     if (loaded.length) {
       rebuildData();
       const ts = new Date().toLocaleString('en-AU', { timeZone: 'Australia/Brisbane', hour12: false });
@@ -1927,17 +1952,27 @@ async function sbPull() {
       sbStatus('ℹ Using embedded data', 'info');
     }
   } catch (e) {
-    sbStatus('⚠ Load failed — using embedded', 'warn');
+    if (e.name === 'AbortError') {
+      sbStatus('ℹ Supabase timeout — using embedded data', 'warn');
+    } else {
+      sbStatus('ℹ Load failed — using embedded data', 'warn');
+    }
     console.warn('Supabase pull error:', e);
   }
 }
 
 async function sbFetch(table) {
-  const res = await fetch(`${SB_URL}/rest/v1/${table}?select=*&limit=10000`, {
-    headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY }
-  });
-  if (!res.ok) return null;
-  return await res.json();
+  try {
+    const res = await sbFetchTimeout(
+      `${SB_URL}/rest/v1/${table}?select=*&limit=10000`,
+      { headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY } },
+      SB_TIMEOUT_MS
+    );
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (e) {
+    return null;
+  }
 }
 
 function applyWWFromSB(rows) {
@@ -2065,9 +2100,12 @@ parseInventory = function(xmlText, fname) {
   sbPush('stock', rows);
 };
 
-// Call sbPull at end of init
+// Fire sbPull after init — planner is already loaded, timeout protects against hanging
 const _origInit = init;
-init = function() { _origInit(); sbPull(); };
+init = function() {
+  _origInit();
+  setTimeout(() => sbPull(), 500);  // slight delay so planner renders first
+};
 
 </script>
 </body>
