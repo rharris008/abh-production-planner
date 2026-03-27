@@ -2100,12 +2100,10 @@ parseInventory = function(xmlText, fname) {
   sbPush('stock', rows);
 };
 
-// Fire sbPull after init — planner is already loaded, timeout protects against hanging
-const _origInit = init;
-init = function() {
-  _origInit();
-  setTimeout(() => sbPull(), 500);  // slight delay so planner renders first
-};
+// Fire sbPull after DOM is ready — planner loads first, Supabase syncs after
+window.addEventListener('load', function() {
+  setTimeout(() => sbPull(), 800);
+});
 
 </script>
 </body>
