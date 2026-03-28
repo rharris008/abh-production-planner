@@ -545,25 +545,56 @@ function planWeek(week) {
       stockEnd: (stockPal[sku]||0) + cap - demand[sku].total};
   }
 
-  // 10L: HMPS + Line A run same number of days toward combined target
-  const s10   = avail['10L Cask'] || 0;
-  const d10   = demand['10L Cask'].total;
-  const need10 = Math.max(0, d10 + d10 - s10);
-  const combined10 = (hmpsTgt + 40) * 2 * eff;
-  const days10 = Math.min(5, need10 > 0 ? Math.ceil(need10 / combined10) : 0);
-  const hmps   = makeLine(`EP HMPS (${hmpsConfig})`, 'EP', '10L Cask', hmpsTgt, days10);
-  const asa    = makeLine('AS Line A (10L)', 'AS', '10L Cask', 40, days10);
-  const prod10 = hmps.cap + asa.cap;
-  const stockEnd10 = s10 + prod10 - d10;
-
-  // 5L/10L: Line B
-  // When Line B runs 10L, align days with Line A (days10) — same SKU must run together
+  // ── AS Line A & Line B always run together (same SKU, same days) ────────────
+  // Default: both start on 5L Cask Monday, swap to 10L once 5L demand met
+  // Toggle override: force all-week 5L or all-week 10L
   const s5  = avail['5L Cask'] || 0;
   const d5  = demand['5L Cask'].total;
-  const days5 = lineBSku === '10L' ? days10 : daysNeeded(s5, d5, lineBTgt);
-  const asb = makeLine(`AS Line B (${lineBSku})`, 'AS', lineBSkuFull, lineBTgt, days5);
-  const stockEnd5 = lineBSku === '10L' ? (avail['10L Cask']||0) + (hmps.cap + asa.cap + asb.cap) - d10
-                                        : s5 + asb.cap - d5;
+  const s10 = avail['10L Cask'] || 0;
+  const d10 = demand['10L Cask'].total;
+
+  const lineBTgtPerShift = 35;  // AS Line A & B each produce 35 pal/shift on 5L
+  const lineA10TgtPerShift = 40; // both lines produce 40 pal/shift on 10L
+
+  let days5phase = 0;   // days both lines run 5L
+  let days10phase = 0;  // days both lines run 10L (after 5L done)
+
+  if (lineBSku === '5L') {
+    // Force all-week 5L
+    days5phase  = daysNeeded(s5, d5, lineBTgtPerShift * 2);  // both lines combined = 70 pal/day
+    days10phase = 0;
+  } else if (lineBSku === '10L') {
+    // Force all-week 10L — both lines run 10L aligned with HMPS days
+    days5phase  = 0;
+    const need10all = Math.max(0, d10 + d10 - s10);
+    const combined10all = (hmpsTgt + lineA10TgtPerShift * 2) * 2 * eff;  // HMPS + both AS lines
+    days10phase = Math.min(5, need10all > 0 ? Math.ceil(need10all / combined10all) : 0);
+  } else {
+    // Default: 5L first, then swap to 10L
+    // Days needed for 5L with both lines running (combined 70 pal/day at eff)
+    const cap5perDay = lineBTgtPerShift * 2 * 2 * eff;  // 2 lines × 2 shifts × eff
+    days5phase = Math.min(5, d5 > s5 ? Math.ceil(Math.max(0, d5 - s5) / cap5perDay) : 0);
+    // Remaining days both lines run 10L
+    days10phase = Math.max(0, 5 - days5phase);
+  }
+
+  // 5L production from both lines during phase 1
+  const cap5LineAB = Math.floor(lineBTgtPerShift * 2 * eff);  // per line per day
+  const prod5 = days5phase * cap5LineAB * 2;  // both lines
+  const stockEnd5 = s5 + prod5 - d5;
+
+  // 10L production: HMPS all week + both AS lines during phase 2
+  const hmpsCap  = Math.floor(hmpsTgt * 2 * 5 * eff);  // HMPS runs all 5 days
+  const lineAB10Cap = days10phase * lineA10TgtPerShift * 2 * 2 * eff;  // both lines in phase 2
+  const prod10  = hmpsCap + lineAB10Cap;
+  const stockEnd10 = s10 + prod10 - d10;
+
+  // Create line objects for display
+  const hmps = makeLine(`EP HMPS (${hmpsConfig})`, 'EP', '10L Cask', hmpsTgt, 5);
+  const asa  = makeLine('AS Line A', 'AS', days5phase > 0 ? '5L Cask' : '10L Cask', 
+                         days5phase > 0 ? lineBTgtPerShift : lineA10TgtPerShift, 5);
+  const asb  = makeLine('AS Line B', 'AS', days5phase > 0 ? '5L Cask' : '10L Cask',
+                         days5phase > 0 ? lineBTgtPerShift : lineA10TgtPerShift, 5);
 
   // 2L: Bottle line
   const s2  = avail['2L Bottle'] || 0;
@@ -673,6 +704,7 @@ function planWeek(week) {
     satTriggers, satLines, satStock,
     satUsed: needSat && satLines.length > 0,
     lines: {hmps, asa, asb, as2l},
+    days5phase, days10phase,
     ep: {prod12, prod6, days12, days6, shifts: epResult.shifts, endStock12: epResult.endStock12, endStock6: epResult.endStock6},
     stockEnd10, stockEnd5, stockEnd2,
     totalGross: SKUS.reduce((a,s)=>a+demand[s].total,0),
@@ -699,8 +731,36 @@ function buildSchedule(week, pr) {
   }
 
   addLine(lines.hmps, 'ep10');
-  addLine(lines.asa,  'as10');
-  addLine(lines.asb,  lineBSku==='5L'?'as5':'as10');
+
+  // AS Line A & B — two-phase schedule
+  // Phase 1 (Mon onwards): both run 5L for days5phase days
+  // Phase 2: both switch to 10L for remaining days
+  const d5p = pr.days5phase  || 0;
+  const d10p = pr.days10phase || 0;
+  const lineTgt5  = 35;
+  const lineTgt10 = 40;
+
+  // Phase 1 — 5L on both lines
+  if (d5p > 0) {
+    for (let d = 0; d < d5p; d++) {
+      ['Day','Aft'].forEach(sh => {
+        const p5 = Math.floor(lineTgt5 * eff);
+        schedule.push({day:d, shift:sh, label:'AS Line A (5L)', sku:'5L Cask', pallets:p5, target:lineTgt5, cls:'as5', site:'AS'});
+        schedule.push({day:d, shift:sh, label:'AS Line B (5L)', sku:'5L Cask', pallets:p5, target:lineTgt5, cls:'as5', site:'AS'});
+      });
+    }
+  }
+  // Phase 2 — 10L on both lines
+  if (d10p > 0) {
+    for (let d = d5p; d < d5p + d10p; d++) {
+      ['Day','Aft'].forEach(sh => {
+        const p10 = Math.floor(lineTgt10 * eff);
+        schedule.push({day:d, shift:sh, label:'AS Line A (10L)', sku:'10L Cask', pallets:p10, target:lineTgt10, cls:'as10', site:'AS'});
+        schedule.push({day:d, shift:sh, label:'AS Line B (10L)', sku:'10L Cask', pallets:p10, target:lineTgt10, cls:'as10', site:'AS'});
+      });
+    }
+  }
+
   addLine(lines.as2l, 'as2');
 
   // EP New Line: use the day-level scheduler output
@@ -1224,22 +1284,85 @@ function parseActuals(xmlText, fname) {
 function renderActuals() {
   if (!actualsData || !currentWeek) return;
   document.getElementById('actualsContent').style.display = 'block';
-  const pr = planWeek(currentWeek);
+  const pr  = planWeek(currentWeek);
   const eff = getEff();
+  const today = localToday();
+  const cutoff = actualsData._cutoff || addDays(today, -1);
 
-  // ── Build planned pallets per day/line/shift from schedule ─────────────────
+  // Completed days loop
+  const completedDaysLoop = [];
+  for (let d = 0; d < 5; d++) {
+    const dt = addDays(currentWeek, d);
+    if (dt <= cutoff) completedDaysLoop.push({ d, dt });
+  }
+  const nComplete = completedDaysLoop.length;
+
+  // ── Net to produce per SKU (from planWeek — what we said we need to make) ──
+  // This is the production target: demand minus opening stock
+  const skuNetToProduce = {};
+  SKUS.forEach(s => {
+    skuNetToProduce[s] = Math.max(0, Math.round(pr.netDem[s] || 0));
+  });
+
+  // ── Actuals WTD per SKU ───────────────────────────────────────────────────
+  const skuActual = {};
+  SKUS.forEach(s => skuActual[s] = 0);
+  actualsData.forEach(r => {
+    if (r.date > cutoff) return;
+    skuActual[r.sku] = (skuActual[r.sku] || 0) + r.pallets;
+  });
+
+  // ── Remaining capacity per SKU ────────────────────────────────────────────
+  const hmpsTgt  = hmpsConfig === 'Dual' ? 80 : 40;
+  const lineBTgt = lineBSku === '5L' ? 35 : 40;
+  const capPerDay = {
+    '10L Cask':   (hmpsTgt + 40) * 2 * eff,
+    '5L Cask':    lineBTgt * 2 * eff,
+    '2L Bottle':  52 * 2 * eff,
+    '600ml 12pk': 34 * 2 * eff,
+    '600ml 6pk':  32 * 2 * eff,
+  };
+  let todayIsThisWeek = false;
+  for (let d = 0; d < 5; d++) { if (addDays(currentWeek,d) === today) { todayIsThisWeek = true; break; } }
+  const todayIncomplete = todayIsThisWeek && today > cutoff ? 1 : 0;
+  const daysLeft = (5 - nComplete - todayIncomplete) + todayIncomplete;
+  const skuRemaining = {};
+  SKUS.forEach(s => { skuRemaining[s] = Math.round(daysLeft * (capPerDay[s] || 0)); });
+
+  // ── SKU strips ────────────────────────────────────────────────────────────
+  // Production Target (net to produce) | Produced WTD | Remaining Capacity | Expected | Gap
+  let strips = '';
+  SKUS.forEach(s => {
+    const target   = skuNetToProduce[s] || 0;
+    const produced = skuActual[s] || 0;
+    const remaining= skuRemaining[s] || 0;
+    const expected = produced + remaining;
+    const gap      = expected - target;
+    if (target === 0 && produced === 0) return;
+    const cls    = gap >= 0 ? 'ok' : gap >= -10 ? 'warn' : 'crit';
+    const gapCls = gap >= 0 ? 'green' : gap >= -10 ? 'amber' : 'red';
+    const gapTxt = gap >= 0 ? `✓ On track (+${fmt(gap)} surplus)` : `⚠ ${fmt(Math.abs(gap))} pal short`;
+    strips += `<div class="sku-strip ${cls}">
+      <div class="sku-label"><span class="chip ${CHIP[s]}">${s}</span></div>
+      <div class="ktile navy"><div class="kv">${fmt(target)}</div><div class="kl">Production Target</div></div>
+      <div class="ktile blue"><div class="kv">${fmt(produced)}</div><div class="kl">Produced WTD</div></div>
+      <div class="ktile grey"><div class="kv">${fmt(remaining)}</div><div class="kl">Remaining Capacity</div></div>
+      <div class="ktile navy"><div class="kv">${fmt(expected)}</div><div class="kl">Expected Total</div></div>
+      <div class="ktile ${gapCls}"><div class="kv" style="font-size:12px">${gapTxt}</div><div class="kl">vs Target</div></div>
+    </div>`;
+  });
+  document.getElementById('actualsSKUStrips').innerHTML = strips;
+
+  // ── Build planned vs actual per shift ─────────────────────────────────────
   const sched = buildSchedule(currentWeek, pr);
-  const planned = {};  // key: date|line|shift → pallets
+  const planned = {};
   sched.forEach(s => {
     const date = addDays(currentWeek, s.day);
     const key  = `${date}|${s.label}|${s.shift}`;
     planned[key] = (planned[key] || 0) + s.pallets;
   });
-
-  // ── Aggregate actuals by date/line/shift ────────────────────────────────────
-  const actByKey = {};  // date|line|shift → {sku, pallets, notes}
+  const actByKey = {};
   actualsData.forEach(r => {
-    // Normalise line label to match schedule labels
     const lineLabel = normaliseLineLabel(r.line, r.loc, actualsData._lineBSku);
     const key = `${r.date}|${lineLabel}|${r.shift === 'Day Shift' ? 'Day' : 'Aft'}`;
     if (!actByKey[key]) actByKey[key] = { sku: r.sku, pallets: 0 };
@@ -1247,65 +1370,11 @@ function renderActuals() {
     actByKey[key].sku      = r.sku;
   });
 
-  // ── SKU-level WTD summary ──────────────────────────────────────────────────
-  // Plan = full week demand from planWeek(), pro-rated to completed days
-  const skuPlan   = {};
-  const skuActual = {};
-  SKUS.forEach(s => { skuPlan[s] = 0; skuActual[s] = 0; });
-
-  const completedDays = (actualsData && actualsData._completeDates) ? actualsData._completeDates.length : 0;
-  const totalDays = 5;
-  const proRataFactor = completedDays / totalDays;
-
-  // Pro-rate the full week demand to completed days
-  SKUS.forEach(s => {
-    skuPlan[s] = Math.round((pr.demand[s].total || 0) * proRataFactor);
-  });
-
-  // Sum actual production up to and including last complete day
-  const wtdCutoffActuals = actualsData._cutoff || '';
-  actualsData.forEach(r => {
-    if (wtdCutoffActuals && r.date > wtdCutoffActuals) return;
-    skuActual[r.sku] = (skuActual[r.sku] || 0) + r.pallets;
-  });
-
-  // Render SKU strips
-  let strips = '';
-  SKUS.forEach(s => {
-    const pl = skuPlan[s] || 0;
-    const ac = skuActual[s] || 0;
-    const gap = ac - pl;
-    if (pl === 0 && ac === 0) return;
-    const cls = gap >= 0 ? 'ok' : gap >= -10 ? 'warn' : 'crit';
-    const gapCls = gap >= 0 ? 'green' : gap >= -10 ? 'amber' : 'red';
-    strips += `<div class="sku-strip ${cls}">
-      <div class="sku-label"><span class="chip ${CHIP[s]}">${s}</span></div>
-      <div class="ktile navy"><div class="kv">${fmt(pl)}</div><div class="kl">Planned (pal)</div></div>
-      <div class="ktile blue"><div class="kv">${fmt(ac)}</div><div class="kl">Actual (pal)</div></div>
-      <div class="ktile ${gapCls}"><div class="kv">${gap >= 0 ? '+' : ''}${fmt(gap)}</div><div class="kl">Variance</div></div>
-      <div class="ktile ${gap >= 0 ? 'green' : 'red'}">
-        <div class="kv" style="font-size:12px">${gap >= 0 ? 'On or ahead' : `${fmt(Math.abs(gap))} pal short`}</div>
-        <div class="kl">Status</div>
-      </div>
-    </div>`;
-  });
-  document.getElementById('actualsSKUStrips').innerHTML = strips;
-
-  // ── Day-by-day variance table ──────────────────────────────────────────────
-  const today = localToday();
-  // Use last date present in actuals file as cutoff
-  const cutoff = actualsData._cutoff || addDays(today, -1);
-  const completedDaysLoop = [];
-  for (let d = 0; d < 5; d++) {
-    const dt = addDays(currentWeek, d);
-    if (dt <= cutoff) completedDaysLoop.push({ d, dt });
-  }
-
+  // ── Day-by-day variance table ─────────────────────────────────────────────
   let vt = `<thead><tr><th>Date</th><th>Shift</th><th>Line</th><th>SKU</th>
-    <th class="num">Planned (pal)</th><th class="num">Actual (pal)</th>
+    <th class="num">Plan (pal/sh)</th><th class="num">Actual (pal)</th>
     <th class="num">Variance</th><th class="num">Attainment</th></tr></thead><tbody>`;
 
-  // Combine all keys from planned and actuals for completed days
   const allKeys = new Set();
   const completedDaysList = (actualsData._completeDates || []).map(dt => ({dt}));
   completedDaysList.forEach(({dt}) => {
@@ -1315,12 +1384,12 @@ function renderActuals() {
 
   [...allKeys].sort().forEach(key => {
     const [date, line, shift] = key.split('|');
-    const pl  = planned[key]   || 0;
+    const pl  = planned[key] || 0;
     const ac  = (actByKey[key] || {}).pallets || 0;
     const sku = (actByKey[key] || {}).sku || (sched.find(s => addDays(currentWeek,s.day)===date && s.label===line && s.shift===shift) || {}).sku || '—';
     const gap = ac - pl;
-    const att = pl > 0 ? Math.round(ac / pl * 100) + '%' : ac > 0 ? '—' : '—';
-    const gCls = gap >= 0 ? 'g' : gap >= -5 ? 'a' : 'r';
+    const att = pl > 0 ? Math.round(ac / pl * 100) + '%' : '—';
+    const gCls   = gap >= 0 ? 'g' : gap >= -5 ? 'a' : 'r';
     const attCls = pl > 0 ? (ac >= pl * 0.9 ? 'g' : ac >= pl * 0.7 ? 'a' : 'r') : '';
     vt += `<tr>
       <td>${fmtD(date)}</td>
@@ -1335,8 +1404,8 @@ function renderActuals() {
   });
   document.getElementById('varianceTable').innerHTML = vt + '</tbody>';
 
-  // ── Replan remaining days ──────────────────────────────────────────────────
-  renderReplan(pr, skuPlan, skuActual, completedDaysLoop || []);
+  // ── Replan remaining days ─────────────────────────────────────────────────
+  renderReplan(pr, skuActual, skuRemaining, completedDaysLoop || []);
 }
 
 function normaliseLineLabel(line, loc, lineBSkuSnap) {
@@ -1352,7 +1421,7 @@ function normaliseLineLabel(line, loc, lineBSkuSnap) {
   return line;
 }
 
-function renderReplan(pr, skuPlan, skuActual, completedDaysLoop) {
+function renderReplan(pr, skuActual, skuRemaining, completedDaysLoop) {
   const eff = getEff();
   const today = localToday();
   const tomorrow = addDays(today, 1);
@@ -1397,12 +1466,14 @@ function renderReplan(pr, skuPlan, skuActual, completedDaysLoop) {
   document.getElementById('replanHdr').childNodes[0].textContent =
     `Replan — ${todayIsThisWeek ? todayName+' + ' : ''}${nFuture} more day${nFuture!==1?'s':''}: ${[todayIsThisWeek?todayName:'',...futureNames].filter(Boolean).join(', ')} at planned capacity`;
 
-  // Full week demand still to produce = week demand - actual so far
+  // Still needed = production target (net to produce) - actual WTD
   const demand = getDemand(currentWeek);
+  const skuNetToProduce = {};
+  SKUS.forEach(s => { skuNetToProduce[s] = Math.max(0, Math.round(pr.netDem[s] || 0)); });
   const stillNeeded = {};
   SKUS.forEach(s => {
     const produced = skuActual[s] || 0;
-    stillNeeded[s] = Math.max(0, demand[s].total - produced);
+    stillNeeded[s] = Math.max(0, skuNetToProduce[s] - produced);
   });
 
   // Planned capacity per full day (2 shifts at efficiency)
@@ -1416,14 +1487,8 @@ function renderReplan(pr, skuPlan, skuActual, completedDaysLoop) {
     '600ml 6pk':  32 * 2 * eff,
   };
 
-  // Total expected output for rest of week:
-  // today = WTD average, remaining days = planned capacity
-  const expectedRemaining = {};
-  SKUS.forEach(s => {
-    const todayOut  = todayIsThisWeek ? (todayEst[s] || 0) : 0;
-    const futureOut = nFuture * (capPerDay[s] || 0);
-    expectedRemaining[s] = todayOut + futureOut;
-  });
+  // Expected remaining = passed in from renderActuals (already calculated)
+  const expectedRemaining = skuRemaining;
 
   let rt = `<thead><tr>
     <th>SKU</th>
@@ -1440,7 +1505,7 @@ function renderReplan(pr, skuPlan, skuActual, completedDaysLoop) {
     const needed   = stillNeeded[s] || 0;
     if (needed === 0 && (skuActual[s]||0) === 0) return;
     const expected = expectedRemaining[s] || 0;
-    const fullExpected = (skuActual[s]||0) + expected;  // actual WTD + remaining
+    const fullExpected = (skuActual[s]||0) + (skuRemaining[s]||0);  // actual WTD + remaining capacity
     const gap      = fullExpected - needed;  // positive = on track, negative = short
     const ok       = gap >= 0;
     const close    = !ok && gap >= -10;
@@ -1504,7 +1569,7 @@ function renderReplan(pr, skuPlan, skuActual, completedDaysLoop) {
   } else {
     rp.innerHTML = riskSkus.map(({s, gap, needed, expected, availStock}) => {
       const stockNote = availStock > 0 ? ` (${fmt(availStock)} pal available stock already factored in)` : '';
-      return `<div class="alert alert-r">⚠ <div><strong>${s}</strong> — expected total production ${fmt(Math.round((skuActual[r2]||0)+expected))} pal + available stock ${fmt(availStock)} pal vs ${fmt(needed)} pal still needed. Short by ${fmt(gap)} pal after stock${stockNote}. Consider Saturday shift or review dispatch commitments.</div></div>`;
+      return `<div class="alert alert-r">⚠ <div><strong>${s}</strong> — expected total production ${fmt(Math.round((skuActual[s]||0)+(skuRemaining[s]||0)))} pal + available stock ${fmt(availStock)} pal vs ${fmt(needed)} pal still needed. Short by ${fmt(gap)} pal after stock${stockNote}. Consider Saturday shift or review dispatch commitments.</div></div>`;
     }).join('');
   }
 }
