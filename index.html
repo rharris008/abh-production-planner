@@ -137,7 +137,7 @@ tr.risk-a td{background:#FEF9F0}
       <select id="weekSel" class="ctrl" onchange="onWeekChange()" style="width:118px"></select></div>
     <div class="ctrl-grp"><span class="ctrl-lbl">EFFICIENCY</span>
       <select id="effSel" class="ctrl" onchange="onWeekChange()">
-        <option value="0.8">80%</option><option value="0.75">75%</option>
+        <option value="0.75">75%</option><option value="0.8">80%</option>
         <option value="0.85">85%</option><option value="0.9">90%</option></select></div>
     <div class="ctrl-grp"><span class="ctrl-lbl">HMPS</span>
       <div class="tog"><button id="bDual" class="on" onclick="setHMPS('Dual')">Dual (80/sh)</button>
@@ -150,7 +150,7 @@ tr.risk-a td{background:#FEF9F0}
         <button id="bSatOff" onclick="setSat('off')">Off</button>
         <button id="bSatOn" onclick="setSat('on')">Force</button></div></div>
   </div>
-  <img src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAgAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAARCACMAOADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMAAAERAhEAPwD36iiigAooooAKKKKACiiigAxRS5pO1ABRXk+qfEjWbTVry1iitSkMzxqSpyQGx612PgjxBd+ItJmubxYldJig8sYGMCumeEqwp+0ktDkp4ylUqezi9Tp6KKK5jrCiiigBKWiuC8beMtR8O6tDa2kUDI8O8mQEnOcetXSpSqy5Ybsyq1Y0oc8tjvaSuA8F+NdS8Q669ndx26xiBpMxqQchlHr716BTrUZ0Zcs9xUa8K0eaGwUUUVmbBRRRQAUtFFABRRRQAlFFFABRRRnAyaACisHUPGOg6Y7JcahEZB1SP5yPyrMHxN8O7sGW4A9fJNaRo1JK8YtmUq9KLs5I7GisjTPFGjawwSyv4nkP/LMna35GtC8vLewtXubqZYoU5Z26DelKUXZrUqM4yV09Cejsawf+E08Of9Be3/M1sW9zDd2yXFvIJIpF3I69CD3pyhKO6sEZxls7nz5r3/Ixan/ANfUn/oRr034U/8AIvXX/Xyf5CvMtd/5GLU/+vqT/wBCNem/Cn/kXrr/AK+T/IV7+M/3FfI+ewf++/ed5RVHU9Z07SY99/eRQA9A7cn6DqawH+JHhpH2/a5W91hYj+VeDCnOfwps+gnVpw+JpHW0Vg2PjPw/qDhIdSiDnosnyn9a3QQwyCCKUpRloy4zjNe67i15B8Vf+RktP+vb/wBmNev15B8Vf+RjtP8Ar2/9mNdmXf7zH+uhxZn/ALu/kRfC7/kbJP8Ar0f/ANCWPZK8b+F3/I2S/wDXo/8A6Etesahqdlpke++uooAegdgM/T1rTNU/rGnYyypWoNvuXKK5KT4jeGo32/bHf3SFiP5VoWHjHQNTcR2+oxCQ9Fk+U/rXC6NRK7i/uPQVek3ZSX3m7SUVY1zQrm10zRYbE65RRRWRsFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQB//2Q==" alt="ABH" style="height:38px">
+  
 </div>
 
 <div id="nav">
@@ -330,7 +330,7 @@ tr.risk-a td{background:#FEF9F0}
         ondragover="dzO(event,'Inventory')" ondragleave="dzL('Inventory')" ondrop="dzD(event,'Inventory')"
         onclick="document.getElementById('fiInventory').click()">
         <div class="dz-icon">📦</div>
-        <div class="dz-label">NetSuite Inventory Valuation Summary (.xls)</div>
+        <div class="dz-label">NetSuite Inventory Valuation Summary (.xls / .xlsx)</div>
         <div class="dz-sub">Drop or click — updates all stock figures instantly</div>
         <div class="dz-status" id="inventoryStat">Using embedded stock figures</div>
       </div>
@@ -1201,6 +1201,7 @@ function parseActuals(xmlText, fname) {
     actualsData._cutoff = cutoffDate;
     actualsData._completeDates = completeDates;
     actualsData._fname = fname;
+    actualsData._lineBSku = lineBSku;  // snapshot at parse time
     const daysMsg = completeDates.length
       ? completeDates.map(d => {const dt=new Date(d+'T00:00:00');return ['Mon','Tue','Wed','Thu','Fri'][dt.getDay()-1];}).join(', ')
       : 'none';
@@ -1236,7 +1237,7 @@ function renderActuals() {
   const actByKey = {};  // date|line|shift → {sku, pallets, notes}
   actualsData.forEach(r => {
     // Normalise line label to match schedule labels
-    const lineLabel = normaliseLineLabel(r.line, r.loc);
+    const lineLabel = normaliseLineLabel(r.line, r.loc, actualsData._lineBSku);
     const key = `${r.date}|${lineLabel}|${r.shift === 'Day Shift' ? 'Day' : 'Aft'}`;
     if (!actByKey[key]) actByKey[key] = { sku: r.sku, pallets: 0 };
     actByKey[key].pallets += r.pallets;
@@ -1244,17 +1245,21 @@ function renderActuals() {
   });
 
   // ── SKU-level WTD summary ──────────────────────────────────────────────────
+  // Plan = full week demand from planWeek(), pro-rated to completed days
   const skuPlan   = {};
   const skuActual = {};
   SKUS.forEach(s => { skuPlan[s] = 0; skuActual[s] = 0; });
 
-  const wtdCutoff = (actualsData && actualsData._cutoff) || addDays(new Date().toISOString().slice(0,10), -1);
-  sched.forEach(s => {
-    const date = addDays(currentWeek, s.day);
-    if (date > wtdCutoff) return;  // only count completed days
-    skuPlan[s.sku] = (skuPlan[s.sku] || 0) + s.pallets;
+  const completedDays = (actualsData && actualsData._completeDates) ? actualsData._completeDates.length : 0;
+  const totalDays = 5;
+  const proRataFactor = completedDays / totalDays;
+
+  // Pro-rate the full week demand to completed days
+  SKUS.forEach(s => {
+    skuPlan[s] = Math.round((pr.demand[s].total || 0) * proRataFactor);
   });
-  // Only sum runs up to and including last complete day (cutoff)
+
+  // Sum actual production up to and including last complete day
   const wtdCutoffActuals = actualsData._cutoff || '';
   actualsData.forEach(r => {
     if (wtdCutoffActuals && r.date > wtdCutoffActuals) return;
@@ -1287,19 +1292,20 @@ function renderActuals() {
   const today = localToday();
   // Use last date present in actuals file as cutoff
   const cutoff = actualsData._cutoff || addDays(today, -1);
-  const completedDays = [];
+  const completedDaysLoop = [];
   for (let d = 0; d < 5; d++) {
     const dt = addDays(currentWeek, d);
-    if (dt <= cutoff) completedDays.push({ d, dt });
+    if (dt <= cutoff) completedDaysLoop.push({ d, dt });
   }
 
   let vt = `<thead><tr><th>Date</th><th>Shift</th><th>Line</th><th>SKU</th>
     <th class="num">Planned (pal)</th><th class="num">Actual (pal)</th>
-    <th class="num">Variance</th><th>Notes</th></tr></thead><tbody>`;
+    <th class="num">Variance</th><th class="num">Attainment</th></tr></thead><tbody>`;
 
   // Combine all keys from planned and actuals for completed days
   const allKeys = new Set();
-  completedDays.forEach(({dt}) => {
+  const completedDaysList = (actualsData._completeDates || []).map(dt => ({dt}));
+  completedDaysList.forEach(({dt}) => {
     Object.keys(planned).filter(k => k.startsWith(dt)).forEach(k => allKeys.add(k));
     Object.keys(actByKey).filter(k => k.startsWith(dt)).forEach(k => allKeys.add(k));
   });
@@ -1310,7 +1316,9 @@ function renderActuals() {
     const ac  = (actByKey[key] || {}).pallets || 0;
     const sku = (actByKey[key] || {}).sku || (sched.find(s => addDays(currentWeek,s.day)===date && s.label===line && s.shift===shift) || {}).sku || '—';
     const gap = ac - pl;
+    const att = pl > 0 ? Math.round(ac / pl * 100) + '%' : ac > 0 ? '—' : '—';
     const gCls = gap >= 0 ? 'g' : gap >= -5 ? 'a' : 'r';
+    const attCls = pl > 0 ? (ac >= pl * 0.9 ? 'g' : ac >= pl * 0.7 ? 'a' : 'r') : '';
     vt += `<tr>
       <td>${fmtD(date)}</td>
       <td><span class="badge ${shift==='Day'?'bb':'bn'}">${shift}</span></td>
@@ -1319,20 +1327,21 @@ function renderActuals() {
       <td class="num">${fmt(pl)}</td>
       <td class="num">${fmt(ac)}</td>
       <td class="num ${gCls}">${gap>=0?'+':''}${fmt(gap)}</td>
-      <td style="font-size:10px;color:var(--muted);max-width:300px"></td>
+      <td class="num ${attCls}">${att}</td>
     </tr>`;
   });
   document.getElementById('varianceTable').innerHTML = vt + '</tbody>';
 
   // ── Replan remaining days ──────────────────────────────────────────────────
-  renderReplan(pr, skuPlan, skuActual);
+  renderReplan(pr, skuPlan, skuActual, completedDaysLoop || []);
 }
 
-function normaliseLineLabel(line, loc) {
+function normaliseLineLabel(line, loc, lineBSkuSnap) {
   // Map NetSuite line names to schedule label format
-  const isSite = s => loc && loc.toLowerCase().includes(s);
+  // lineBSkuSnap: snapshot of lineBSku at parse time to avoid toggle mismatch
+  const b = lineBSkuSnap || lineBSku;
   if (line === 'Line A')          return 'AS Line A (10L)';
-  if (line === 'Line B')          return `AS Line B (${lineBSku})`;
+  if (line === 'Line B')          return `AS Line B (${b})`;
   if (line === 'SM Bottle line')  return 'AS Bottle Line (2L)';
   if (line === 'HMPS - Dual')     return `EP HMPS (Dual)`;
   if (line === 'HMPS - Single')   return `EP HMPS (Single)`;
@@ -1340,7 +1349,7 @@ function normaliseLineLabel(line, loc) {
   return line;
 }
 
-function renderReplan(pr, skuPlan, skuActual) {
+function renderReplan(pr, skuPlan, skuActual, completedDaysLoop) {
   const eff = getEff();
   const today = localToday();
   const tomorrow = addDays(today, 1);
@@ -1505,6 +1514,70 @@ const INV_MAP_NS = {
   'Pureau 600ml 6 pack':  '600ml 6pk',
 };
 
+
+function parseInventoryXLSX(arrayBuffer, fname) {
+  try {
+    const wb = XLSX.read(arrayBuffer, { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { defval: null, header: 1 });
+
+    let headerRow = -1;
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i] && rows[i][0] === 'Item') { headerRow = i; break; }
+    }
+    if (headerRow < 0) { setStat('Inventory', '❌ Could not find Item column', false); return; }
+
+    const headers = rows[headerRow];
+    const onHandIdx = headers.findIndex(h => h && h.toString().toLowerCase().includes('on hand'));
+    if (onHandIdx < 0) { setStat('Inventory', '❌ Could not find On Hand column', false); return; }
+
+    let reportDate = '';
+    for (let i = 0; i < headerRow; i++) {
+      if (rows[i] && rows[i][0] && rows[i][0].toString().startsWith('As of')) {
+        reportDate = rows[i][0].toString(); break;
+      }
+    }
+
+    let updated = 0;
+    const newStock = {}, newUnits = {};
+
+    for (let r = headerRow + 1; r < rows.length; r++) {
+      const row = rows[r];
+      if (!row || !row[0]) continue;
+      const sku = INV_MAP_NS[row[0].toString().trim()];
+      if (!sku) continue;
+      const onHand = parseFloat(row[onHandIdx]) || 0;
+      newStock[sku] = Math.floor(onHand / UPP[sku]);
+      newUnits[sku] = Math.round(onHand);
+      updated++;
+    }
+
+    if (!updated) { setStat('Inventory', '❌ No Pureau SKUs found', false); return; }
+
+    SKUS.forEach(s => {
+      if (newStock[s] !== undefined) {
+        stockPal[s]    = newStock[s];
+        STOCK_UNITS[s] = newUnits[s];
+      }
+    });
+
+    const uploadTs = new Date();
+    const tsStr = `${String(uploadTs.getDate()).padStart(2,'0')}/${String(uploadTs.getMonth()+1).padStart(2,'0')}/${uploadTs.getFullYear()} ${String(uploadTs.getHours()).padStart(2,'0')}:${String(uploadTs.getMinutes()).padStart(2,'0')}`;
+    setStat('Inventory', `✓ ${fname}${reportDate ? ' — ' + reportDate : ''} — ${updated} SKUs updated`, true);
+    const dtEl = document.getElementById('stockUploadDate');
+    if (dtEl) dtEl.textContent = `Last uploaded: ${tsStr}`;
+    renderStockDetail(newStock, newUnits, reportDate);
+    renderManualStockGrid();
+    onWeekChange();
+
+    const sbRows = SKUS.map(s => ({ sku: s, pallets: newStock[s] || 0, units: newUnits[s] || 0 }));
+    sbPush('stock', sbRows);
+
+  } catch(err) {
+    setStat('Inventory', '❌ Parse error: ' + err.message, false);
+  }
+}
+
 function parseInventory(xmlText, fname) {
   try {
     const parser = new DOMParser();
@@ -1520,23 +1593,29 @@ function parseInventory(xmlText, fname) {
 
     for (let r = 0; r < rows.length; r++) {
       const cells = rows[r].getElementsByTagNameNS(ns, 'Cell');
-      const getCell = i => {
-        if (i >= cells.length) return '';
-        const d = cells[i].getElementsByTagNameNS(ns, 'Data')[0];
-        return d ? (d.textContent || '').trim() : '';
-      };
+      // Get all data values from this row
+      const vals = [];
+      for (let c = 0; c < cells.length; c++) {
+        const d = cells[c].getElementsByTagNameNS(ns, 'Data')[0];
+        vals.push(d ? (d.textContent || '').trim() : '');
+      }
+      if (!vals.length) continue;
 
-      // Capture report date
-      const c0 = getCell(0);
+      const c0 = vals[0];
       if (c0.startsWith('As of')) reportDate = c0;
 
-      // Match Pureau SKUs — item name in col 0, units on hand in col 4
       const sku = INV_MAP_NS[c0];
       if (!sku) continue;
-      const onHand = parseFloat(getCell(4)) || 0;
+
+      // On hand = last numeric value in the row
+      let onHand = 0;
+      for (let v = vals.length - 1; v >= 0; v--) {
+        const n = parseFloat(vals[v]);
+        if ((!isNaN(n) && n > 0 && Number.isInteger(n)) || n > 100) { onHand = n; break; }
+      }
       const pallets = Math.floor(onHand / UPP[sku]);
       newStock[sku] = pallets;
-      newUnits[sku]  = Math.round(onHand);
+      newUnits[sku] = Math.round(onHand);
       updated++;
     }
 
@@ -1557,7 +1636,11 @@ function parseInventory(xmlText, fname) {
     if (dtEl) dtEl.textContent = `Last uploaded: ${tsStr}`;
     renderStockDetail(newStock, newUnits, reportDate);
     renderManualStockGrid();
-    onWeekChange();  // refresh all planning tabs with new stock
+    onWeekChange();
+
+    // Push directly using newStock — guaranteed to have real values
+    const sbRows = SKUS.map(s => ({ sku: s, pallets: newStock[s] || 0, units: newUnits[s] || 0 }));
+    sbPush('stock', sbRows);
 
   } catch(err) {
     setStat('Inventory','❌ Parse error: ' + err.message, false);
@@ -1607,7 +1690,14 @@ function handleFile(file,retailer) {
     try {
       if(retailer==='Metcash'){parseMetcash(e.target.result,file.name);return;}
       if(retailer==='Actuals'){parseActuals(e.target.result,file.name);return;}
-      if(retailer==='Inventory'){parseInventory(e.target.result,file.name);return;}
+      if(retailer==='Inventory'){
+        if(file.name.toLowerCase().endsWith('.xlsx')){
+          parseInventoryXLSX(e.target.result, file.name);
+        } else {
+          parseInventory(e.target.result, file.name);
+        }
+        return;
+      }
       const wb=XLSX.read(e.target.result,{type:'array',cellDates:true});
       if(retailer==='WW') parseWW(wb,file.name);
       else parseColes(wb,file.name);
@@ -1615,7 +1705,9 @@ function handleFile(file,retailer) {
       setStat(retailer,'❌ Error: '+err.message,false);
     }
   };
-  if(retailer==='Metcash'||retailer==='Actuals'||retailer==='Inventory') reader.readAsText(file);
+  if(retailer==='Metcash') reader.readAsText(file, 'windows-1252');
+  else if(retailer==='Actuals') reader.readAsText(file, 'windows-1252');
+  else if(retailer==='Inventory' && !file.name.toLowerCase().endsWith('.xlsx')) reader.readAsText(file, 'windows-1252');
   else reader.readAsArrayBuffer(file);
 }
 
@@ -1648,12 +1740,16 @@ function parseWW(wb,fname) {
     });
   } else {
     // Line-item: each row is an order line
+    const orderLines = [];
     rows.forEach(r=>{
       const pg=(r['Pack Group']||'').toString().trim();
       const sku=WW_SMAP[pg];if(!sku)return;
       const pal=parseInt(r['Planned Order Pallets']||0);if(!pal)return;
       const week=isoD(r['Week commencing Monday']);
       const arrival=isoD(r['Need Arrival Date']);
+      const delivery=isoD(r['Delivery Date']||r['delivery_date']||null);
+      const orderDate=isoD(r['Order Date']||r['order_date']||null);
+      const units=parseInt(r['Planned Order Units']||r['units']||pal*UPP[sku])||0;
       if(!week)return;
       if(!weekly[week])weekly[week]={};
       weekly[week][sku]=(weekly[week][sku]||0)+pal;
@@ -1661,12 +1757,14 @@ function parseWW(wb,fname) {
         if(!daily[arrival])daily[arrival]={};
         daily[arrival][sku]=(daily[arrival][sku]||0)+pal;
       }
+      orderLines.push({sku,week,order_date:orderDate,delivery_date:delivery,need_arrival:arrival,units,pallets:pal});
       cnt++;
     });
   }
-  wwOverride={weekly,daily};
+  wwOverride={weekly,daily,orders:orderLines||[]};
   rebuildData();
-  setStat('WW',`✓ ${fname} — ${cnt} lines, ${Object.keys(weekly).length} weeks`,true);
+  const pivotNote = (!orderLines || !orderLines.length) ? ' (pivot format — dispatch dates use embedded)' : '';
+  setStat('WW',`✓ ${fname} — ${cnt} lines, ${Object.keys(weekly).length} weeks${pivotNote}`,true);
 }
 
 function parseColes(wb,fname) {
@@ -1748,7 +1846,12 @@ function buildEmbMetcash(){
   return o;
 }
 function buildEmbColes(){const o={};COLES_ORDERS.forEach(r=>{const w=monOf(r.order_date);if(!o[w])o[w]={};o[w][r.sku]=(o[w][r.sku]||0)+r.pallets;});return o;}
-function setStat(r,msg,ok){const el=document.getElementById(r==='WW'?'wwStat':'colesStat');if(el)el.textContent=msg;document.getElementById('dz'+r)?.classList.toggle('dz-loaded',ok);}
+function setStat(r,msg,ok){
+  const statIds={'WW':'wwStat','Coles':'colesStat','Metcash':'metcashStat','Actuals':'actualsStat','Inventory':'inventoryStat'};
+  const el=document.getElementById(statIds[r]||r+'Stat');
+  if(el)el.textContent=msg;
+  document.getElementById('dz'+r)?.classList.toggle('dz-loaded',ok);
+}
 
 // ══ OTHER CUSTOMERS ═══════════════════════════════════════════════════════════
 function renderHoldGrid() {
@@ -1846,7 +1949,7 @@ document.addEventListener('DOMContentLoaded',init);
 // ══ SUPABASE SYNC LAYER ═══════════════════════════════════════════════════════
 const SB_URL = 'https://yxaebxkkclbjezffmerw.supabase.co';
 const SB_KEY = 'sb_publishable_yLmaFw0myJv-rHuCC2LsHw_WW7d8lJn';
-const SB_TIMEOUT_MS = 5000;  // 5 second timeout — planner loads regardless
+const SB_TIMEOUT_MS = 6000;
 
 function sbHeaders() {
   return {
@@ -1865,7 +1968,6 @@ function sbStatus(msg, colour) {
   el.textContent = msg;
 }
 
-// Fetch with timeout — never hangs the page
 async function sbFetchTimeout(url, options, ms) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ms);
@@ -1905,7 +2007,6 @@ async function sbPush(dataset, rows) {
         if (!res.ok) { const err = await res.text(); throw new Error(err); }
       }
     }
-    // Update upload_log
     await sbFetchTimeout(
       `${SB_URL}/rest/v1/upload_log`,
       { method: 'POST', headers: { ...sbHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify([{ dataset, uploaded_at: new Date().toISOString() }]) },
@@ -1914,11 +2015,7 @@ async function sbPush(dataset, rows) {
     const ts = new Date().toLocaleString('en-AU', { timeZone: 'Australia/Brisbane', hour12: false });
     sbStatus(`✓ ${dataset} synced — ${ts}`, 'ok');
   } catch (e) {
-    if (e.name === 'AbortError') {
-      sbStatus('⚠ Push timed out — check connection', 'err');
-    } else {
-      sbStatus('⚠ Push failed: ' + e.message, 'err');
-    }
+    sbStatus(e.name === 'AbortError' ? '⚠ Push timed out' : '⚠ Push failed: ' + e.message, 'err');
     console.error('Supabase push error:', e);
   }
 }
@@ -1931,6 +2028,7 @@ async function sbPull() {
       { headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY } },
       SB_TIMEOUT_MS
     );
+    if (logRes.status === 401) { sbStatus('⚠ Supabase auth failed — check API key', 'err'); return; }
     if (!logRes.ok) { sbStatus('ℹ Using embedded data', 'info'); return; }
     const log = await logRes.json();
     if (!log.length) { sbStatus('ℹ No live data yet — using embedded', 'info'); return; }
@@ -1952,11 +2050,7 @@ async function sbPull() {
       sbStatus('ℹ Using embedded data', 'info');
     }
   } catch (e) {
-    if (e.name === 'AbortError') {
-      sbStatus('ℹ Supabase timeout — using embedded data', 'warn');
-    } else {
-      sbStatus('ℹ Load failed — using embedded data', 'warn');
-    }
+    sbStatus('ℹ ' + (e.name === 'AbortError' ? 'Timeout' : 'Load failed') + ' — using embedded', 'warn');
     console.warn('Supabase pull error:', e);
   }
 }
@@ -1970,28 +2064,65 @@ async function sbFetch(table) {
     );
     if (!res.ok) return null;
     return await res.json();
-  } catch (e) {
-    return null;
-  }
+  } catch (e) { return null; }
 }
 
 function applyWWFromSB(rows) {
   const weekly = {}, daily = {};
+  const orders = [];
   rows.forEach(r => {
-    if (!weekly[r.week_date]) weekly[r.week_date] = {};
-    weekly[r.week_date][r.sku] = (weekly[r.week_date][r.sku] || 0) + (parseFloat(r.pallets) || 0);
+    // Weekly totals
+    const wk = r.week_date;
+    if (!weekly[wk]) weekly[wk] = {};
+    weekly[wk][r.sku] = (weekly[wk][r.sku] || 0) + (parseFloat(r.pallets) || 0);
+    // Daily delivery schedule (if need_arrival stored)
+    if (r.need_arrival) {
+      if (!daily[r.need_arrival]) daily[r.need_arrival] = {};
+      daily[r.need_arrival][r.sku] = (daily[r.need_arrival][r.sku] || 0) + (parseFloat(r.pallets) || 0);
+      // Reconstruct WW_ORDERS for dispatch calendar
+      orders.push({
+        sku: r.sku, week: wk,
+        order_date: r.order_date || wk,
+        delivery_date: r.delivery_date || r.need_arrival,
+        need_arrival: r.need_arrival,
+        units: parseInt(r.units) || Math.round(parseFloat(r.pallets) * (UPP[r.sku] || 1)),
+        pallets: parseFloat(r.pallets) || 0
+      });
+    }
   });
-  wwOverride = { weekly, daily };
+  wwOverride = { weekly, daily, orders };
+  // Replace WW_ORDERS with live data if we have order lines
+  if (orders.length) {
+    WW_ORDERS.length = 0;
+    orders.forEach(o => WW_ORDERS.push(o));
+  }
   setStat('WW', `✓ Live data from Supabase (${rows.length} rows)`, true);
 }
 
 function applyColesFromSB(rows) {
   const weekly = {}, daily = {};
+  const orders = [];
   rows.forEach(r => {
-    if (!weekly[r.week_date]) weekly[r.week_date] = {};
-    weekly[r.week_date][r.sku] = (weekly[r.week_date][r.sku] || 0) + (parseFloat(r.pallets) || 0);
+    const wk = r.week_date;
+    if (!weekly[wk]) weekly[wk] = {};
+    weekly[wk][r.sku] = (weekly[wk][r.sku] || 0) + (parseFloat(r.pallets) || 0);
+    if (r.order_date) {
+      if (!daily[r.order_date]) daily[r.order_date] = {};
+      daily[r.order_date][r.sku] = (daily[r.order_date][r.sku] || 0) + (parseFloat(r.pallets) || 0);
+      orders.push({
+        sku: r.sku, week: wk,
+        order_date: r.order_date,
+        units: parseInt(r.units) || Math.round(parseFloat(r.pallets) * (UPP[r.sku] || 1)),
+        pallets: parseFloat(r.pallets) || 0
+      });
+    }
   });
   colesOvr = { weekly, daily };
+  // Replace COLES_ORDERS with live data if we have order lines
+  if (orders.length) {
+    COLES_ORDERS.length = 0;
+    orders.forEach(o => COLES_ORDERS.push(o));
+  }
   setStat('Coles', `✓ Live data from Supabase (${rows.length} rows)`, true);
 }
 
@@ -2027,9 +2158,9 @@ function applyActualsFromSB(rows) {
   actualsData = filtered;
   actualsData._cutoff = completeDates.length ? completeDates[completeDates.length - 1] : '';
   actualsData._completeDates = completeDates;
+  actualsData._lineBSku = lineBSku;  // snapshot at pull time
   document.getElementById('actualsContent').style.display = 'block';
-  const el = document.getElementById('actualsStat');
-  if (el) el.textContent = `✓ Live data from Supabase (${filtered.length} runs)`;
+  setStat('Actuals', `✓ Live data from Supabase (${filtered.length} runs)`, true);
 }
 
 function applyStockFromSB(rows) {
@@ -2042,9 +2173,12 @@ function applyStockFromSB(rows) {
       newUnits[r.sku] = STOCK_UNITS[r.sku];
     }
   });
-  const el = document.getElementById('inventoryStat');
-  if (el) el.textContent = '✓ Live stock from Supabase';
-  document.getElementById('dzInventory')?.classList.add('dz-loaded');
+  // Warn if stock table is missing rows — PATCH will silently fail
+  if (rows.length < SKUS.length) {
+    sbStatus(`⚠ Stock table has ${rows.length}/${SKUS.length} rows — re-seed required`, 'warn');
+  } else {
+    setStat('Inventory', '✓ Live stock from Supabase', true);
+  }
   renderStockDetail(newStock, newUnits, 'Supabase (live)');
   renderManualStockGrid();
 }
@@ -2054,9 +2188,21 @@ parseWW = function(wb, fname) {
   _origParseWW(wb, fname);
   if (!wwOverride) return;
   const rows = [];
-  Object.entries(wwOverride.weekly).forEach(([week_date, skus]) => {
-    Object.entries(skus).forEach(([sku, pallets]) => rows.push({ week_date, sku, pallets }));
-  });
+  // Push full order lines including need_arrival for dispatch calendar
+  if (wwOverride.orders && wwOverride.orders.length) {
+    wwOverride.orders.forEach(o => rows.push({
+      week_date: o.week, sku: o.sku, pallets: o.pallets,
+      units: o.units || 0,
+      need_arrival: o.need_arrival || null,
+      delivery_date: o.delivery_date || null,
+      order_date: o.order_date || null
+    }));
+  } else {
+    // Pivot format — only weekly totals available
+    Object.entries(wwOverride.weekly).forEach(([week_date, skus]) => {
+      Object.entries(skus).forEach(([sku, pallets]) => rows.push({ week_date, sku, pallets }));
+    });
+  }
   sbPush('ww_forecast', rows);
 };
 
@@ -2065,9 +2211,20 @@ parseColes = function(wb, fname) {
   _origParseColes(wb, fname);
   if (!colesOvr) return;
   const rows = [];
-  Object.entries(colesOvr.weekly).forEach(([week_date, skus]) => {
-    Object.entries(skus).forEach(([sku, pallets]) => rows.push({ week_date, sku, pallets }));
-  });
+  // Push daily order lines if available
+  if (colesOvr.daily && Object.keys(colesOvr.daily).length) {
+    Object.entries(colesOvr.daily).forEach(([order_date, skus]) => {
+      const wk = monOf(order_date);
+      Object.entries(skus).forEach(([sku, pallets]) => {
+        const units = Math.round(pallets * (UPP[sku] || 1));
+        rows.push({ week_date: wk, sku, pallets, units, order_date });
+      });
+    });
+  } else {
+    Object.entries(colesOvr.weekly).forEach(([week_date, skus]) => {
+      Object.entries(skus).forEach(([sku, pallets]) => rows.push({ week_date, sku, pallets }));
+    });
+  }
   sbPush('coles_forecast', rows);
 };
 
@@ -2093,14 +2250,7 @@ parseActuals = function(xmlText, fname) {
   sbPush('actuals', rows);
 };
 
-const _origParseInventory = parseInventory;
-parseInventory = function(xmlText, fname) {
-  _origParseInventory(xmlText, fname);
-  const rows = SKUS.map(s => ({ sku: s, pallets: stockPal[s] || 0, units: STOCK_UNITS[s] || 0 }));
-  sbPush('stock', rows);
-};
-
-// Fire sbPull after DOM is ready — planner loads first, Supabase syncs after
+// Fire sbPull after page fully loads — planner renders first
 window.addEventListener('load', function() {
   setTimeout(() => sbPull(), 800);
 });
