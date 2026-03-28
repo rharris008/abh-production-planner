@@ -1722,54 +1722,76 @@ const WW_SMAP={'5L':'5L Cask','10L':'10L Cask','12x600ml':'600ml 12pk','2L':'2L 
 const CO_SMAP={5130626:'2L Bottle',5284754:'5L Cask',7611636:'10L Cask',8539046:'600ml 6pk'};
 
 function parseWW(wb,fname) {
-  const sn=wb.SheetNames.find(s=>s.trim().toLowerCase().startsWith('projected orders by week'))||wb.SheetNames.find(s=>s.trim().toLowerCase().startsWith('planned order'));
-  if(!sn){setStat('WW','❌ No Planned orders sheet',false);return;}
-  const rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{defval:null});
   const weekly={};const daily={};let cnt=0;const orderLines=[];
-  // Detect pivot structure (Projected orders by Week) vs line-item structure (Planned orders)
-  const isPivot = rows.length > 0 && rows[0]['Pack Group'] !== undefined &&
-    Object.keys(rows[0]).some(k => { try { return new Date(k).getFullYear() > 2020; } catch(e){ return false; }});
-  if(isPivot) {
-    // Pivot: rows are SKUs, columns are week-commencing dates
-    rows.forEach(r=>{
-      const pg=(r['Pack Group']||'').toString().trim();
-      const sku=WW_SMAP[pg];if(!sku)return;
-      Object.entries(r).forEach(([k,v])=>{
-        if(!v||isNaN(v)||v<=0)return;
-        const dt=isoD(k instanceof Date?k:new Date(k));
-        if(!dt||dt==='null')return;
-        const units=parseFloat(v);
-        const pal=Math.ceil(units/UPP[sku]);
-        if(!weekly[dt])weekly[dt]={};
-        weekly[dt][sku]=(weekly[dt][sku]||0)+pal;
-        cnt++;
-      });
-    });
-  } else {
-    // Line-item: each row is an order line
-    rows.forEach(r=>{
-      const pg=(r['Pack Group']||'').toString().trim();
-      const sku=WW_SMAP[pg];if(!sku)return;
-      const pal=parseInt(r['Planned Order Pallets']||0);if(!pal)return;
-      const week=isoD(r['Week commencing Monday']);
-      const arrival=isoD(r['Need Arrival Date']);
-      const delivery=isoD(r['Delivery Date']||r['delivery_date']||null);
-      const orderDate=isoD(r['Order Date']||r['order_date']||null);
-      const units=parseInt(r['Planned Order Units']||r['units']||pal*UPP[sku])||0;
-      if(!week)return;
-      if(!weekly[week])weekly[week]={};
-      weekly[week][sku]=(weekly[week][sku]||0)+pal;
+
+  // ── Try "Planned orders" sheet first — has full order lines with dates ──────
+  const snPlanned = wb.SheetNames.find(s=>s.trim().toLowerCase().startsWith('planned order'));
+  const snPivot   = wb.SheetNames.find(s=>s.trim().toLowerCase().startsWith('projected orders by week'));
+
+  if (snPlanned) {
+    // Line-item format — use Article Code to map SKU (Pack Group col may contain formulas)
+    const WW_ARTICLE_MAP = {38724:'5L Cask', 94005:'10L Cask', 175497:'600ml 12pk', 594964:'2L Bottle'};
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[snPlanned], {defval:null});
+    rows.forEach(r => {
+      // Try Pack Group first, fall back to Article Code
+      const pg = (r['Pack Group']||'').toString().trim();
+      const artCode = parseInt(r['Article Code']||0);
+      const sku = WW_SMAP[pg] || WW_ARTICLE_MAP[artCode];
+      if (!sku) return;
+      const pal = parseInt(r['Planned Order Pallets']||0); if(!pal) return;
+      const week    = isoD(r['Week commencing Monday']);
+      const arrival = isoD(r['Need Arrival Date']);
+      const delivery= isoD(r['Delivery Date']||null);
+      const orderDt = isoD(r['Order Place Date']||null);
+      const units   = Math.round(pal * (UPP[sku]||1));
+      if (!week && !arrival) return;
+      const wk = week || (arrival ? monOf(arrival) : null);
+      if (!wk) return;
+      if(!weekly[wk])weekly[wk]={};
+      weekly[wk][sku]=(weekly[wk][sku]||0)+pal;
       if(arrival){
         if(!daily[arrival])daily[arrival]={};
         daily[arrival][sku]=(daily[arrival][sku]||0)+pal;
+        orderLines.push({sku,week:wk,order_date:orderDt,delivery_date:delivery,need_arrival:arrival,units,pallets:pal});
       }
-      orderLines.push({sku,week,order_date:orderDate,delivery_date:delivery,need_arrival:arrival,units,pallets:pal});
       cnt++;
     });
   }
-  wwOverride={weekly,daily,orders:orderLines||[]};
+
+  // ── Fall back to Projected orders by Week pivot sheet ─────────────────────
+  if (cnt === 0 && snPivot) {
+    // Header row is NOT row 0 — find it by looking for 'Pack Group'
+    const ws = wb.Sheets[snPivot];
+    const allRows = XLSX.utils.sheet_to_json(ws, {defval:null, header:1});
+    let headerIdx = -1;
+    for (let i = 0; i < allRows.length; i++) {
+      if (allRows[i] && allRows[i][0] === 'Pack Group') { headerIdx = i; break; }
+    }
+    if (headerIdx >= 0) {
+      const headers = allRows[headerIdx];
+      for (let ri = headerIdx + 1; ri < allRows.length; ri++) {
+        const row = allRows[ri];
+        const pg = (row[0]||'').toString().trim();
+        const sku = WW_SMAP[pg]; if(!sku) continue;
+        for (let ci = 3; ci < headers.length; ci++) {
+          const hdr = headers[ci];
+          if (!hdr) continue;
+          const dt = isoD(hdr instanceof Date ? hdr : new Date(hdr));
+          if (!dt || dt === 'null') continue;
+          const units = parseFloat(row[ci]||0); if(!units||units<=0) continue;
+          const pal = Math.ceil(units / UPP[sku]);
+          if(!weekly[dt])weekly[dt]={};
+          weekly[dt][sku]=(weekly[dt][sku]||0)+pal;
+          cnt++;
+        }
+      }
+    }
+  }
+
+  if (!cnt) { setStat('WW','❌ No data found — check sheet format',false); return; }
+  wwOverride={weekly,daily,orders:orderLines};
   rebuildData();
-  const pivotNote = (!orderLines || !orderLines.length) ? ' (pivot format — dispatch dates use embedded)' : '';
+  const pivotNote = !orderLines.length ? ' (pivot format — dispatch dates use embedded)' : '';
   setStat('WW',`✓ ${fname} — ${cnt} lines, ${Object.keys(weekly).length} weeks${pivotNote}`,true);
 }
 
