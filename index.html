@@ -556,12 +556,14 @@ function planWeek(week) {
   const prod10 = hmps.cap + asa.cap;
   const stockEnd10 = s10 + prod10 - d10;
 
-  // 5L: Line B
+  // 5L/10L: Line B
+  // When Line B runs 10L, align days with Line A (days10) — same SKU must run together
   const s5  = avail['5L Cask'] || 0;
   const d5  = demand['5L Cask'].total;
-  const days5 = daysNeeded(s5, d5, lineBTgt);
+  const days5 = lineBSku === '10L' ? days10 : daysNeeded(s5, d5, lineBTgt);
   const asb = makeLine(`AS Line B (${lineBSku})`, 'AS', lineBSkuFull, lineBTgt, days5);
-  const stockEnd5 = s5 + asb.cap - d5;
+  const stockEnd5 = lineBSku === '10L' ? (avail['10L Cask']||0) + (hmps.cap + asa.cap + asb.cap) - d10
+                                        : s5 + asb.cap - d5;
 
   // 2L: Bottle line
   const s2  = avail['2L Bottle'] || 0;
@@ -688,9 +690,10 @@ function buildSchedule(week, pr) {
   function addLine(line, cls) {
     for (let d=0; d<line.days; d++) {
       for (let sh=0; sh<2; sh++) {
-        const tgt = Math.floor(line.tgt * eff);
+        const pallets = Math.floor(line.tgt * eff);  // planned output at efficiency
+        const target  = line.tgt;                    // machine maximum — attainment benchmark
         schedule.push({day:d, shift:sh===0?'Day':'Aft', label:line.label, sku:line.sku,
-          pallets:tgt, target:tgt, cls, site:line.site});
+          pallets, target, cls, site:line.site});
       }
     }
   }
@@ -1593,7 +1596,7 @@ function parseInventory(xmlText, fname) {
 
     for (let r = 0; r < rows.length; r++) {
       const cells = rows[r].getElementsByTagNameNS(ns, 'Cell');
-      // Get all data values from this row
+      // Get all data values from this row — search all cells regardless of ss:Index
       const vals = [];
       for (let c = 0; c < cells.length; c++) {
         const d = cells[c].getElementsByTagNameNS(ns, 'Data')[0];
@@ -1601,21 +1604,25 @@ function parseInventory(xmlText, fname) {
       }
       if (!vals.length) continue;
 
-      const c0 = vals[0];
-      if (c0.startsWith('As of')) reportDate = c0;
+      // Check all string cells for report date or SKU name
+      let rowSku = null;
+      let rowReportDate = null;
+      for (const v of vals) {
+        if (v.startsWith('As of')) { rowReportDate = v; }
+        if (INV_MAP_NS[v]) { rowSku = INV_MAP_NS[v]; }
+      }
+      if (rowReportDate) reportDate = rowReportDate;
+      if (!rowSku) continue;
 
-      const sku = INV_MAP_NS[c0];
-      if (!sku) continue;
-
-      // On hand = last numeric value in the row
+      // On hand = last numeric integer value in the row (unit count, not currency)
       let onHand = 0;
       for (let v = vals.length - 1; v >= 0; v--) {
         const n = parseFloat(vals[v]);
         if ((!isNaN(n) && n > 0 && Number.isInteger(n)) || n > 100) { onHand = n; break; }
       }
-      const pallets = Math.floor(onHand / UPP[sku]);
-      newStock[sku] = pallets;
-      newUnits[sku] = Math.round(onHand);
+      const pallets = Math.floor(onHand / UPP[rowSku]);
+      newStock[rowSku] = pallets;
+      newUnits[rowSku] = Math.round(onHand);
       updated++;
     }
 
@@ -1718,7 +1725,7 @@ function parseWW(wb,fname) {
   const sn=wb.SheetNames.find(s=>s.trim().toLowerCase().startsWith('projected orders by week'))||wb.SheetNames.find(s=>s.trim().toLowerCase().startsWith('planned order'));
   if(!sn){setStat('WW','❌ No Planned orders sheet',false);return;}
   const rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{defval:null});
-  const weekly={};const daily={};let cnt=0;
+  const weekly={};const daily={};let cnt=0;const orderLines=[];
   // Detect pivot structure (Projected orders by Week) vs line-item structure (Planned orders)
   const isPivot = rows.length > 0 && rows[0]['Pack Group'] !== undefined &&
     Object.keys(rows[0]).some(k => { try { return new Date(k).getFullYear() > 2020; } catch(e){ return false; }});
@@ -1740,7 +1747,6 @@ function parseWW(wb,fname) {
     });
   } else {
     // Line-item: each row is an order line
-    const orderLines = [];
     rows.forEach(r=>{
       const pg=(r['Pack Group']||'').toString().trim();
       const sku=WW_SMAP[pg];if(!sku)return;
