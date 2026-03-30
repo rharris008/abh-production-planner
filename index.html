@@ -392,6 +392,8 @@ let availPal    = () => Object.fromEntries(SKUS.map(s=>[s,Math.max(0,(stockPal[s
 let otherDemand = {'10L Cask':0,'5L Cask':0,'2L Bottle':0,'600ml 12pk':0,'600ml 6pk':0};
 let wwOverride  = null;
 let planWeekCache = {};  // cache of {closingStock} per week — reset each onWeekChange
+let publicHolidays = new Set();  // Set of 'YYYY-MM-DD' strings — loaded from Supabase
+let publicHolidayNames = {};      // map of 'YYYY-MM-DD' -> holiday name
 let colesOvr    = null;
 let metcashOvr  = null;
 let actualsData    = null;  // parsed NetSuite runs filtered to current week
@@ -426,6 +428,27 @@ const fmtF = (n,dp=1) => isNaN(n)||n==null ? '—' : Number(n).toFixed(dp);
 const fmtD = s => { if(!s) return '—'; const d=new Date(s+'T00:00:00'); return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`; };
 const addDays = (s,n) => { const d=new Date(s+'T00:00:00'); d.setDate(d.getDate()+n); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 const monOf  = s => { const d=new Date(s+'T00:00:00'); const day=d.getDay(); const df=day===0?-6:1-day; d.setDate(d.getDate()+df); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+
+// Returns array of working day dates (Mon-Fri, excluding public holidays) for a given week
+function workingDaysInWeek(weekStart) {
+  const days = [];
+  for (let d = 0; d < 5; d++) {
+    const dt = addDays(weekStart, d);
+    if (!publicHolidays.has(dt)) days.push(dt);
+  }
+  return days;
+}
+// Returns count of working days in a week
+function opDaysInWeek(weekStart) { return workingDaysInWeek(weekStart).length; }
+// Returns holiday names for a week (for display)
+function holidaysInWeek(weekStart) {
+  const names = [];
+  for (let d = 0; d < 5; d++) {
+    const dt = addDays(weekStart, d);
+    if (publicHolidays.has(dt)) names.push(publicHolidayNames[dt] || 'Public Holiday');
+  }
+  return names;
+}
 const isoD   = d => { if(!d) return null; if(typeof d==='string') return d.slice(0,10); if(d instanceof Date) return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; return null; };
 const getEff = () => parseFloat(document.getElementById('effSel').value)||0.8;
 // Use local date to avoid UTC offset issues (Brisbane = UTC+10)
@@ -650,19 +673,20 @@ function forwardSimulate(fromWeekIdx, openStock, eff) {
     const cap10perShift = Math.floor((lineAOnly ? 40 : 80) * eff);
     const cap5perShift  = Math.floor((lineAOnly ? 40 : 75) * eff);
     const hmpsTgt = hmpsConfig === 'Dual' ? 80 : 40;
-    const capHMPS = Math.floor(hmpsTgt * 2 * 5 * eff);   // 5 days × 2 shifts
-    const capAS   = Math.floor((cap10perShift + cap5perShift) * 2 * 5);  // simplified: both skus combined
+    const fwdOpDays = opDaysInWeek(wk);
+    const capHMPS = Math.floor(hmpsTgt * 2 * fwdOpDays * eff);  // working days × 2 shifts
+    const capAS   = Math.floor((cap10perShift + cap5perShift) * 2 * fwdOpDays);  // working days
 
     // Project: assume max production on constrained lines
     // 10L: HMPS full week + AS full week at lineA capacity
     // 5L: AS full week at lineA capacity
     // Others: their respective line capacities
     const maxProd = {
-      '10L Cask':    capHMPS + Math.floor(cap10perShift * 2 * 5 * eff),
-      '5L Cask':     Math.floor(cap5perShift * 2 * 5 * eff),
-      '2L Bottle':   Math.floor(52 * 2 * 5 * eff),
-      '600ml 12pk':  Math.floor(34 * 2 * 5 * eff),
-      '600ml 6pk':   Math.floor(32 * 2 * 5 * eff),
+      '10L Cask':    capHMPS + Math.floor(cap10perShift * 2 * fwdOpDays * eff),
+      '5L Cask':     Math.floor(cap5perShift * 2 * fwdOpDays * eff),
+      '2L Bottle':   Math.floor(52 * 2 * fwdOpDays * eff),
+      '600ml 12pk':  Math.floor(34 * 2 * fwdOpDays * eff),
+      '600ml 6pk':   Math.floor(32 * 2 * fwdOpDays * eff),
     };
 
     SKUS.forEach(s => {
@@ -710,14 +734,15 @@ function planWeek(week) {
           wk >= lineBOutageStart && wk <= lineBOutageEnd;
         const c10s = Math.floor((la ? 40 : 80) * eff);
         const c5s  = Math.floor((la ? 40 : 75) * eff);
-        const hmpsWk = Math.floor(hmpsTgt * 2 * 5 * eff);
-        const asRes = scheduleASLines(wk, 5, eff, avail['10L Cask']||0, avail['5L Cask']||0);
+        const wkOpDays = opDaysInWeek(wk);
+        const hmpsWk = Math.floor(hmpsTgt * 2 * wkOpDays * eff);
+        const asRes = scheduleASLines(wk, wkOpDays, eff, avail['10L Cask']||0, avail['5L Cask']||0);
         const asProd10 = asRes.shifts.filter(s=>s.sku==='10L Cask').reduce((a,s)=>a+s.pallets,0);
         const asProd5  = asRes.shifts.filter(s=>s.sku==='5L Cask' ).reduce((a,s)=>a+s.pallets,0);
-        const epRes = scheduleEPNewLine(wk, 5, eff, avail['600ml 12pk']||0, avail['600ml 6pk']||0);
+        const epRes = scheduleEPNewLine(wk, wkOpDays, eff, avail['600ml 12pk']||0, avail['600ml 6pk']||0);
         avail['10L Cask']   = Math.max(0, avail['10L Cask']   + hmpsWk + asProd10 - (dem['10L Cask'].total||0));
         avail['5L Cask']    = Math.max(0, avail['5L Cask']    + asProd5  - (dem['5L Cask'].total||0));
-        avail['2L Bottle']  = Math.max(0, avail['2L Bottle']  + Math.floor(52*eff)*2*5 - (dem['2L Bottle'].total||0));
+        avail['2L Bottle']  = Math.max(0, avail['2L Bottle']  + Math.floor(52*eff)*2*wkOpDays - (dem['2L Bottle'].total||0));
         avail['600ml 12pk'] = Math.max(0, avail['600ml 12pk'] + epRes.shifts.filter(s=>s.sku==='600ml 12pk').reduce((a,s)=>a+s.pallets,0) - (dem['600ml 12pk'].total||0));
         avail['600ml 6pk']  = Math.max(0, avail['600ml 6pk']  + epRes.shifts.filter(s=>s.sku==='600ml 6pk' ).reduce((a,s)=>a+s.pallets,0) - (dem['600ml 6pk'].total||0));
       }
@@ -735,14 +760,15 @@ function planWeek(week) {
       stockEnd: (stockPal[sku]||0) + cap - demand[sku].total};
   }
 
+  const opDays = opDaysInWeek(week);  // Mon-Fri minus public holidays
+
   const s10   = avail['10L Cask'] || 0;
   const d10   = demand['10L Cask'].total;
   const need10 = Math.max(0, d10 + d10 - s10);
   const hmpsOnly10 = hmpsTgt * 2 * eff;
-  const days10hmps = Math.min(5, need10 > 0 ? Math.ceil(need10 / hmpsOnly10) : 0);
+  // HMPS runs every available working day — cap at opDays (respects public holidays)
+  const days10hmps = Math.min(opDays, need10 > 0 ? Math.ceil(need10 / hmpsOnly10) : opDays);
   const hmps   = makeLine(`EP HMPS (${hmpsConfig})`, 'EP', '10L Cask', hmpsTgt, days10hmps);
-
-  const opDays = 5;
 
   // ── Pre-build scan: look ahead and bias AS scheduler toward SKUs facing future deficits
   // Run a simplified forward projection using current closing stock to identify
@@ -775,7 +801,7 @@ function planWeek(week) {
       const c5s  = Math.floor((la ? 40 : 75) * eff);
       const d10  = dem['10L Cask'].total || 0;
       const d5   = dem['5L Cask'].total  || 0;
-      const hmpsWeek = Math.floor(hmpsTgt * 2 * 5 * eff);
+      const hmpsWeek = Math.floor(hmpsTgt * 2 * opDaysInWeek(wk) * eff);
       // Estimate realistic AS day split: proportional to remaining need after HMPS
       const net10 = Math.max(0, d10 - proj10 - hmpsWeek);
       const net5  = Math.max(0, d5  - proj5);
@@ -825,8 +851,9 @@ function planWeek(week) {
       const nextWk = ALL_WEEKS[nextWkIdx];
       const nextDem = getDemand(nextWk);
       // Project closing stock after this week at max EP capacity
-      const maxProd12 = Math.floor(34 * eff) * 2 * 5;
-      const maxProd6  = Math.floor(32 * eff) * 2 * 5;
+      const nextOpDays = opDaysInWeek(nextWk);
+      const maxProd12 = Math.floor(34 * eff) * 2 * nextOpDays;
+      const maxProd6  = Math.floor(32 * eff) * 2 * nextOpDays;
       const close12 = (avail['600ml 12pk']||0) + maxProd12 - demand['600ml 12pk'].total;
       const close6  = (avail['600ml 6pk'] ||0) + maxProd6  - demand['600ml 6pk'].total;
       // If next week's demand exceeds projected closing stock, we need more shifts now
@@ -869,9 +896,9 @@ function planWeek(week) {
   const nextWk1 = ALL_WEEKS[weekIdx + 1];
   const nextWk2 = ALL_WEEKS[weekIdx + 2];
   const fwd5short = (nextWk1 && getDemand(nextWk1)['5L Cask'].total > 0 &&
-    (stockEnd5 + (cap5shift * 2 * 5) - getDemand(nextWk1)['5L Cask'].total) < 0) ||
+    (stockEnd5 + (cap5shift * 2 * opDaysInWeek(nextWk1)) - getDemand(nextWk1)['5L Cask'].total) < 0) ||
     (nextWk2 && getDemand(nextWk2)['5L Cask'].total > 0 &&
-    (stockEnd5 + (cap5shift * 2 * 5) - getDemand(nextWk1?.toString() ? getDemand(nextWk1)['5L Cask'].total : 0) - getDemand(nextWk2)['5L Cask'].total) < 0);
+    (stockEnd5 + (cap5shift * 2 * opDaysInWeek(nextWk1)) + (cap5shift * 2 * opDaysInWeek(nextWk2)) - getDemand(nextWk1)['5L Cask'].total - getDemand(nextWk2)['5L Cask'].total) < 0);
 
   const satTriggers = SKUS.filter(s => {
     if ((coverDays[s]||0) < 3 || midWeekAtRisk.has(s)) return demand[s].total > 0;
@@ -880,9 +907,13 @@ function planWeek(week) {
   });
   const needSat = satMode === 'on' || (satMode === 'auto' && satTriggers.length > 0);
 
+  // Check if Saturday itself is a public holiday — if so, no Saturday production
+  const satDate = addDays(week, 5);
+  const satIsHoliday = publicHolidays.has(satDate);
+
   const satLines = [];
   const satStock = {...stockEnd};
-  if (needSat) {
+  if (needSat && !satIsHoliday) {
     // Saturday rules:
     // - 5L Cask: AS Line A runs Saturday for 5L (pre-build priority)
     // - 10L Cask: HMPS runs Saturday
@@ -951,7 +982,8 @@ function planWeek(week) {
   return {
     demand, netDem, stockEnd, coverDays, finalShortfall,
     satTriggers, satLines, satStock,
-    satUsed: needSat && satLines.length > 0,
+    satUsed: needSat && !satIsHoliday && satLines.length > 0,
+    satIsHoliday,
     lines: {hmps, as2l},
     as: {asProd10, asProd5, asDays10, asDays5, shifts: asResult.shifts,
          endStock10: asResult.endStock10, endStock5: asResult.endStock5},
@@ -1180,11 +1212,12 @@ function renderRollingTable(pr) {
 
     // Max production per SKU this week (capacity aware of Line B outage)
     const la = lineBOutageStart && lineBOutageEnd && wk >= lineBOutageStart && wk <= lineBOutageEnd;
-    const cap10 = Math.floor((la ? 40 : 80) * eff) * 2 * 5 + Math.floor(hmpsTgt * 2 * 5 * eff);
-    const cap5  = Math.floor((la ? 40 : 75) * eff) * 2 * 5;
-    const cap2  = Math.floor(52 * eff) * 2 * 5;
-    const cap12 = Math.floor(34 * eff) * 2 * 5;
-    const cap6  = Math.floor(32 * eff) * 2 * 5;
+    const wkOp = opDaysInWeek(wk);
+    const cap10 = Math.floor((la ? 40 : 80) * eff) * 2 * wkOp + Math.floor(hmpsTgt * 2 * wkOp * eff);
+    const cap5  = Math.floor((la ? 40 : 75) * eff) * 2 * wkOp;
+    const cap2  = Math.floor(52 * eff) * 2 * wkOp;
+    const cap12 = Math.floor(34 * eff) * 2 * wkOp;
+    const cap6  = Math.floor(32 * eff) * 2 * wkOp;
     const maxProd = {
       '10L Cask': cap10, '5L Cask': cap5, '2L Bottle': cap2,
       '600ml 12pk': cap12, '600ml 6pk': cap6
@@ -1224,16 +1257,17 @@ function renderRollingTable(pr) {
 // ══ RENDER: PRODUCTION PLAN TABLE ════════════════════════════════════════════
 function renderProdTable(pr) {
   const {lines,as,ep,coverDays,finalShortfall,satLines,satUsed,demand,stockEnd} = pr;
+  const opDays = opDaysInWeek(currentWeek);
   let h=`<thead><tr><th>SKU</th><th>Line</th><th class="num">Days Run</th><th class="num">Produced (pal)</th><th class="num">Demand (pal)</th><th class="num">End Stock (pal)</th><th class="num">Days Cover</th><th>Line Use</th></tr></thead><tbody>`;
 
   function lr(line, se, cov) {
     if(line.days===0&&line.cap===0) return '';
-    const util=line.days/5;
+    const util=line.days/opDays;
     const ub=util>=0.9?'<span class="badge bg">FULL</span>':util>=0.5?'<span class="badge ba">PARTIAL</span>':line.days===0?'<span class="badge bn">IDLE</span>':'<span class="badge bn">LOW</span>';
     const ec=se<0?'r':'g'; const cc=cov<3?'r':cov<5?'a':'g';
     return `<tr><td><span class="chip ${CHIP[line.sku]}">${line.sku}</span></td>
       <td><strong>${line.label}</strong></td>
-      <td class="num">${line.days}d / 5d</td>
+      <td class="num">${line.days}d / ${opDays}d</td>
       <td class="num"><strong>${fmt(line.cap)}</strong></td>
       <td class="num">${fmt(demand[line.sku]?.total||0)}</td>
       <td class="num ${ec}">${fmt(Math.round(se))}</td>
@@ -1244,7 +1278,7 @@ function renderProdTable(pr) {
   // AS Line A&B summary rows — one per SKU from day-level scheduler
   function asRow(sku, prod, days, se, cov) {
     if(prod===0 && days===0) return '';
-    const totalShifts = 10;
+    const totalShifts = opDays * 2;
     const shiftsRun = days * 2;
     const util = shiftsRun / totalShifts;
     const ub = util>=0.9?'<span class="badge bg">FULL</span>':util>=0.5?'<span class="badge ba">PARTIAL</span>':shiftsRun===0?'<span class="badge bn">IDLE</span>':'<span class="badge bn">LOW</span>';
@@ -1256,7 +1290,7 @@ function renderProdTable(pr) {
       : 'AS Line A&amp;B';
     return `<tr><td><span class="chip ${CHIP[sku]}">${sku}</span></td>
       <td><strong>${lineLabel}</strong> <span style="font-size:10px;color:var(--muted)">(day-level scheduled)</span></td>
-      <td class="num">${days}d / 5d</td>
+      <td class="num">${days}d / ${opDays}d</td>
       <td class="num"><strong>${fmt(prod)}</strong></td>
       <td class="num">${fmt(demand[sku]?.total||0)}</td>
       <td class="num ${ec}">${fmt(Math.round(se))}</td>
@@ -1275,14 +1309,14 @@ function renderProdTable(pr) {
   const cc12=cov12<3?'r':cov12<5?'a':'g', cc6=cov6<3?'r':cov6<5?'a':'g';
   h+=`<tr><td><span class="chip c12pk">600ml 12pk</span></td>
     <td><strong>EP New Line</strong> <span style="font-size:10px;color:var(--muted)">(day-level scheduled)</span></td>
-    <td class="num">${ep.days12} shifts / 10</td><td class="num"><strong>${fmt(ep.prod12)}</strong></td>
+    <td class="num">${ep.days12} shifts / ${opDays*2}</td><td class="num"><strong>${fmt(ep.prod12)}</strong></td>
     <td class="num">${fmt(demand['600ml 12pk']?.total||0)}</td>
     <td class="num ${ec12}">${fmt(ep.endStock12)}</td>
     <td class="num ${cc12}">${cov12>50?'7.0':cov12<0?'<0':fmtF(Math.max(0,cov12))}d</td>
     <td><span class="badge ba">SCHEDULED</span></td></tr>`;
   h+=`<tr><td><span class="chip c6pk">600ml 6pk</span></td>
     <td><strong>EP New Line</strong> <span style="font-size:10px;color:var(--muted)">(day-level scheduled)</span></td>
-    <td class="num">${ep.days6} shifts / 10</td><td class="num"><strong>${fmt(ep.prod6)}</strong></td>
+    <td class="num">${ep.days6} shifts / ${opDays*2}</td><td class="num"><strong>${fmt(ep.prod6)}</strong></td>
     <td class="num">${fmt(demand['600ml 6pk']?.total||0)}</td>
     <td class="num ${ec6}">${fmt(ep.endStock6)}</td>
     <td class="num ${cc6}">${cov6>50?'7.0':cov6<0?'<0':fmtF(Math.max(0,cov6))}d</td>
@@ -1311,29 +1345,49 @@ function renderProdTable(pr) {
 // ══ RENDER: DAY GRID ══════════════════════════════════════════════════════════
 function renderSchedule(week, pr) {
   const {satUsed} = pr;
-  const opDays = satUsed ? 6 : 5;
-  const sched  = buildSchedule(week, pr);
+  const sched = buildSchedule(week, pr);
   document.getElementById('schedHdr').childNodes[0].textContent=`Shift Schedule — ${wkLabel(week)}  `;
   const grid = document.getElementById('dayGrid');
-  grid.className=`sgrid d${opDays}`;
-  grid.innerHTML='';
 
-  const byDay={};
-  for(let d=0;d<opDays;d++) byDay[d]={Day:[],Aft:[]};
-  sched.forEach(s=>{ if(byDay[s.day]) (s.shift==='Day'?byDay[s.day].Day:byDay[s.day].Aft).push(s); });
+  // Build date-indexed schedule map
+  const byDate = {};
+  sched.forEach(s => {
+    if (!byDate[s.date]) byDate[s.date] = {Day:[], Aft:[]};
+    (s.shift === 'Day' ? byDate[s.date].Day : byDate[s.date].Aft).push(s);
+  });
 
-  for(let d=0;d<opDays;d++) {
-    const date=addDays(week,d);
-    const isSat=d===5;
-    const due=DAILY_REQUIRED[date]||{};
-    const all=[...byDay[d].Day,...byDay[d].Aft];
-    const totPal=all.reduce((a,s)=>a+s.pallets,0);
+  // Determine columns: Mon-Fri + optional Saturday
+  const weekDates = [];
+  for (let d = 0; d < 5; d++) weekDates.push({date: addDays(week, d), isSat: false});
+  if (satUsed) weekDates.push({date: addDays(week, 5), isSat: true});
+  grid.className = `sgrid d${weekDates.length}`;
+  grid.innerHTML = '';
 
-    const buildShift=(items,name)=>{
-      if(!items.length) return '';
+  weekDates.forEach(({date, isSat}) => {
+    const due = DAILY_REQUIRED[date] || {};
+    const isHoliday = !isSat && publicHolidays.has(date);
+    const dayEntries = byDate[date] || {Day: [], Aft: []};
+    const all = [...dayEntries.Day, ...dayEntries.Aft];
+    const totPal = all.reduce((a, s) => a + s.pallets, 0);
+
+    if (isHoliday) {
+      grid.innerHTML += `<div class="sday" style="opacity:0.6;background:#f8f8f8">
+        <div class="sdh" style="background:#8B6914;color:#fff">
+          <span>${fmtD(date)}</span>
+          <span class="dtot">🗓 PH</span>
+        </div>
+        <div style="text-align:center;padding:20px 5px;color:#999;font-size:11px">
+          ${publicHolidayNames[date] || 'Public Holiday'}<br>Plant closed
+        </div>
+      </div>`;
+      return;
+    }
+
+    const buildShift = (items, name) => {
+      if (!items.length) return '';
       return `<div class="sshift"><div class="ssl">${name} Shift</div>
-        ${items.map(s=>`<div class="sline ${s.cls}">
-          <div class="sline-name">${s.label}${s.riskFlag?' ⚠':''}</div>
+        ${items.map(s => `<div class="sline ${s.cls}">
+          <div class="sline-name">${s.label}${s.riskFlag ? ' ⚠' : ''}</div>
           <div class="sline-detail"><span class="chip ${CHIP[s.sku]}">${s.sku}</span></div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:3px">
             <div class="sbar" style="flex:1;margin-right:5px"><div class="sbar-f" style="width:${Math.round(s.pallets/s.target*100)}%;background:${s.pallets>=s.target*.85?'var(--green)':s.pallets>=s.target*.6?'var(--amber)':'var(--red)'}"></div></div>
@@ -1343,43 +1397,41 @@ function renderSchedule(week, pr) {
       </div>`;
     };
 
-    // Show deliveries due today
-    const dueHtml=Object.entries(due).filter(([,v])=>v>0).map(([sku,pal])=>
+    const dueHtml = Object.entries(due).filter(([,v]) => v > 0).map(([sku, pal]) =>
       `<div style="font-size:10px;color:var(--muted);padding:2px 0;border-top:1px solid var(--border);margin-top:2px">
         📦 ${fmt(pal)} pal <span class="chip ${CHIP[sku]}">${sku}</span> due
       </div>`).join('');
 
-    grid.innerHTML+=`<div class="sday">
-      <div class="sdh${isSat?' sat':''}">
-        <span>${DAYS[d]} ${fmtD(date)}</span>
-        <span class="dtot">${totPal?fmt(totPal)+' pal':''}</span>
+    grid.innerHTML += `<div class="sday">
+      <div class="sdh${isSat ? ' sat' : ''}">
+        <span>${fmtD(date)}${isSat ? ' <span class="badge bsat">SAT</span>' : ''}</span>
+        <span class="dtot">${totPal ? fmt(totPal) + ' pal' : ''}</span>
       </div>
-      ${buildShift(byDay[d].Day,'Day')}
-      ${buildShift(byDay[d].Aft,'Afternoon')}
-      ${dueHtml?`<div style="padding:4px 9px">${dueHtml}</div>`:''}
-      ${all.length===0?'<div class="no-prod">No production</div>':''}
+      ${buildShift(dayEntries.Day, 'Day')}
+      ${buildShift(dayEntries.Aft, 'Afternoon')}
+      ${dueHtml ? `<div style="padding:4px 9px">${dueHtml}</div>` : ''}
+      ${all.length === 0 ? '<div class="no-prod">No production</div>' : ''}
     </div>`;
-  }
+  });
 
   // Shift detail table
-  let h=`<thead><tr><th>Day</th><th>Date</th><th>Shift</th><th>Line</th><th>SKU</th><th class="num">Pallets</th><th class="num">Target</th><th class="num">Attainment</th><th>Risk</th></tr></thead><tbody>`;
-  sched.forEach(s=>{
-    const date=addDays(week,s.day);
-    const att=s.target>0?(s.pallets/s.target*100).toFixed(0)+'%':'—';
-    const attCls=s.pallets>=s.target*.85?'g':s.pallets>=s.target*.6?'a':'r';
-    h+=`<tr${s.day===5?' style="background:#F5F0FF"':''}>
-      <td>${DAYS[s.day]}${s.day===5?' <span class="badge bsat">SAT</span>':''}</td>
-      <td>${fmtD(date)}</td>
-      <td><span class="badge ${s.shift==='Day'?'bb':'bn'}">${s.shift}</span></td>
+  let h = `<thead><tr><th>Day</th><th>Date</th><th>Shift</th><th>Line</th><th>SKU</th><th class="num">Pallets</th><th class="num">Target</th><th class="num">Attainment</th><th>Risk</th></tr></thead><tbody>`;
+  sched.forEach(s => {
+    const att = s.target > 0 ? (s.pallets / s.target * 100).toFixed(0) + '%' : '—';
+    const attCls = s.pallets >= s.target * .85 ? 'g' : s.pallets >= s.target * .6 ? 'a' : 'r';
+    h += `<tr${s.day === 5 ? ' style="background:#F5F0FF"' : ''}>
+      <td>${fmtD(s.date)}${s.day === 5 ? ' <span class="badge bsat">SAT</span>' : ''}</td>
+      <td>${fmtD(s.date)}</td>
+      <td><span class="badge ${s.shift === 'Day' ? 'bb' : 'bn'}">${s.shift}</span></td>
       <td><strong>${s.label}</strong></td>
       <td><span class="chip ${CHIP[s.sku]}">${s.sku}</span></td>
       <td class="num">${fmt(s.pallets)}</td>
       <td class="num">${fmt(s.target)}</td>
       <td class="num ${attCls}">${att}</td>
-      <td>${s.riskFlag?'<span class="badge br">⚠ AT RISK</span>':''}</td>
+      <td>${s.riskFlag ? '<span class="badge br">⚠ AT RISK</span>' : ''}</td>
     </tr>`;
   });
-  document.getElementById('shiftTable').innerHTML=h+'</tbody>';
+  document.getElementById('shiftTable').innerHTML = h + '</tbody>';
 }
 
 // ══ RENDER: HORIZON ═══════════════════════════════════════════════════════════
@@ -2468,7 +2520,11 @@ function onWeekChange() {
     '600ml 12pk': pr.ep?.endStock12 ?? 0,
     '600ml 6pk':  pr.ep?.endStock6  ?? 0,
   }};
-  document.getElementById('hdrMeta').textContent=`Week of ${fmtD(currentWeek)} | Demand: ${fmt(pr.totalGross)} pal | Net to produce: ${fmt(Math.round(pr.totalNet))} pal | HMPS: ${hmpsConfig} | ${pr.satUsed?'SAT run triggered':'Mon-Fri'}`;
+  const phThisWeek = holidaysInWeek(currentWeek);
+  const phNote = phThisWeek.length ? ` | 🗓 ${phThisWeek.join(', ')} (${5 - phThisWeek.length}-day week)` : '';
+  const satDate = addDays(currentWeek, 5);
+  const satNote = pr.satIsHoliday ? ` | 🗓 Sat blocked (${publicHolidayNames[satDate] || 'Public Holiday'})` : '';
+  document.getElementById('hdrMeta').textContent=`Week of ${fmtD(currentWeek)} | Demand: ${fmt(pr.totalGross)} pal | Net to produce: ${fmt(Math.round(pr.totalNet))} pal | HMPS: ${hmpsConfig} | ${pr.satUsed?'SAT run triggered':'Mon-Fri'}${phNote}${satNote}`;
   renderSkuStrips(pr);
   renderDemTable(pr);
   renderStockTable(pr);
@@ -2506,6 +2562,7 @@ function onWeekChange() {
 }
 
 function init() {
+  loadFallbackHolidays();  // always load NSW holidays — Supabase will override if available
   const today=localToday();
   const sel=document.getElementById('weekSel');
   const currentMon=monOf(today);
@@ -2621,6 +2678,7 @@ async function sbPull() {
     const rMc  = await sbFetch('metcash_forecast'); if (rMc  && rMc.length)  { applyMetcashFromSB(rMc);  loaded.push('Metcash'); }
     const rAct = await sbFetch('actuals');           if (rAct && rAct.length) { applyActualsFromSB(rAct); loaded.push('Actuals'); }
     const rSt  = await sbFetch('stock');             if (rSt  && rSt.length)  { applyStockFromSB(rSt);   loaded.push('Stock'); }
+    const rPH  = await sbFetch('public_holidays');   if (rPH  && rPH.length)  { applyPublicHolidays(rPH); loaded.push('Holidays'); }
 
     if (loaded.length) {
       rebuildData();
@@ -2752,7 +2810,6 @@ function applyStockFromSB(rows) {
       newUnits[r.sku] = STOCK_UNITS[r.sku];
     }
   });
-  // Warn if stock table is missing rows — PATCH will silently fail
   if (rows.length < SKUS.length) {
     sbStatus(`⚠ Stock table has ${rows.length}/${SKUS.length} rows — re-seed required`, 'warn');
   } else {
@@ -2760,6 +2817,41 @@ function applyStockFromSB(rows) {
   }
   renderStockDetail(newStock, newUnits, 'Supabase (live)');
   renderManualStockGrid();
+}
+
+function applyPublicHolidays(rows) {
+  publicHolidays = new Set();
+  publicHolidayNames = {};
+  rows.forEach(r => {
+    if (r.date) {
+      publicHolidays.add(r.date);
+      publicHolidayNames[r.date] = r.name || 'Public Holiday';
+    }
+  });
+  console.log(`Loaded ${publicHolidays.size} public holidays from Supabase`);
+}
+
+function loadFallbackHolidays() {
+  // Hardcoded NSW fallback — used when Supabase is unavailable
+  const nsw = [
+    ['2026-04-03','Good Friday'],['2026-04-04','Easter Saturday'],
+    ['2026-04-05','Easter Sunday'],['2026-04-06','Easter Monday'],
+    ['2026-04-25','Anzac Day'],['2026-04-27','Anzac Day (Monday substitute)'],
+    ['2026-06-08','Queen\'s Birthday'],
+    ['2026-08-03','Bank Holiday'],['2026-10-05','Labour Day'],
+    ['2026-12-25','Christmas Day'],['2026-12-26','Boxing Day'],
+    ['2026-12-28','Boxing Day (substitute)'],
+    ['2027-01-01','New Year\'s Day'],['2027-01-26','Australia Day'],
+    ['2027-03-26','Good Friday'],['2027-03-27','Easter Saturday'],
+    ['2027-03-28','Easter Sunday'],['2027-03-29','Easter Monday'],
+    ['2027-04-25','Anzac Day'],['2027-06-14','Queen\'s Birthday'],
+    ['2027-08-02','Bank Holiday'],['2027-10-04','Labour Day'],
+    ['2027-12-27','Christmas Day (substitute)'],['2027-12-28','Boxing Day (substitute)'],
+  ];
+  nsw.forEach(([date, name]) => {
+    publicHolidays.add(date);
+    publicHolidayNames[date] = name;
+  });
 }
 
 
