@@ -36,7 +36,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .ph.purple{background:var(--purple);color:#fff}
 /* SKU strips */
 .sku-strips{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
-.sku-strip{display:grid;grid-template-columns:130px repeat(8,1fr);border-radius:6px;overflow:hidden;border:1px solid var(--border)}
+.sku-strip{display:grid;grid-template-columns:130px repeat(auto-fit,minmax(90px,1fr));border-radius:6px;overflow:hidden;border:1px solid var(--border)}
 .sku-strip .sku-label{background:var(--navy);color:#fff;display:flex;align-items:center;padding:10px 12px;font-weight:700;font-size:12px}
 .sku-strip.ok  .sku-label{border-left:5px solid var(--green)}
 .sku-strip.warn .sku-label{border-left:5px solid var(--amber)}
@@ -161,6 +161,7 @@ tr.risk-a td{background:#FEF9F0}
   <div class="tab" onclick="switchTab('alerts',this)">Alerts</div>
   <div class="tab" onclick="switchTab('actuals',this)">Actuals vs Plan</div>
   <div class="tab" onclick="switchTab('stock',this)">Stock</div>
+  <div class="tab" onclick="switchTab('openorders',this)">Open Orders</div>
 </div>
 
 <div id="main">
@@ -359,6 +360,42 @@ tr.risk-a td{background:#FEF9F0}
     <div class="ph navy">Manual Stock Override
       <span style="font-size:10px;opacity:.7">Edit individual SKUs if inventory file is not available</span></div>
     <div class="oc-grid" id="manualStockGrid" style="padding:12px"></div>
+  </div>
+</div>
+
+<!-- OPEN ORDERS -->
+<div id="tab-openorders" class="tc">
+  <div class="panel">
+    <div class="ph navy">Upload Open Sales Orders — NetSuite Export
+      <span style="font-size:10px;opacity:.7">ABH Open Sales Orders Cust &amp; Sku (.xls) — upload Monday morning to see committed stock</span></div>
+    <div style="padding:12px;display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+      <div class="drop-zone" id="dzOpenOrders" style="max-width:420px;flex:1"
+        ondragover="dzO(event,'OpenOrders')" ondragleave="dzL('OpenOrders')" ondrop="dzD(event,'OpenOrders')"
+        onclick="document.getElementById('fiOpenOrders').click()">
+        <div class="dz-icon">📋</div>
+        <div class="dz-label">ABH Open Sales Orders Cust &amp; Sku (.xls)</div>
+        <div class="dz-sub">Drop or click — NetSuite SpreadsheetML export</div>
+        <div class="dz-status" id="openOrdersStat">No open orders loaded</div>
+      </div>
+      <input type="file" id="fiOpenOrders" accept=".xls" style="display:none"
+        onchange="handleFile(this.files[0],'OpenOrders')">
+      <div style="background:var(--light);border-radius:6px;padding:12px;font-size:11px;color:var(--muted);max-width:320px">
+        <strong>Note:</strong> This report shows open sales orders by retailer and SKU as at the export date.
+        Dollar value only — pallets are shown as an estimate based on standard sell prices.
+        Use this to understand committed stock at the start of the week.
+        <br><br>These orders are <strong>not automatically deducted</strong> from opening stock — the planner makes that call.
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="openOrdersSummaryPanel" style="display:none">
+    <div class="ph blue">Open Orders Summary — By SKU <span id="openOrdersDate" style="font-size:10px;opacity:.7;margin-left:12px"></span></div>
+    <div class="tscroll"><table id="openOrdersSummaryTable"></table></div>
+  </div>
+
+  <div class="panel" id="openOrdersDetailPanel" style="display:none">
+    <div class="ph navy">Open Orders Detail — By Retailer &amp; SKU</div>
+    <div class="tscroll"><table id="openOrdersDetailTable"></table></div>
   </div>
 </div>
 
@@ -1083,11 +1120,14 @@ function renderSkuStrips(pr) {
     const clsCls = close < 0 ? 'red' : close < dem ? 'amber' : 'green';
     const cumCls = cumMv > 0 ? 'green' : cumMv < 0 ? 'red' : 'grey';
     const cumTxt = cumMv > 0 ? `+${fmt(cumMv)}` : fmt(cumMv);
+    const oopal  = Math.round(openOrdersPal[s] || 0);
+    const ooCls  = oopal > 0 ? 'red' : 'grey';
     html += `<div class="sku-strip ${cls}">
       <div class="sku-label"><span class="chip ${CHIP[s]}">${s}</span></div>
       <div class="ktile blue"><div class="kv">${fmt(todayStk)}</div><div class="kl">Stock (Today)</div></div>
       <div class="ktile ${cumCls}"><div class="kv" style="font-size:14px">${cumTxt}</div><div class="kl">Cum. Movement</div></div>
       <div class="ktile navy"><div class="kv">${fmt(projOpen)}</div><div class="kl">Proj. Opening</div></div>
+      ${oopal>0?`<div class="ktile ${ooCls}"><div class="kv">-${fmt(oopal)}</div><div class="kl">Open Orders</div></div>`:''}
       <div class="ktile navy"><div class="kv">${fmt(dem)}</div><div class="kl">Demand (pal)</div></div>
       <div class="ktile navy"><div class="kv">${net>0?fmt(Math.round(net)):'—'}</div><div class="kl">Net to Produce</div></div>
       <div class="ktile ${covCls}"><div class="kv">${cov>50?'7.0':fmtF(Math.max(0,cov))}d</div><div class="kl">Proj. Cover (end wk)</div></div>
@@ -1126,14 +1166,18 @@ function renderDemTable(pr) {
 // ══ RENDER: STOCK TABLE ═══════════════════════════════════════════════════════
 function renderStockTable(pr) {
   const {demand,netDem,coverDays} = pr;
-  let h=`<thead><tr><th>SKU</th><th class="num">Stock (pal)</th><th class="num">Demand (pal)</th><th class="num">Net to Produce</th><th>Cover</th></tr></thead><tbody>`;
+  let h=`<thead><tr><th>SKU</th><th class="num">Stock (pal)</th><th class="num">Open Orders (pal)</th><th class="num">Avail (pal)</th><th class="num">Demand (pal)</th><th class="num">Net to Produce</th><th>Cover</th></tr></thead><tbody>`;
   SKUS.forEach(s=>{
-    const stk=stockPal[s]||0,dem=demand[s].total,net=Math.max(0,netDem[s]);
-    const cov=dem>0?(stk/dem).toFixed(1)+'w':'—';
-    const covCls=dem>0&&stk/dem<1?'r':dem>0&&stk/dem<1.5?'a':'g';
-    const pct=dem>0?Math.min(100,Math.round(stk/dem*100)):100;
+    const stk=stockPal[s]||0, dem=demand[s].total, net=Math.max(0,netDem[s]);
+    const oo=Math.round(openOrdersPal[s]||0);
+    const avail=Math.max(0,stk-oo);
+    const cov=dem>0?(avail/dem).toFixed(1)+'w':'—';
+    const covCls=dem>0&&avail/dem<1?'r':dem>0&&avail/dem<1.5?'a':'g';
+    const pct=dem>0?Math.min(100,Math.round(avail/dem*100)):100;
     h+=`<tr><td><span class="chip ${CHIP[s]}">${s}</span></td>
       <td class="num">${fmt(Math.round(stk))}</td>
+      <td class="num ${oo>0?'r':''}">${oo>0?`-${fmt(oo)}`:'—'}</td>
+      <td class="num"><strong>${fmt(avail)}</strong></td>
       <td class="num">${fmt(dem)}</td>
       <td class="num ${net>0?'r':'g'}">${net>0?fmt(Math.round(net)):'Covered'}</td>
       <td><div style="background:#E0E0E0;border-radius:2px;height:5px;width:100%;margin-bottom:2px">
@@ -1177,7 +1221,6 @@ function renderRollingTable(pr) {
   h += `</tr></thead><tbody>`;
 
   // Rolling projection state — seed from planWeek's projected opening stock for selected week
-  // This ensures the table is consistent with the KPI tiles
   const baseStock = pr?.avail ?? availPal();
   const stock = {
     '10L Cask':   Math.max(0, baseStock['10L Cask']   ?? 0),
@@ -1186,6 +1229,26 @@ function renderRollingTable(pr) {
     '600ml 12pk': Math.max(0, baseStock['600ml 12pk'] ?? 0),
     '600ml 6pk':  Math.max(0, baseStock['600ml 6pk']  ?? 0),
   };
+
+  // Open orders row — show committed stock as negative adjustment before week 1 production
+  const hasOO = Object.values(openOrdersPal).some(v => v > 0);
+  if (hasOO) {
+    h += `<tr style="background:#FFF3E0;font-weight:600">
+      <td style="font-size:11px;color:var(--red)">📋 Open Orders (committed)</td>`;
+    skuCols.forEach(s => {
+      const oo = Math.round(openOrdersPal[s] || 0);
+      const afterOO = stock[s] - oo;
+      const cls = afterOO < 0 ? 'color:var(--red);font-weight:700' : 'color:var(--amber)';
+      h += `<td class="num" style="border-left:2px solid var(--border);${oo>0?cls:''}">${oo>0?`-${fmt(oo)}`:'—'}</td>
+            <td class="num">—</td>
+            <td class="num" style="${afterOO<0?'color:var(--red);font-weight:700':''}">${fmt(afterOO)}</td>
+            <td class="num">—</td>`;
+      // Deduct open orders from stock before rolling forward
+      stock[s] = Math.max(0, afterOO);
+    });
+    h += `</tr>`;
+  }
+
   // Actual production for week 0 (current selected week) from the plan
   const actualProd0 = {
     '10L Cask':   (pr?.as?.asProd10 ?? 0) + (pr?.lines?.hmps?.cap ?? 0),
@@ -1194,7 +1257,6 @@ function renderRollingTable(pr) {
     '600ml 12pk': pr?.ep?.prod12    ?? 0,
     '600ml 6pk':  pr?.ep?.prod6     ?? 0,
   };
-  // Add Saturday production if triggered
   if (pr?.satUsed && pr?.satLines) {
     pr.satLines.forEach(sl => { actualProd0[sl.sku] = (actualProd0[sl.sku] || 0) + sl.satAlloc; });
   }
@@ -1632,6 +1694,240 @@ function parseMetcash(text, fname) {
   }
 }
 
+
+// ══ OPEN ORDERS ═══════════════════════════════════════════════════════════════
+// NetSuite SpreadsheetML export: ABH Open Sales Orders Cust & Sku
+// Columns: Date | Item: Name | Document Number | Customer | Status | Open Amount
+// No quantity column — pallets estimated from amount ÷ standard sell price
+// Standard sell prices per unit (ex-GST) — update if pricing changes
+const OPEN_ORDER_PRICE = {
+  '10L Cask':   13.08,   // $/unit — used to back-calculate units from Open Amount
+  '5L Cask':    6.70,
+  '2L Bottle':  2.17,
+  '600ml 12pk': 9.14,
+  '600ml 6pk':  4.84,
+};
+
+// Item name from NetSuite -> internal SKU
+const OO_ITEM_MAP = {
+  'pureau 10l cask':      '10L Cask',
+  'pureau 10l':           '10L Cask',
+  'pureau 5l cask':       '5L Cask',
+  'pureau 5l':            '5L Cask',
+  'pureau 2l':            '2L Bottle',
+  'pureau 2 litre':       '2L Bottle',
+  'pureau 600ml 12 pack': '600ml 12pk',
+  'pureau 600ml 12pk':    '600ml 12pk',
+  'pureau 600ml 6 pack':  '600ml 6pk',
+  'pureau 600ml 6pk':     '600ml 6pk',
+};
+
+function mapOOItem(raw) {
+  const k = raw.toLowerCase().trim();
+  for (const [pat, sku] of Object.entries(OO_ITEM_MAP)) {
+    if (k.includes(pat) || pat.includes(k)) return sku;
+  }
+  return null;
+}
+
+function mapOORetailer(customer) {
+  const u = customer.toUpperCase();
+  if (u.includes('WOOLWORTHS') || u.includes('WOO')) return 'Woolworths';
+  if (u.includes('COLES') || u.includes('COL')) return 'Coles';
+  if (u.includes('METCASH') || u.includes('IGA') || u.includes('MET')) return 'Metcash/IGA';
+  if (u.includes('ALDI')) return 'Aldi';
+  if (u.includes('COSTCO')) return 'Costco';
+  return customer.split(' ')[0] || 'Other';
+}
+
+let openOrdersData = null;  // [{date, sku, retailer, docNum, amount, units, pallets}]
+let openOrdersPal  = {};    // {sku: totalPallets} — committed stock, updated on upload
+
+function parseOpenOrders(xmlText, fname) {
+  try {
+    // Extract all cell values from SpreadsheetML
+    const cells = [];
+    const re = /<Data[^>]*>([^<]*)<\/Data>/g;
+    let m;
+    while ((m = re.exec(xmlText)) !== null) cells.push(m[1].trim());
+
+    // Find data start — look for first date-like cell after headers
+    let dataStart = -1;
+    for (let i = 0; i < cells.length; i++) {
+      if (/^2\d{3}-\d{2}-\d{2}T/.test(cells[i])) { dataStart = i; break; }
+    }
+    if (dataStart < 0) { setStat('OpenOrders', '❌ No order data found', false); return; }
+
+    // Extract report date from header (cell index ~3 typically "As of DD Month YYYY")
+    let reportDate = '';
+    for (let i = 0; i < dataStart; i++) {
+      if (/as of/i.test(cells[i])) { reportDate = cells[i]; break; }
+    }
+
+    const orders = [];
+    let i = dataStart;
+    while (i + 5 < cells.length) {
+      const date    = cells[i];
+      const item    = cells[i+1];
+      const docNum  = cells[i+2];
+      const customer= cells[i+3];
+      const status  = cells[i+4];
+      const amount  = parseFloat(cells[i+5]) || 0;
+      // Col 6 is Quantity Open if present, otherwise estimate from amount
+      const hasQty  = !isNaN(parseFloat(cells[i+6])) && !/^2\d{3}/.test(cells[i+6]);
+      const colStep = hasQty ? 7 : 6;
+
+      // Skip if not a valid date row
+      if (!/^2\d{3}-\d{2}-\d{2}/.test(date)) { i++; continue; }
+
+      const sku = mapOOItem(item);
+      if (!sku) { i += colStep; continue; }
+
+      const retailer = mapOORetailer(customer);
+      let units, pallets;
+      if (hasQty) {
+        units   = Math.round(parseFloat(cells[i+6]));
+        pallets = Math.ceil(units / (UPP[sku] || 1));
+      } else {
+        const price = OPEN_ORDER_PRICE[sku] || 1;
+        units   = Math.round(amount / price);
+        pallets = Math.ceil(units / (UPP[sku] || 1));
+      }
+
+      orders.push({
+        date: date.slice(0, 10),
+        sku, retailer, docNum,
+        customer: customer.split(':').pop().trim(),
+        status, amount, units, pallets
+      });
+      i += colStep;
+    }
+
+    openOrdersData = orders;
+
+    // Build committed pallets per SKU
+    openOrdersPal = {};
+    SKUS.forEach(s => openOrdersPal[s] = 0);
+    orders.forEach(o => { openOrdersPal[o.sku] = (openOrdersPal[o.sku] || 0) + o.pallets; });
+
+    renderOpenOrders(reportDate, fname);
+    onWeekChange();  // refresh all planning tabs with open orders factored in
+    setStat('OpenOrders', `✓ ${fname} — ${orders.length} lines, ${[...new Set(orders.map(o=>o.docNum))].length} orders`, true);
+  } catch(e) {
+    setStat('OpenOrders', '❌ Parse error: ' + e.message, false);
+  }
+}
+
+function renderOpenOrders(reportDate, fname) {
+  if (!openOrdersData || !openOrdersData.length) return;
+
+  document.getElementById('openOrdersSummaryPanel').style.display = '';
+  document.getElementById('openOrdersDetailPanel').style.display = '';
+  document.getElementById('openOrdersDate').textContent =
+    reportDate || fname || '';
+
+  // ── Summary: totals per SKU across all retailers
+  const skuTotals = {};
+  SKUS.forEach(s => skuTotals[s] = { orders: 0, units: 0, pallets: 0, amount: 0 });
+  openOrdersData.forEach(o => {
+    if (!skuTotals[o.sku]) return;
+    skuTotals[o.sku].orders++;
+    skuTotals[o.sku].units   += o.units;
+    skuTotals[o.sku].pallets += o.pallets;
+    skuTotals[o.sku].amount  += o.amount;
+  });
+
+  let sh = `<thead><tr>
+    <th>SKU</th>
+    <th class="num">Order Lines</th>
+    <th class="num">Est. Units</th>
+    <th class="num">Est. Pallets</th>
+    <th class="num">Open Amount ($)</th>
+    <th class="num">Current Stock (pal)</th>
+    <th class="num">Stock After Fulfilment</th>
+  </tr></thead><tbody>`;
+
+  let totPal = 0, totAmt = 0;
+  SKUS.forEach(s => {
+    const t = skuTotals[s];
+    if (!t || (t.pallets === 0 && t.amount === 0)) return;
+    const stk = Math.round(stockPal[s] || 0);
+    const after = stk - t.pallets;
+    const afterCls = after < 0 ? 'r' : after < t.pallets ? 'a' : 'g';
+    totPal += t.pallets; totAmt += t.amount;
+    sh += `<tr>
+      <td><span class="chip ${CHIP[s]}">${s}</span></td>
+      <td class="num">${t.orders}</td>
+      <td class="num">${fmt(t.units)}</td>
+      <td class="num"><strong>${fmt(t.pallets)}</strong></td>
+      <td class="num">$${fmt(Math.round(t.amount))}</td>
+      <td class="num">${fmt(stk)}</td>
+      <td class="num ${afterCls}"><strong>${fmt(after)}</strong></td>
+    </tr>`;
+  });
+  sh += `<tr style="background:var(--light)">
+    <td><strong>TOTAL</strong></td>
+    <td class="num"></td><td class="num"></td>
+    <td class="num"><strong>${fmt(totPal)} pal</strong></td>
+    <td class="num"><strong>$${fmt(Math.round(totAmt))}</strong></td>
+    <td class="num"></td><td class="num"></td>
+  </tr></tbody>`;
+  document.getElementById('openOrdersSummaryTable').innerHTML = sh;
+
+  // ── Detail: grouped by retailer then SKU
+  const byRetailer = {};
+  openOrdersData.forEach(o => {
+    if (!byRetailer[o.retailer]) byRetailer[o.retailer] = {};
+    if (!byRetailer[o.retailer][o.sku]) byRetailer[o.retailer][o.sku] = [];
+    byRetailer[o.retailer][o.sku].push(o);
+  });
+
+  let dh = `<thead><tr>
+    <th>Retailer</th><th>SKU</th><th>Ship Date</th>
+    <th>Order No.</th><th>DC / Customer</th>
+    <th class="num">Est. Units</th>
+    <th class="num">Est. Pallets</th>
+    <th class="num">Amount ($)</th>
+    <th>Status</th>
+  </tr></thead><tbody>`;
+
+  Object.entries(byRetailer).sort().forEach(([retailer, skus]) => {
+    let retailerPal = 0, retailerAmt = 0, firstRow = true;
+    const retailerRows = Object.values(skus).flat().length;
+
+    Object.entries(skus).sort().forEach(([sku, orders]) => {
+      let skuPal = 0, skuAmt = 0, skuFirst = true;
+      orders.sort((a,b) => a.date.localeCompare(b.date)).forEach(o => {
+        const isOverdue = o.date < monOf(localToday());
+        dh += `<tr${isOverdue ? ' style="background:#FFF3CD"' : ''}>
+          ${firstRow ? `<td rowspan="${retailerRows}" style="font-weight:700;vertical-align:top;padding-top:8px">${retailer}</td>` : ''}
+          ${skuFirst ? `<td rowspan="${orders.length}"><span class="chip ${CHIP[sku]}">${sku}</span></td>` : ''}
+          <td style="font-size:11px${isOverdue ? ';color:var(--red);font-weight:600' : ''}">${fmtD(o.date)}${isOverdue ? ' ⚠' : ''}</td>
+          <td style="font-size:11px">${o.docNum}</td>
+          <td style="font-size:11px">${o.customer}</td>
+          <td class="num">${fmt(o.units)}</td>
+          <td class="num"><strong>${fmt(o.pallets)}</strong></td>
+          <td class="num">$${fmt(Math.round(o.amount))}</td>
+          <td><span class="badge ${o.status.includes('Pending')?'bb':'bg'}" style="font-size:9px">${o.status}</span></td>
+        </tr>`;
+        skuPal += o.pallets; skuAmt += o.amount;
+        firstRow = false; skuFirst = false;
+      });
+      retailerPal += skuPal; retailerAmt += skuAmt;
+    });
+
+    dh += `<tr style="background:var(--light);font-weight:700">
+      <td colspan="5" style="text-align:right;font-size:11px">${retailer} total</td>
+      <td class="num"></td>
+      <td class="num">${fmt(retailerPal)} pal</td>
+      <td class="num">$${fmt(Math.round(retailerAmt))}</td>
+      <td></td>
+    </tr>`;
+  });
+
+  dh += `</tbody>`;
+  document.getElementById('openOrdersDetailTable').innerHTML = dh;
+}
 
 function parseActuals(xmlText, fname) {
   // NetSuite exports SpreadsheetML XML disguised as .xls
@@ -2203,6 +2499,7 @@ function handleFile(file,retailer) {
     try {
       if(retailer==='Metcash'){parseMetcash(e.target.result,file.name);return;}
       if(retailer==='Actuals'){parseActuals(e.target.result,file.name);return;}
+      if(retailer==='OpenOrders'){parseOpenOrders(e.target.result,file.name);return;}
       if(retailer==='Inventory'){
         if(file.name.toLowerCase().endsWith('.xlsx')){
           parseInventoryXLSX(e.target.result, file.name);
@@ -2222,6 +2519,7 @@ function handleFile(file,retailer) {
   // NetSuite may export with windows-1252 encoding; specify it explicitly.
   if (retailer === 'Metcash') reader.readAsText(file, 'UTF-8');
   else if (retailer === 'Actuals') reader.readAsText(file, 'windows-1252');
+  else if (retailer === 'OpenOrders') reader.readAsText(file, 'UTF-8');
   else if (retailer === 'Inventory' && !file.name.toLowerCase().endsWith('.xlsx')) reader.readAsText(file, 'windows-1252');
   else reader.readAsArrayBuffer(file);
 }
@@ -2465,7 +2763,7 @@ function buildEmbColes(){
   return {};
 }
 function setStat(r,msg,ok){
-  const statIds={'WW':'wwStat','Coles':'colesStat','Metcash':'metcashStat','Actuals':'actualsStat','Inventory':'inventoryStat'};
+  const statIds={'WW':'wwStat','Coles':'colesStat','Metcash':'metcashStat','Actuals':'actualsStat','Inventory':'inventoryStat','OpenOrders':'openOrdersStat'};
   const el=document.getElementById(statIds[r]||r+'Stat');
   if(el)el.textContent=msg;
   document.getElementById('dz'+r)?.classList.toggle('dz-loaded',ok);
