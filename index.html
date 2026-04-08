@@ -1885,7 +1885,7 @@ function parseMetcash(text, fname) {
     Object.entries(metcashOvr.weekly).forEach(([week_date, skus]) => {
       Object.entries(skus).forEach(([sku, pallets]) => sbRows.push({ week_date, sku, pallets }));
     });
-    sbPush('metcash_forecast', sbRows, false, fname);
+    sbPushUpsert('metcash_forecast', sbRows, fname);
   }
 }
 
@@ -2868,7 +2868,7 @@ function parseMetcashWB(wb, fname) {
   Object.entries(metcashOvr.weekly).forEach(([week_date, skus]) => {
     Object.entries(skus).forEach(([sku, pallets]) => sbRows.push({ week_date, sku, pallets }));
   });
-  sbPush('metcash_forecast', sbRows, false, fname);
+  sbPushUpsert('metcash_forecast', sbRows, fname);
 }
 
 
@@ -2979,7 +2979,7 @@ function parseWW(wb,fname) {
         });
       });
     }
-    sbPush('ww_forecast', sbRows, false, fname);
+    sbPushUpsert('ww_forecast', sbRows, fname);
   })();
 }
 
@@ -3070,7 +3070,7 @@ function parseColes(wb,fname) {
         Object.entries(skus).forEach(([sku, pallets]) => sbRows.push({ week_date, sku, pallets, units: 0 }));
       });
     }
-    sbPush('coles_forecast', sbRows, false, fname);
+    sbPushUpsert('coles_forecast', sbRows, fname);
   }
 }
 
