@@ -2952,7 +2952,9 @@ function parseWW(wb,fname) {
   setStat('WW',`✓ ${fname} — ${cnt} lines, ${Object.keys(weekly).length} weeks${pivotNote}`,true);
   // Push to Supabase — always use Planned orders sheet for line-item detail
   (function() {
-    const sbRows = [];
+    // Aggregate by week_date+sku before pushing — prevents duplicate key errors
+    // Line-item rows may have multiple orders per week+sku; pivot fallback may too
+    const aggMap = {};
     const planSn = wb.SheetNames.find(s => s.trim().toLowerCase().startsWith('planned order'));
     if (planSn) {
       const planRows = XLSX.utils.sheet_to_json(wb.Sheets[planSn], {defval:null, cellDates:true});
@@ -2964,21 +2966,26 @@ function parseWW(wb,fname) {
         const delivDate  = isoD(r['Delivery Date']||null);
         const needArr    = isoD(r['Need Arrival Date']||null);
         const units      = parseInt(r['Planned Order OM']||r['Planned Order Units']||pal*UPP[sku])||0;
-        // Derive week_date from order_date (Monday of that week)
         const week_date  = orderDate ? monOf(orderDate) : null;
         if (!week_date) return;
-        sbRows.push({ week_date, sku, pallets: pal, units,
-          order_date: orderDate, delivery_date: delivDate, need_arrival: needArr });
+        const key = `${week_date}|${sku}`;
+        if (!aggMap[key]) aggMap[key] = { week_date, sku, pallets: 0, units: 0,
+          order_date: orderDate, delivery_date: delivDate, need_arrival: needArr };
+        aggMap[key].pallets += pal;
+        aggMap[key].units   += units;
       });
     }
-    // Fallback to weekly aggregates if no line-item sheet available
-    if (!sbRows.length) {
+    // Fallback to weekly aggregates if no line-item rows found
+    if (!Object.keys(aggMap).length) {
       Object.entries(wwOverride.weekly).forEach(([week_date, skus]) => {
         Object.entries(skus).forEach(([sku, pallets]) => {
-          sbRows.push({ week_date, sku, pallets, units: 0 });
+          const key = `${week_date}|${sku}`;
+          if (!aggMap[key]) aggMap[key] = { week_date, sku, pallets: 0, units: 0 };
+          aggMap[key].pallets += (typeof pallets === 'object' ? (pallets.total||0) : pallets);
         });
       });
     }
+    const sbRows = Object.values(aggMap);
     sbPushUpsert('ww_forecast', sbRows, fname);
   })();
 }
