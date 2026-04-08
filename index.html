@@ -3054,22 +3054,31 @@ function parseColes(wb,fname) {
   colesOvr={weekly,daily};
   rebuildData();
   setStat('Coles',`✓ ${fname} — ${cnt} lines`,true);
-  // Push to Supabase
+  // Push to Supabase — aggregate by week_date+sku to match UNIQUE(week_date, sku) constraint
   if (colesOvr) {
-    const sbRows = [];
+    const aggMap = {};  // key: week_date|sku → {pallets, units}
     if (colesOvr.daily && Object.keys(colesOvr.daily).length) {
       Object.entries(colesOvr.daily).forEach(([order_date, skus]) => {
         const wk = monOf(order_date);
         Object.entries(skus).forEach(([sku, pallets]) => {
-          const units = Math.round(pallets * (UPP[sku] || 1));
-          sbRows.push({ week_date: wk, sku, pallets, units, order_date });
+          const key = `${wk}|${sku}`;
+          if (!aggMap[key]) aggMap[key] = { week_date: wk, sku, pallets: 0, units: 0 };
+          aggMap[key].pallets += pallets;
+          aggMap[key].units   += Math.round(pallets * (UPP[sku] || 1));
         });
       });
     } else {
       Object.entries(colesOvr.weekly).forEach(([week_date, skus]) => {
-        Object.entries(skus).forEach(([sku, pallets]) => sbRows.push({ week_date, sku, pallets, units: 0 }));
+        Object.entries(skus).forEach(([sku, obj]) => {
+          const pallets = typeof obj === 'object' ? (obj.total || obj.pallets || 0) : obj;
+          const key = `${week_date}|${sku}`;
+          if (!aggMap[key]) aggMap[key] = { week_date, sku, pallets: 0, units: 0 };
+          aggMap[key].pallets += pallets;
+          aggMap[key].units   += Math.round(pallets * (UPP[sku] || 1));
+        });
       });
     }
+    const sbRows = Object.values(aggMap);
     sbPushUpsert('coles_forecast', sbRows, fname);
   }
 }
@@ -3377,21 +3386,55 @@ async function sbPushUpsert(dataset, rows, filename = '') {
   sbStatus(`⏫ Pushing ${dataset}...`, 'info');
   try {
     const BATCH = 500;
-    for (let i = 0; i < rows.length; i += BATCH) {
+    const batchTs = new Date().toISOString();
+    const stampedRows = rows.map(r => ({ ...r, updated_at: batchTs }));
+
+    // Insert new rows first
+    for (let i = 0; i < stampedRows.length; i += BATCH) {
       const res = await sbFetchTimeout(
         `${SB_URL}/rest/v1/${dataset}`,
         { method: 'POST',
-          headers: { ...sbHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
-          body: JSON.stringify(rows.slice(i, i + BATCH)) },
+          headers: { ...sbHeaders(), 'Prefer': 'return=minimal' },
+          body: JSON.stringify(stampedRows.slice(i, i + BATCH)) },
         SB_TIMEOUT_MS
       );
-      if (!res.ok) { const err = await res.text(); throw new Error('Upsert failed: ' + err); }
+      if (!res.ok) {
+        const err = await res.text();
+        // Duplicate key — old rows still exist, delete them then retry
+        if (err.includes('23505') || err.includes('duplicate')) {
+          sbStatus(`⏫ ${dataset} — clearing old data...`, 'info');
+          await sbFetchTimeout(
+            `${SB_URL}/rest/v1/${dataset}?updated_at=neq.${encodeURIComponent(batchTs)}`,
+            { method: 'DELETE', headers: sbHeaders() },
+            SB_TIMEOUT_MS
+          );
+          // Retry this batch
+          const res2 = await sbFetchTimeout(
+            `${SB_URL}/rest/v1/${dataset}`,
+            { method: 'POST',
+              headers: { ...sbHeaders(), 'Prefer': 'return=minimal' },
+              body: JSON.stringify(stampedRows.slice(i, i + BATCH)) },
+            SB_TIMEOUT_MS
+          );
+          if (!res2.ok) { const e2 = await res2.text(); throw new Error('Insert failed after clear: ' + e2); }
+        } else {
+          throw new Error('Insert failed: ' + err);
+        }
+      }
     }
+
+    // All inserts succeeded — delete any old rows not from this batch
+    await sbFetchTimeout(
+      `${SB_URL}/rest/v1/${dataset}?updated_at=neq.${encodeURIComponent(batchTs)}`,
+      { method: 'DELETE', headers: sbHeaders() },
+      SB_TIMEOUT_MS
+    );
+
     await sbFetchTimeout(
       `${SB_URL}/rest/v1/upload_log`,
       { method: 'POST',
         headers: { ...sbHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
-        body: JSON.stringify([{ dataset, uploaded_at: new Date().toISOString(),
+        body: JSON.stringify([{ dataset, uploaded_at: batchTs,
           row_count: rows.length, filename }]) },
       SB_TIMEOUT_MS
     );
