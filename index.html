@@ -3213,7 +3213,10 @@ function parseWW(wb,fname) {
         const delivDate  = isoD(r['Delivery Date']||null);
         const needArr    = isoD(r['Need Arrival Date']||null);
         const units      = parseInt(r['Planned Order OM']||r['Planned Order Units']||pal*UPP[sku])||0;
-        const week_date  = orderDate ? monOf(orderDate) : null;
+        // Fall back to Week commencing Monday when Order Place Date is null
+        // (happens on occasional WW line items — drops them would lose pallets).
+        const weekMon    = isoD(r['Week commencing Monday']||null);
+        const week_date  = orderDate ? monOf(orderDate) : weekMon;
         if (!week_date) return;
         const key = `${week_date}|${sku}`;
         if (!aggMap[key]) aggMap[key] = { week_date, sku, pallets: 0, units: 0,
