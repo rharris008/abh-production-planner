@@ -1,5 +1,6 @@
 {
   "globalHeaders": {
-    "Content-Security-Policy": "default-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.supabase.co https://cdnjs.cloudflare.com data:;"
+    "Content-Security-Policy": "default-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.supabase.co https://cdnjs.cloudflare.com data:;",
+    "Cache-Control": "no-cache, must-revalidate"
   }
 }

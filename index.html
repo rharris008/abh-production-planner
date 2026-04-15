@@ -2527,28 +2527,52 @@ const INV_MAP_NS = {
   'Pureau 600ml 12 pack': '600ml 12pk',
   'Pureau 600ml 6 pack':  '600ml 6pk',
 };
+// Case-insensitive inventory lookup — handles NetSuite capitalisation variations
+function invLookup(raw) {
+  const clean = raw.replace(/[\s\u00A0]+/g, ' ').trim();
+  if (INV_MAP_NS[clean]) return INV_MAP_NS[clean];
+  const lower = clean.toLowerCase();
+  for (const [k, v] of Object.entries(INV_MAP_NS)) {
+    if (k.toLowerCase() === lower) return v;
+  }
+  return null;
+}
 
 
 function parseInventoryXLSX(arrayBuffer, fname) {
   try {
-    const wb = XLSX.read(arrayBuffer, { type: 'array' });
+    // Convert ArrayBuffer to Uint8Array — SheetJS type:'array' requires array-like, not raw ArrayBuffer
+    const data = new Uint8Array(arrayBuffer);
+    console.log('[Inventory XLSX] Reading file:', fname, 'bytes:', data.length);
+    const wb = XLSX.read(data, { type: 'array' });
+    console.log('[Inventory XLSX] SheetJS parsed OK, sheets:', wb.SheetNames);
     const ws = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(ws, { defval: null, header: 1 });
+    console.log('[Inventory XLSX] Total rows:', rows.length);
 
     let headerRow = -1;
     for (let i = 0; i < rows.length; i++) {
-      if (rows[i] && rows[i][0] === 'Item') { headerRow = i; break; }
+      const cell = rows[i] && rows[i][0];
+      if (cell && cell.toString().replace(/[\s\u00A0]+/g, ' ').trim() === 'Item') { headerRow = i; break; }
     }
-    if (headerRow < 0) return false;
+    if (headerRow < 0) {
+      console.warn('[Inventory XLSX] No "Item" header found. First cells:', rows.slice(0, 10).map(r => r && r[0]));
+      return false;
+    }
+    console.log('[Inventory XLSX] Header at row', headerRow, ':', rows[headerRow]);
 
     const headers = rows[headerRow];
-    const onHandIdx = headers.findIndex(h => h && h.toString().toLowerCase().includes('on hand'));
-    if (onHandIdx < 0) return false;
+    const onHandIdx = headers.findIndex(h => h && h.toString().replace(/[\s\u00A0]+/g, ' ').trim().toLowerCase().includes('on hand'));
+    if (onHandIdx < 0) {
+      console.warn('[Inventory XLSX] No "On Hand" column. Headers:', headers);
+      return false;
+    }
 
     let reportDate = '';
     for (let i = 0; i < headerRow; i++) {
-      if (rows[i] && rows[i][0] && rows[i][0].toString().startsWith('As of')) {
-        reportDate = rows[i][0].toString(); break;
+      const cell = rows[i] && rows[i][0];
+      if (cell && cell.toString().replace(/[\s\u00A0]+/g, ' ').trim().startsWith('As of')) {
+        reportDate = cell.toString().replace(/[\s\u00A0]+/g, ' ').trim(); break;
       }
     }
 
@@ -2558,15 +2582,20 @@ function parseInventoryXLSX(arrayBuffer, fname) {
     for (let r = headerRow + 1; r < rows.length; r++) {
       const row = rows[r];
       if (!row || !row[0]) continue;
-      const sku = INV_MAP_NS[row[0].toString().replace(/[\s\u00A0]+/g, ' ').trim()];
+      const rawVal = row[0].toString();
+      const sku = invLookup(rawVal);
       if (!sku) continue;
       const onHand = parseFloat(row[onHandIdx]) || 0;
       newStock[sku] = Math.floor(onHand / UPP[sku]);
       newUnits[sku] = Math.round(onHand);
+      console.log('[Inventory XLSX] Matched:', rawVal, '->', sku, 'onHand:', onHand);
       updated++;
     }
 
-    if (!updated) return false;
+    if (!updated) {
+      console.warn('[Inventory XLSX] No SKUs matched. Data rows:', rows.slice(headerRow + 1, headerRow + 10).map(r => r && r[0]));
+      return false;
+    }
 
     SKUS.forEach(s => {
       if (newStock[s] !== undefined) {
@@ -2586,56 +2615,122 @@ function parseInventoryXLSX(arrayBuffer, fname) {
 
     const sbRows = SKUS.map(s => ({ sku: s, pallets: newStock[s] || 0, units: newUnits[s] || 0 }));
     sbPush('stock', sbRows);
+    console.log('[Inventory XLSX] Success:', updated, 'SKUs updated');
     return true;
 
   } catch(err) {
-    console.warn('parseInventoryXLSX error:', err.message);
+    console.warn('[Inventory XLSX] Error:', err.message, err.stack);
     return false;
   }
 }
 
 function parseInventory(xmlText, fname) {
   try {
+    console.log('[Inventory XML] Parsing as XML/SpreadsheetML, text length:', xmlText.length);
     const parser = new DOMParser();
-    const doc = parser.parseFromString(xmlText, 'text/xml');
+
+    // Try XML first; if that fails (HTML-as-XLS), try text/html and extract via SheetJS
+    let doc = parser.parseFromString(xmlText, 'text/xml');
+    const parseErr = doc.querySelector('parsererror');
+    if (parseErr) {
+      console.warn('[Inventory XML] XML parse error, trying as HTML:', parseErr.textContent.slice(0, 200));
+      // Attempt SheetJS text parse as last resort
+      try {
+        const wb = XLSX.read(xmlText, { type: 'string' });
+        console.log('[Inventory XML] SheetJS text parse succeeded, delegating to XLSX parser');
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { defval: null, header: 1 });
+        return parseInventoryFromRows(rows, fname);
+      } catch(sheetErr) {
+        console.warn('[Inventory XML] SheetJS text parse also failed:', sheetErr.message);
+      }
+      setStat('Inventory','❌ File is not valid XML or Excel format',false); return;
+    }
+
     const ns = 'urn:schemas-microsoft-com:office:spreadsheet';
     const rows = doc.getElementsByTagNameNS(ns, 'Row');
-    if (!rows.length) { setStat('Inventory','❌ No data found',false); return; }
+    console.log('[Inventory XML] Found', rows.length, 'rows in namespace');
+
+    if (!rows.length) {
+      // Maybe the namespace is wrong — try without namespace
+      const rowsNoNS = doc.getElementsByTagName('Row');
+      console.log('[Inventory XML] Rows without namespace:', rowsNoNS.length);
+      if (!rowsNoNS.length) {
+        // Last resort: try SheetJS on the text
+        console.warn('[Inventory XML] No rows found, trying SheetJS text parse');
+        try {
+          const wb = XLSX.read(xmlText, { type: 'string' });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const sheetRows = XLSX.utils.sheet_to_json(ws, { defval: null, header: 1 });
+          return parseInventoryFromRows(sheetRows, fname);
+        } catch(sheetErr) {
+          console.warn('[Inventory XML] SheetJS text fallback failed:', sheetErr.message);
+        }
+        setStat('Inventory','❌ No data found in file',false); return;
+      }
+    }
 
     let reportDate = '';
     let updated = 0;
     const newStock = {};
     const newUnits = {};
 
+    // Build column index from header row using ss:Index attributes
+    let onHandCol = -1;
+    let headerFound = false;
+
     for (let r = 0; r < rows.length; r++) {
       const cells = rows[r].getElementsByTagNameNS(ns, 'Cell');
-      // Get all data values from this row
+      // Get all data values from this row, respecting ss:Index for column position
       const vals = [];
+      let colPos = 0;
       for (let c = 0; c < cells.length; c++) {
+        const idxAttr = cells[c].getAttribute('ss:Index');
+        if (idxAttr) colPos = parseInt(idxAttr) - 1; // ss:Index is 1-based
         const d = cells[c].getElementsByTagNameNS(ns, 'Data')[0];
-        vals.push(d ? (d.textContent || '').trim() : '');
+        const val = d ? (d.textContent || '').replace(/[\u00A0]+/g, ' ').trim() : '';
+        // Fill any gap with empty strings
+        while (vals.length < colPos) vals.push('');
+        vals.push(val);
+        colPos++;
       }
       if (!vals.length) continue;
 
       const c0 = vals[0];
       if (c0.startsWith('As of')) reportDate = c0;
 
-      const sku = INV_MAP_NS[c0.replace(/[\s\u00A0]+/g, ' ').trim()];
+      // Detect header row to find On Hand column index
+      if (c0 === 'Item' && !headerFound) {
+        headerFound = true;
+        onHandCol = vals.findIndex(v => v.toLowerCase().includes('on hand'));
+        console.log('[Inventory XML] Header found at row', r, 'On Hand at col', onHandCol, 'headers:', vals);
+        continue;
+      }
+
+      const sku = invLookup(c0);
       if (!sku) continue;
 
-      // On hand = last numeric value in the row
+      // Get On Hand value: use column index if found, otherwise scan backwards for last numeric
       let onHand = 0;
-      for (let v = vals.length - 1; v >= 0; v--) {
-        const n = parseFloat(vals[v]);
-        if ((!isNaN(n) && n > 0 && Number.isInteger(n)) || n > 100) { onHand = n; break; }
+      if (onHandCol >= 0 && onHandCol < vals.length) {
+        onHand = parseFloat(vals[onHandCol]) || 0;
+      } else {
+        for (let v = vals.length - 1; v >= 0; v--) {
+          const n = parseFloat(vals[v]);
+          if ((!isNaN(n) && n > 0 && Number.isInteger(n)) || n > 100) { onHand = n; break; }
+        }
       }
       const pallets = Math.floor(onHand / UPP[sku]);
       newStock[sku] = pallets;
       newUnits[sku] = Math.round(onHand);
+      console.log('[Inventory XML] Matched:', c0, '->', sku, 'onHand:', onHand);
       updated++;
     }
 
-    if (!updated) { setStat('Inventory','❌ No Pureau SKUs found',false); return; }
+    if (!updated) {
+      console.warn('[Inventory XML] No SKUs matched after scanning', rows.length, 'rows');
+      setStat('Inventory','❌ No Pureau SKUs found',false); return;
+    }
 
     // Update global stock
     SKUS.forEach(s => {
@@ -2657,10 +2752,69 @@ function parseInventory(xmlText, fname) {
     // Push directly using newStock — guaranteed to have real values
     const sbRows = SKUS.map(s => ({ sku: s, pallets: newStock[s] || 0, units: newUnits[s] || 0 }));
     sbPush('stock', sbRows);
+    console.log('[Inventory XML] Success:', updated, 'SKUs updated');
 
   } catch(err) {
+    console.error('[Inventory XML] Error:', err.message, err.stack);
     setStat('Inventory','❌ Parse error: ' + err.message, false);
   }
+}
+
+// Shared row-based parser used by both XLSX and fallback paths
+function parseInventoryFromRows(rows, fname) {
+  console.log('[Inventory Rows] Parsing', rows.length, 'rows');
+  let headerRow = -1;
+  for (let i = 0; i < rows.length; i++) {
+    const cell = rows[i] && rows[i][0];
+    if (cell && cell.toString().replace(/[\s\u00A0]+/g, ' ').trim() === 'Item') { headerRow = i; break; }
+  }
+  if (headerRow < 0) {
+    console.warn('[Inventory Rows] No Item header. First cells:', rows.slice(0, 8).map(r => r && r[0]));
+    setStat('Inventory','❌ No "Item" column found',false); return false;
+  }
+  const headers = rows[headerRow];
+  const onHandIdx = headers.findIndex(h => h && h.toString().replace(/[\s\u00A0]+/g, ' ').trim().toLowerCase().includes('on hand'));
+  if (onHandIdx < 0) {
+    console.warn('[Inventory Rows] No On Hand column. Headers:', headers);
+    setStat('Inventory','❌ No "On Hand" column found',false); return false;
+  }
+  let reportDate = '';
+  for (let i = 0; i < headerRow; i++) {
+    const cell = rows[i] && rows[i][0];
+    if (cell && cell.toString().replace(/[\s\u00A0]+/g, ' ').trim().startsWith('As of')) {
+      reportDate = cell.toString().replace(/[\s\u00A0]+/g, ' ').trim(); break;
+    }
+  }
+  let updated = 0;
+  const newStock = {}, newUnits = {};
+  for (let r = headerRow + 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || !row[0]) continue;
+    const sku = invLookup(row[0].toString());
+    if (!sku) continue;
+    const onHand = parseFloat(row[onHandIdx]) || 0;
+    newStock[sku] = Math.floor(onHand / UPP[sku]);
+    newUnits[sku] = Math.round(onHand);
+    updated++;
+  }
+  if (!updated) {
+    setStat('Inventory','❌ No Pureau SKUs found',false); return false;
+  }
+  SKUS.forEach(s => {
+    if (newStock[s] !== undefined) { stockPal[s] = newStock[s]; STOCK_UNITS[s] = newUnits[s]; }
+  });
+  const uploadTs = new Date();
+  const tsStr = `${String(uploadTs.getDate()).padStart(2,'0')}/${String(uploadTs.getMonth()+1).padStart(2,'0')}/${uploadTs.getFullYear()} ${String(uploadTs.getHours()).padStart(2,'0')}:${String(uploadTs.getMinutes()).padStart(2,'0')}`;
+  setStat('Inventory', `✓ ${fname}${reportDate ? ' — '+reportDate : ''} — ${updated} SKUs updated`, true);
+  const dtEl = document.getElementById('stockUploadDate');
+  if (dtEl) dtEl.textContent = `Last uploaded: ${tsStr}`;
+  renderStockDetail(newStock, newUnits, reportDate);
+  renderManualStockGrid();
+  onWeekChange();
+  const sbRows = SKUS.map(s => ({ sku: s, pallets: newStock[s] || 0, units: newUnits[s] || 0 }));
+  sbPush('stock', sbRows);
+  console.log('[Inventory Rows] Success:', updated, 'SKUs updated');
+  return true;
 }
 
 function renderStockDetail(stockPalLocal, stockUnitsLocal, reportDate) {
@@ -2731,19 +2885,28 @@ function handleFile(file,retailer) {
     return;
   }
   if (retailer === 'Inventory') {
+    console.log('[Inventory] Upload started:', file.name, 'size:', file.size, 'type:', file.type);
     const reader = new FileReader();
     reader.onload = e => {
+      console.log('[Inventory] ArrayBuffer read complete, byteLength:', e.target.result.byteLength);
       const ok = parseInventoryXLSX(e.target.result, file.name);
       if (!ok) {
-        // XLSX parse failed or found no data — retry as text (handles NetSuite HTML-as-XLS exports)
-        console.warn('XLSX parse did not find data, retrying as text/XML');
+        // XLSX parse failed or found no data — retry as text (handles NetSuite XML-as-XLS and HTML-as-XLS exports)
+        console.warn('[Inventory] XLSX path returned false, retrying as text/XML');
         const textReader = new FileReader();
         textReader.onload = e2 => {
           try { parseInventory(e2.target.result, file.name); }
-          catch(err2) { setStat('Inventory', '❌ Could not parse file. Try opening in Excel and re-saving as .xlsx', false); }
+          catch(err2) {
+            console.error('[Inventory] XML path also failed:', err2.message, err2.stack);
+            setStat('Inventory', '❌ Could not parse file. Try opening in Excel and re-saving as .xlsx', false);
+          }
         };
         textReader.readAsText(file, 'UTF-8');
       }
+    };
+    reader.onerror = e => {
+      console.error('[Inventory] FileReader error:', e);
+      setStat('Inventory', '❌ Could not read file', false);
     };
     reader.readAsArrayBuffer(file);
     return;
