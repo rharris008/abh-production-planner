@@ -3896,6 +3896,7 @@ function applyStockFromSB(rows) {
     sbStatus(`⚠ Stock table has ${rows.length}/${SKUS.length} rows — re-seed required`, 'warn');
   } else {
     setStat('Inventory', `✓ ${tsLabel}`, true);
+    document.getElementById('dzInventory')?.classList.add('dz-loaded');
   }
 
   // Update the "Last uploaded" label in the Current Stock panel
