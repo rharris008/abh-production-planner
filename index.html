@@ -2950,6 +2950,7 @@ function handleFile(file,retailer) {
       }
 
       // ── Route to correct parser ─────────────────────────────────────────────
+      console.log(`[Upload] Detected retailer: ${detectedRetailer} for file: ${file.name} (hint: ${retailer})`);
       if (detectedRetailer === 'WW')      parseWW(wb, file.name);
       else if (detectedRetailer === 'Coles')   parseColes(wb, file.name);
       else if (detectedRetailer === 'Metcash') parseMetcashWB(wb, file.name);
@@ -2958,6 +2959,7 @@ function handleFile(file,retailer) {
     } catch(err) {
       setStat(retailer, '❌ Error: ' + err.message, false);
       console.error('smartParse error:', err);
+      alert(`File parse error for ${retailer}:\n${err.message}\n\nCheck the file format and try again.`);
     }
   };
   reader.readAsArrayBuffer(file);
@@ -2989,7 +2991,7 @@ function detectRetailer(wb, fname, hintRetailer) {
     if (CO_ITEMS.has(cell)) return 'Coles';
   }
   // Coles: filename often contains 'coles' or 'NOBLES_ORDER'
-  if (fname.toLowerCase().includes('coles') || fname.toLowerCase().includes('nobles_order')) return 'Coles';
+  if (fname.toLowerCase().includes('coles') || fname.toLowerCase().includes('nobles_order') || fname.toLowerCase().includes('nobles order')) return 'Coles';
 
   // WW: check first sheet for Pack Group column
   const headers = firstRow;
@@ -3668,6 +3670,7 @@ async function sbPushUpsert(dataset, rows, filename = '') {
   } catch(e) {
     sbStatus(`⚠ ${dataset} push failed: ${e.message}`, 'err');
     console.error('sbPushUpsert error:', e);
+    alert(`Upload to Supabase failed for ${dataset}:\n${e.message}\n\nThe file was parsed OK but did not sync. Check console (F12) for details.`);
   }
 }
 
