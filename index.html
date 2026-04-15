@@ -2541,10 +2541,8 @@ function invLookup(raw) {
 
 function parseInventoryXLSX(arrayBuffer, fname) {
   try {
-    // Convert ArrayBuffer to Uint8Array — SheetJS type:'array' requires array-like, not raw ArrayBuffer
-    const data = new Uint8Array(arrayBuffer);
-    console.log('[Inventory XLSX] Reading file:', fname, 'bytes:', data.length);
-    const wb = XLSX.read(data, { type: 'array' });
+    console.log('[Inventory XLSX] Reading file:', fname, 'bytes:', arrayBuffer.byteLength);
+    const wb = XLSX.read(arrayBuffer, { type: 'array' });
     console.log('[Inventory XLSX] SheetJS parsed OK, sheets:', wb.SheetNames);
     const ws = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(ws, { defval: null, header: 1 });
