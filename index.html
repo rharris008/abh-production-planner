@@ -2627,8 +2627,15 @@ function parseInventory(xmlText, fname) {
     console.log('[Inventory XML] Parsing as XML/SpreadsheetML, text length:', xmlText.length);
     const parser = new DOMParser();
 
+    // NetSuite exports can contain bare ampersands (e.g. "MANN & NOBLE") which is invalid XML.
+    // Sanitise: replace & that isn't already part of &amp; &lt; &gt; &quot; &apos; or &#nnn;
+    const sanitised = xmlText.replace(/&(?!amp;|lt;|gt;|quot;|apos;|#\d+;|#x[0-9a-fA-F]+;)/gi, '&amp;');
+    if (sanitised !== xmlText) {
+      console.log('[Inventory XML] Sanitised', (sanitised.length - xmlText.length), 'bare ampersand(s)');
+    }
+
     // Try XML first; if that fails (HTML-as-XLS), try text/html and extract via SheetJS
-    let doc = parser.parseFromString(xmlText, 'text/xml');
+    let doc = parser.parseFromString(sanitised, 'text/xml');
     const parseErr = doc.querySelector('parsererror');
     if (parseErr) {
       console.warn('[Inventory XML] XML parse error, trying as HTML:', parseErr.textContent.slice(0, 200));
