@@ -2620,7 +2620,7 @@ function parseInventory(xmlText, fname) {
       const c0 = vals[0];
       if (c0.startsWith('As of')) reportDate = c0;
 
-      const sku = INV_MAP_NS[c0];
+      const sku = INV_MAP_NS[c0.replace(/[\s\u00A0]+/g, ' ').trim()];
       if (!sku) continue;
 
       // On hand = last numeric value in the row
