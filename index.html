@@ -3534,18 +3534,27 @@ async function sbPush(dataset, rows, isRetry = false, filename = '') {
         SB_TIMEOUT_MS
       );
     }
-    // Update upload_log: delete old entry then insert new (no unique constraint on dataset)
-    await sbFetchTimeout(
+    // Update upload_log: PATCH existing row (unique constraint on dataset, RLS blocks DELETE)
+    const logTs = new Date().toISOString();
+    const logRes = await sbFetchTimeout(
       `${SB_URL}/rest/v1/upload_log?dataset=eq.${encodeURIComponent(dataset)}`,
-      { method: 'DELETE', headers: sbHeaders() },
+      { method: 'PATCH', headers: { ...sbHeaders(), 'Prefer': 'return=minimal' },
+        body: JSON.stringify({ uploaded_at: logTs, filename: filename || '' }) },
       SB_TIMEOUT_MS
     );
-    await sbFetchTimeout(
-      `${SB_URL}/rest/v1/upload_log`,
-      { method: 'POST', headers: { ...sbHeaders(), 'Prefer': 'return=minimal' },
-        body: JSON.stringify([{ dataset, uploaded_at: new Date().toISOString(), filename: filename || '' }]) },
-      SB_TIMEOUT_MS
-    );
+    // If PATCH matched nothing (no existing row), insert instead
+    if (logRes.status === 200 || logRes.status === 204) {
+      // Check if rows were actually affected — if 0 rows matched, insert
+      const ct = logRes.headers.get('content-range');
+      if (ct && ct.endsWith('/0')) {
+        await sbFetchTimeout(
+          `${SB_URL}/rest/v1/upload_log`,
+          { method: 'POST', headers: { ...sbHeaders(), 'Prefer': 'return=minimal' },
+            body: JSON.stringify([{ dataset, uploaded_at: logTs, filename: filename || '' }]) },
+          SB_TIMEOUT_MS
+        );
+      }
+    }
     const ts = new Date().toLocaleString('en-AU', { timeZone: 'Australia/Brisbane', hour12: false });
     sbStatus(`✓ ${dataset} synced — ${ts}`, 'ok');
     delete sbPushQueue[dataset];  // clear from retry queue on success
@@ -3636,20 +3645,24 @@ async function sbPushUpsert(dataset, rows, filename = '') {
       SB_TIMEOUT_MS
     );
 
-    // Update upload_log: delete old entry then insert new (no unique constraint on dataset)
-    await sbFetchTimeout(
+    // Update upload_log: PATCH existing row (unique constraint on dataset, RLS blocks DELETE)
+    const logRes = await sbFetchTimeout(
       `${SB_URL}/rest/v1/upload_log?dataset=eq.${encodeURIComponent(dataset)}`,
-      { method: 'DELETE', headers: sbHeaders() },
+      { method: 'PATCH', headers: { ...sbHeaders(), 'Prefer': 'return=minimal' },
+        body: JSON.stringify({ uploaded_at: batchTs, filename: filename || '' }) },
       SB_TIMEOUT_MS
     );
-    await sbFetchTimeout(
-      `${SB_URL}/rest/v1/upload_log`,
-      { method: 'POST',
-        headers: { ...sbHeaders(), 'Prefer': 'return=minimal' },
-        body: JSON.stringify([{ dataset, uploaded_at: batchTs,
-          filename }]) },
-      SB_TIMEOUT_MS
-    );
+    if (logRes.status === 200 || logRes.status === 204) {
+      const ct = logRes.headers.get('content-range');
+      if (ct && ct.endsWith('/0')) {
+        await sbFetchTimeout(
+          `${SB_URL}/rest/v1/upload_log`,
+          { method: 'POST', headers: { ...sbHeaders(), 'Prefer': 'return=minimal' },
+            body: JSON.stringify([{ dataset, uploaded_at: batchTs, filename: filename || '' }]) },
+          SB_TIMEOUT_MS
+        );
+      }
+    }
     const ts = new Date().toLocaleString('en-AU', { timeZone: 'Australia/Brisbane', hour12: false });
     sbStatus(`✓ ${dataset} synced — ${ts}`, 'ok');
   } catch(e) {
