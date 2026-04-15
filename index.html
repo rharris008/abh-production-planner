@@ -3671,58 +3671,47 @@ async function sbForcePush() {
 }
 
 
-// Upsert push — for tables with unique constraints (actuals).
-// Uses Prefer: resolution=merge-duplicates so existing rows are updated in place.
+// Unique-constraint columns per dataset — used for PostgREST on_conflict.
+// These must match the real UNIQUE constraints in Supabase.
+const SB_CONFLICT_KEYS = {
+  ww_forecast:      'week_date,sku',
+  coles_forecast:   'week_date,sku',
+  metcash_forecast: 'week_date,sku',
+  actuals:          'production_date,shift,sku',
+};
+
+// True upsert — POST with resolution=merge-duplicates + on_conflict.
+// Rows with a colliding unique key are updated in place; new rows are inserted.
+// No DELETE is required (and DELETE is blocked by RLS on the anon key anyway,
+// which is why the previous insert+delete+retry pattern failed on every upload).
 async function sbPushUpsert(dataset, rows, filename = '') {
   if (!rows || !rows.length) return;
+  const conflict = SB_CONFLICT_KEYS[dataset];
+  if (!conflict) {
+    sbStatus(`⚠ ${dataset}: no on_conflict key configured`, 'err');
+    return;
+  }
   sbStatus(`⏫ Pushing ${dataset}...`, 'info');
   try {
     const BATCH = 500;
     const batchTs = new Date().toISOString();
     const stampedRows = rows.map(r => ({ ...r, updated_at: batchTs }));
 
-    // Insert new rows first
     for (let i = 0; i < stampedRows.length; i += BATCH) {
       const res = await sbFetchTimeout(
-        `${SB_URL}/rest/v1/${dataset}`,
+        `${SB_URL}/rest/v1/${dataset}?on_conflict=${encodeURIComponent(conflict)}`,
         { method: 'POST',
-          headers: { ...sbHeaders(), 'Prefer': 'return=minimal' },
+          headers: { ...sbHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
           body: JSON.stringify(stampedRows.slice(i, i + BATCH)) },
         SB_TIMEOUT_MS
       );
       if (!res.ok) {
         const err = await res.text();
-        // Duplicate key — old rows still exist, delete them then retry
-        if (err.includes('23505') || err.includes('duplicate')) {
-          sbStatus(`⏫ ${dataset} — clearing old data...`, 'info');
-          await sbFetchTimeout(
-            `${SB_URL}/rest/v1/${dataset}?updated_at=neq.${encodeURIComponent(batchTs)}`,
-            { method: 'DELETE', headers: sbHeaders() },
-            SB_TIMEOUT_MS
-          );
-          // Retry this batch
-          const res2 = await sbFetchTimeout(
-            `${SB_URL}/rest/v1/${dataset}`,
-            { method: 'POST',
-              headers: { ...sbHeaders(), 'Prefer': 'return=minimal' },
-              body: JSON.stringify(stampedRows.slice(i, i + BATCH)) },
-            SB_TIMEOUT_MS
-          );
-          if (!res2.ok) { const e2 = await res2.text(); throw new Error('Insert failed after clear: ' + e2); }
-        } else {
-          throw new Error('Insert failed: ' + err);
-        }
+        throw new Error(`Upsert failed (batch ${Math.floor(i/BATCH)+1}): ${err}`);
       }
     }
 
-    // All inserts succeeded — delete any old rows not from this batch
-    await sbFetchTimeout(
-      `${SB_URL}/rest/v1/${dataset}?updated_at=neq.${encodeURIComponent(batchTs)}`,
-      { method: 'DELETE', headers: sbHeaders() },
-      SB_TIMEOUT_MS
-    );
-
-    // Update upload_log: PATCH existing row (unique constraint on dataset, RLS blocks DELETE)
+    // Upload log — PATCH existing row or POST a new one.
     const logRes = await sbFetchTimeout(
       `${SB_URL}/rest/v1/upload_log?dataset=eq.${encodeURIComponent(dataset)}`,
       { method: 'PATCH', headers: { ...sbHeaders(), 'Prefer': 'return=minimal' },
