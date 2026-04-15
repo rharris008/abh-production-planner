@@ -2612,7 +2612,7 @@ function parseInventoryXLSX(arrayBuffer, fname) {
     onWeekChange();
 
     const sbRows = SKUS.map(s => ({ sku: s, pallets: newStock[s] || 0, units: newUnits[s] || 0 }));
-    sbPush('stock', sbRows);
+    sbPush('stock', sbRows, false, fname);
     console.log('[Inventory XLSX] Success:', updated, 'SKUs updated');
     return true;
 
@@ -2756,7 +2756,7 @@ function parseInventory(xmlText, fname) {
 
     // Push directly using newStock — guaranteed to have real values
     const sbRows = SKUS.map(s => ({ sku: s, pallets: newStock[s] || 0, units: newUnits[s] || 0 }));
-    sbPush('stock', sbRows);
+    sbPush('stock', sbRows, false, fname);
     console.log('[Inventory XML] Success:', updated, 'SKUs updated');
 
   } catch(err) {
@@ -2817,7 +2817,7 @@ function parseInventoryFromRows(rows, fname) {
   renderManualStockGrid();
   onWeekChange();
   const sbRows = SKUS.map(s => ({ sku: s, pallets: newStock[s] || 0, units: newUnits[s] || 0 }));
-  sbPush('stock', sbRows);
+  sbPush('stock', sbRows, false, fname);
   console.log('[Inventory Rows] Success:', updated, 'SKUs updated');
   return true;
 }
@@ -3505,11 +3505,12 @@ async function sbPush(dataset, rows, isRetry = false, filename = '') {
     if (dataset === 'stock') {
       if (!rows || !rows.length) { sbStatus('✓ stock cleared', 'ok'); return; }
       for (const row of rows) {
-        await sbFetchTimeout(
+        const res = await sbFetchTimeout(
           `${SB_URL}/rest/v1/stock?sku=eq.${encodeURIComponent(row.sku)}`,
           { method: 'PATCH', headers: { ...sbHeaders(), 'Prefer': 'return=minimal' }, body: JSON.stringify({ pallets: row.pallets, units: row.units, updated_at: new Date().toISOString() }) },
           SB_TIMEOUT_MS
         );
+        if (!res.ok) { const err = await res.text(); throw new Error('Stock PATCH failed for ' + row.sku + ': ' + err); }
       }
     } else {
       if (!rows || !rows.length) {
@@ -3726,7 +3727,9 @@ async function sbPull() {
             }
           }
           // Update individual drop zone statuses with last upload time
+          // Skip 'stock' dataset — applyStockFromSB already sets the correct date from the actual data rows
           logData.forEach(l => {
+            if (l.dataset === 'stock') return;
             const statId = dsToStat[l.dataset];
             if (!statId) return;
             const el = document.getElementById(statId);
@@ -3736,7 +3739,7 @@ async function sbPull() {
                        d.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Brisbane',hour12:false});
             el.textContent = `✓ Last synced ${ts}`;
             el.style.color = 'var(--green)';
-            document.getElementById('dz' + (l.dataset==='ww_forecast'?'WW':l.dataset==='coles_forecast'?'Coles':l.dataset==='metcash_forecast'?'Metcash':l.dataset==='stock'?'Inventory':'Actuals'))?.classList.add('dz-loaded');
+            document.getElementById('dz' + (l.dataset==='ww_forecast'?'WW':l.dataset==='coles_forecast'?'Coles':l.dataset==='metcash_forecast'?'Metcash':'Actuals'))?.classList.add('dz-loaded');
           });
         }
       } catch(e) { /* audit display is non-critical */ }
