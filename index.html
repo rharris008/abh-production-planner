@@ -3756,11 +3756,18 @@ async function sbPull() {
       }
       return;
     }
-    // Pull all forecast tables directly — don't rely solely on upload_log being populated
+    // Pull all forecast tables directly — don't rely solely on upload_log being populated.
+    // Forecast pulls are date-bounded: only the last 14 days plus everything forward.
+    // This stops historic rows (kept for audit) from bloating the page.
+    const todayMinus14 = (() => {
+      const d = new Date(); d.setDate(d.getDate() - 14);
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    })();
+    const forecastQuery = `select=*&week_date=gte.${todayMinus14}&order=week_date&limit=10000`;
     const loaded = [];
-    const rWW  = await sbFetch('ww_forecast');      if (rWW  && rWW.length)  { applyWWFromSB(rWW);       loaded.push('WW'); }
-    const rCo  = await sbFetch('coles_forecast');   if (rCo  && rCo.length)  { applyColesFromSB(rCo);    loaded.push('Coles'); }
-    const rMc  = await sbFetch('metcash_forecast'); if (rMc  && rMc.length)  { applyMetcashFromSB(rMc);  loaded.push('Metcash'); }
+    const rWW  = await sbFetch(`ww_forecast?${forecastQuery}`);       if (rWW  && rWW.length)  { applyWWFromSB(rWW);       loaded.push('WW'); }
+    const rCo  = await sbFetch(`coles_forecast?${forecastQuery}`);    if (rCo  && rCo.length)  { applyColesFromSB(rCo);    loaded.push('Coles'); }
+    const rMc  = await sbFetch(`metcash_forecast?${forecastQuery}`);  if (rMc  && rMc.length)  { applyMetcashFromSB(rMc);  loaded.push('Metcash'); }
     const rAct = await sbFetch('actuals');           if (rAct && rAct.length) { applyActualsFromSB(rAct); loaded.push('Actuals'); }
     const rSt  = await sbFetch('stock');             if (rSt  && rSt.length)  { applyStockFromSB(rSt);   loaded.push('Stock'); }
     const rPH  = await sbFetch('public_holidays');   if (rPH  && rPH.length)  { applyPublicHolidays(rPH); loaded.push('Holidays'); }
