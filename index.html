@@ -3534,9 +3534,15 @@ async function sbPush(dataset, rows, isRetry = false, filename = '') {
         SB_TIMEOUT_MS
       );
     }
+    // Update upload_log: delete old entry then insert new (no unique constraint on dataset)
+    await sbFetchTimeout(
+      `${SB_URL}/rest/v1/upload_log?dataset=eq.${encodeURIComponent(dataset)}`,
+      { method: 'DELETE', headers: sbHeaders() },
+      SB_TIMEOUT_MS
+    );
     await sbFetchTimeout(
       `${SB_URL}/rest/v1/upload_log`,
-      { method: 'POST', headers: { ...sbHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+      { method: 'POST', headers: { ...sbHeaders(), 'Prefer': 'return=minimal' },
         body: JSON.stringify([{ dataset, uploaded_at: new Date().toISOString(), filename: filename || '' }]) },
       SB_TIMEOUT_MS
     );
@@ -3630,10 +3636,16 @@ async function sbPushUpsert(dataset, rows, filename = '') {
       SB_TIMEOUT_MS
     );
 
+    // Update upload_log: delete old entry then insert new (no unique constraint on dataset)
+    await sbFetchTimeout(
+      `${SB_URL}/rest/v1/upload_log?dataset=eq.${encodeURIComponent(dataset)}`,
+      { method: 'DELETE', headers: sbHeaders() },
+      SB_TIMEOUT_MS
+    );
     await sbFetchTimeout(
       `${SB_URL}/rest/v1/upload_log`,
       { method: 'POST',
-        headers: { ...sbHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+        headers: { ...sbHeaders(), 'Prefer': 'return=minimal' },
         body: JSON.stringify([{ dataset, uploaded_at: batchTs,
           filename }]) },
       SB_TIMEOUT_MS
@@ -3726,21 +3738,8 @@ async function sbPull() {
               auditPanel.style.display = '';
             }
           }
-          // Update individual drop zone statuses with last upload time
-          // Skip 'stock' dataset — applyStockFromSB already sets the correct date from the actual data rows
-          logData.forEach(l => {
-            if (l.dataset === 'stock') return;
-            const statId = dsToStat[l.dataset];
-            if (!statId) return;
-            const el = document.getElementById(statId);
-            if (!el) return;
-            const d = new Date(l.uploaded_at);
-            const ts = d.toLocaleDateString('en-AU',{day:'2-digit',month:'2-digit'}) + ' ' +
-                       d.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Brisbane',hour12:false});
-            el.textContent = `✓ Last synced ${ts}`;
-            el.style.color = 'var(--green)';
-            document.getElementById('dz' + (l.dataset==='ww_forecast'?'WW':l.dataset==='coles_forecast'?'Coles':l.dataset==='metcash_forecast'?'Metcash':'Actuals'))?.classList.add('dz-loaded');
-          });
+          // Pill dates are set by each apply*FromSB function using the actual data rows' updated_at.
+          // upload_log is only used for the audit panel above — never overwrite pill text from here.
         }
       } catch(e) { /* audit display is non-critical */ }
     } else {
