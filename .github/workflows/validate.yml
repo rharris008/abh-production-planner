@@ -5,6 +5,9 @@ name: Validate HTML + inline JS
 # libraries and non-JS types). Fails the run if anything is broken.
 # Purpose: stop "git push and pray" — catch syntax errors before GH
 # Pages ships a broken single-page app to production.
+#
+# On failure, posts a short alert to Rob's Telegram via the bot API.
+# Requires repo secret TELEGRAM_BOT_TOKEN; skips gracefully if absent.
 
 on:
   push:
@@ -42,3 +45,25 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Result:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
           echo "**Target:** index.html" >> $GITHUB_STEP_SUMMARY
+
+      - name: Notify Rob on failure (Telegram)
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ]; then
+            echo "TELEGRAM_BOT_TOKEN secret not set in this repo; skipping notification."
+            echo "To enable: Settings → Secrets and variables → Actions → New repository secret"
+            echo "  Name: TELEGRAM_BOT_TOKEN"
+            echo "  Value: your Telegram bot token (same across all repos)"
+            exit 0
+          fi
+          MESSAGE=$'\xE2\x9D\x8C *CI failure*\n\nRepo: `${{ github.repository }}`\nWorkflow: `${{ github.workflow }}`\nCommit: `${{ github.sha }}`\n\n[View run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})'
+          curl -sS -X POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=8569963998" \
+            --data-urlencode "text=${MESSAGE}" \
+            -d "parse_mode=Markdown" \
+            -d "disable_web_page_preview=true" \
+            > /dev/null
+          echo "Telegram alert posted."
