@@ -1860,13 +1860,15 @@ function parseMetcash(text, fname) {
   const arrivIdx   = headers.findIndex(h=>h==='NEEDARRIVDATE');
   if(itemIdx<0||qtyIdx<0){setStat('Metcash','❌ Unrecognised format',false);return;}
   const weekly={};const daily={};const orders=[];let cnt=0;
+  const weeklyUnits={};                 // accumulate units per (week,sku) for unit-first ceiling
+  const unmatched={};                   // {itemCode: count}
   for(let i=1;i<lines.length;i++){
     const cols=lines[i].split(',').map(c=>c.replace(/"/g,'').trim());
     if(!cols[itemIdx])continue;
     const item=parseInt(cols[itemIdx]);
-    const sku=ITEM_MAP[item];if(!sku)continue;
+    const sku=ITEM_MAP[item];
+    if(!sku){ if(!isNaN(item)) unmatched[item]=(unmatched[item]||0)+1; continue; }
     const qty=parseFloat((cols[qtyIdx]||'0').replace(/,/g,''))||0;if(!qty)continue;
-    const pallets=Math.ceil(qty/UPP_LOCAL[sku]);
     const shipRaw=cols[shipIdx]||'';
     const arrivRaw=cols[arrivIdx]||'';
     // Parse DD.MM.YYYY
@@ -1878,17 +1880,32 @@ function parseMetcash(text, fname) {
     const d=new Date(arriv+'T00:00:00');
     const mon=new Date(d);mon.setDate(d.getDate()-d.getDay()+(d.getDay()===0?-6:1));
     const week=`${mon.getFullYear()}-${String(mon.getMonth()+1).padStart(2,'0')}-${String(mon.getDate()).padStart(2,'0')}`;
-    if(!weekly[week])weekly[week]={};
-    weekly[week][sku]=(weekly[week][sku]||0)+pallets;
+    // Accumulate units at week granularity — ceiling applied once at the end.
+    if(!weeklyUnits[week])weeklyUnits[week]={};
+    weeklyUnits[week][sku]=(weeklyUnits[week][sku]||0)+qty;
+    // Daily stays per-cell (each ship date is its own dispatch event).
+    const dayPallets=Math.ceil(qty/UPP_LOCAL[sku]);
     if(!daily[ship])daily[ship]={};
-    daily[ship][sku]=(daily[ship][sku]||0)+pallets;
+    daily[ship][sku]=(daily[ship][sku]||0)+dayPallets;
     orders.push({sku,order_date:ship,need_arrival:arriv,dispatch_by:ship,
-      units:Math.round(qty),pallets});
+      units:Math.round(qty),pallets:dayPallets});
     cnt++;
   }
+  // Finalise weekly with units-first ceiling — prevents fractional inflation
+  Object.entries(weeklyUnits).forEach(([wk,skus])=>{
+    weekly[wk]={};
+    Object.entries(skus).forEach(([sku,u])=>{ weekly[wk][sku]=Math.ceil(u/UPP_LOCAL[sku]); });
+  });
   metcashOvr={weekly,daily,orders};
   rebuildData();
-  setStat('Metcash',`✓ ${fname} — ${cnt} lines, ${Object.keys(weekly).length} weeks`,true);
+  const unmatchedKeys=Object.keys(unmatched);
+  let msg=`✓ ${fname} — ${cnt} lines, ${Object.keys(weekly).length} weeks`;
+  if(unmatchedKeys.length){
+    const total=Object.values(unmatched).reduce((a,b)=>a+b,0);
+    msg+=` ⚠ ${total} rows skipped (unknown items: ${unmatchedKeys.slice(0,5).join(', ')}${unmatchedKeys.length>5?'…':''})`;
+    console.warn('[Metcash] unmatched items:',unmatched);
+  }
+  setStat('Metcash',msg,true);
   // Push to Supabase
   if (metcashOvr) {
     const sbRows = [];
@@ -3020,15 +3037,17 @@ function parseMetcashWB(wb, fname) {
 
   const ITEM_MAP = { 363830: '2L Bottle', 415205: '5L Cask', 887389: '10L Cask' };
   const weekly = {}, daily = {}, orders = [];
+  const weeklyUnits = {};        // units-first ceiling accumulator
+  const unmatched = {};
   let cnt = 0;
 
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     if (!row || !row[itemIdx]) continue;
     const item = parseInt(String(row[itemIdx]).replace(/\D/g,''));
-    const sku = ITEM_MAP[item]; if (!sku) continue;
+    const sku = ITEM_MAP[item];
+    if (!sku) { if (!isNaN(item)) unmatched[item] = (unmatched[item]||0)+1; continue; }
     const qty = parseFloat(String(row[qtyIdx] || '0').replace(/,/g, '')) || 0; if (!qty) continue;
-    const pallets = Math.ceil(qty / UPP[sku]);
 
     // Dates from SheetJS may be Date objects or DD.MM.YYYY strings
     const parseD = v => {
@@ -3047,17 +3066,31 @@ function parseMetcashWB(wb, fname) {
     if (!ship || !arriv) continue;
 
     const week = monOf(arriv);
-    if (!weekly[week]) weekly[week] = {};
-    weekly[week][sku] = (weekly[week][sku] || 0) + pallets;
+    // Accumulate units at week granularity; ceiling applied once at finalise.
+    if (!weeklyUnits[week]) weeklyUnits[week] = {};
+    weeklyUnits[week][sku] = (weeklyUnits[week][sku] || 0) + qty;
+    const dayPallets = Math.ceil(qty / UPP[sku]);
     if (!daily[ship]) daily[ship] = {};
-    daily[ship][sku] = (daily[ship][sku] || 0) + pallets;
-    orders.push({ sku, order_date: ship, need_arrival: arriv, dispatch_by: ship, units: Math.round(qty), pallets });
+    daily[ship][sku] = (daily[ship][sku] || 0) + dayPallets;
+    orders.push({ sku, order_date: ship, need_arrival: arriv, dispatch_by: ship, units: Math.round(qty), pallets: dayPallets });
     cnt++;
   }
+  // Finalise weekly with units-first ceiling
+  Object.entries(weeklyUnits).forEach(([wk,skus])=>{
+    weekly[wk] = {};
+    Object.entries(skus).forEach(([sku,u])=>{ weekly[wk][sku] = Math.ceil(u / UPP[sku]); });
+  });
 
   metcashOvr = { weekly, daily, orders };
   rebuildData();
-  setStat('Metcash', `✓ ${fname} — ${cnt} lines, ${Object.keys(weekly).length} weeks`, true);
+  const unmatchedKeys = Object.keys(unmatched);
+  let msg = `✓ ${fname} — ${cnt} lines, ${Object.keys(weekly).length} weeks`;
+  if (unmatchedKeys.length) {
+    const total = Object.values(unmatched).reduce((a,b)=>a+b,0);
+    msg += ` ⚠ ${total} rows skipped (unknown items: ${unmatchedKeys.slice(0,5).join(', ')}${unmatchedKeys.length>5?'…':''})`;
+    console.warn('[Metcash] unmatched items:', unmatched);
+  }
+  setStat('Metcash', msg, true);
   const sbRows = [];
   Object.entries(metcashOvr.weekly).forEach(([week_date, skus]) => {
     Object.entries(skus).forEach(([sku, pallets]) => sbRows.push({ week_date, sku, pallets }));
@@ -3076,6 +3109,8 @@ function parseWW(wb,fname) {
   const rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{defval:null,cellDates:true});
   const weekly={};const daily={};let cnt=0;
   let orderLines = [];
+  const weeklyUnits = {};   // units-first ceiling accumulator
+  const unmatched = {};     // pack-group → row count
   // Detect pivot structure (Projected orders by Week) vs line-item structure (Planned orders)
   const isPivot = rows.length > 0 && rows[0]['Pack Group'] !== undefined &&
     Object.keys(rows[0]).some(k => { try { return new Date(k).getFullYear() > 2020; } catch(e){ return false; }});
@@ -3102,17 +3137,18 @@ function parseWW(wb,fname) {
     }
     rows.forEach(r=>{
       const pg=(r['Pack Group']||'').toString().trim();
-      const sku=WW_SMAP[pg];if(!sku)return;
+      if(!pg||pg.endsWith(' Total')||pg==='Grand Total')return;
+      const sku=WW_SMAP[pg];
+      if(!sku){ unmatched[pg]=(unmatched[pg]||0)+1; return; }
       Object.entries(r).forEach(([k,v])=>{
         if(!v||isNaN(v)||v<=0)return;
         const dt=safeDateWW(k);
         if(!dt)return;
         const units=parseFloat(v);
+        // Accumulate units per (week,sku); ceiling applied once at finalise.
+        if(!weeklyUnits[dt])weeklyUnits[dt]={};
+        weeklyUnits[dt][sku]=(weeklyUnits[dt][sku]||0)+units;
         const pal=Math.ceil(units/UPP[sku]);
-        if(!weekly[dt])weekly[dt]={};
-        weekly[dt][sku]=(weekly[dt][sku]||0)+pal;
-        // Pivot: use the week date as both order_date and need_arrival
-        // This gives the dispatch calendar WW data even from pivot format
         const wk = monOf(dt);
         orderLines.push({sku, week:wk, order_date:dt, delivery_date:dt, need_arrival:dt, units:Math.round(units), pallets:pal});
         cnt++;
@@ -3122,7 +3158,9 @@ function parseWW(wb,fname) {
     // Line-item: each row is an order line
     rows.forEach(r=>{
       const pg=(r['Pack Group']||'').toString().trim();
-      const sku=WW_SMAP[pg];if(!sku)return;
+      if(!pg||pg.endsWith(' Total')||pg==='Grand Total')return;
+      const sku=WW_SMAP[pg];
+      if(!sku){ unmatched[pg]=(unmatched[pg]||0)+1; return; }
       const pal=parseInt(r['Planned Order Pallets']||0);if(!pal)return;
       const week=isoD(r['Week commencing Monday']);
       const arrival=isoD(r['Need Arrival Date']);
@@ -3140,10 +3178,25 @@ function parseWW(wb,fname) {
       cnt++;
     });
   }
+  // Finalise weekly with units-first ceiling (pivot path). Line-item path
+  // already stored pallets directly per pre-aggregated cell.
+  Object.entries(weeklyUnits).forEach(([wk,skus])=>{
+    if(!weekly[wk])weekly[wk]={};
+    Object.entries(skus).forEach(([sku,u])=>{
+      weekly[wk][sku]=(weekly[wk][sku]||0)+Math.ceil(u/UPP[sku]);
+    });
+  });
   wwOverride={weekly,daily,orders:orderLines};
   rebuildData();
   const pivotNote = isPivot ? ' (pivot format)' : '';
-  setStat('WW',`✓ ${fname} — ${cnt} lines, ${Object.keys(weekly).length} weeks${pivotNote}`,true);
+  const unmatchedKeysWW = Object.keys(unmatched);
+  let msgWW = `✓ ${fname} — ${cnt} lines, ${Object.keys(weekly).length} weeks${pivotNote}`;
+  if (unmatchedKeysWW.length) {
+    const total = Object.values(unmatched).reduce((a,b)=>a+b,0);
+    msgWW += ` ⚠ ${total} rows skipped (unknown pack groups: ${unmatchedKeysWW.slice(0,5).join(', ')}${unmatchedKeysWW.length>5?'…':''})`;
+    console.warn('[WW] unmatched pack groups:', unmatched);
+  }
+  setStat('WW', msgWW, true);
   // Push to Supabase — always use Planned orders sheet for line-item detail
   (function() {
     // Aggregate by week_date+sku before pushing — prevents duplicate key errors
@@ -3169,12 +3222,20 @@ function parseWW(wb,fname) {
         aggMap[key].units   += units;
       });
     }
-    // Fallback to weekly aggregates if no line-item rows found
+    // Fallback to weekly aggregates if no line-item rows found.
+    // Derive dispatch-calendar metadata from the week so the downstream
+    // dispatch view still has something to render, even without a
+    // Planned orders sheet.
     if (!Object.keys(aggMap).length) {
       Object.entries(wwOverride.weekly).forEach(([week_date, skus]) => {
         Object.entries(skus).forEach(([sku, pallets]) => {
           const key = `${week_date}|${sku}`;
-          if (!aggMap[key]) aggMap[key] = { week_date, sku, pallets: 0, units: 0 };
+          if (!aggMap[key]) aggMap[key] = {
+            week_date, sku, pallets: 0, units: 0,
+            order_date: week_date,
+            delivery_date: week_date,
+            need_arrival: week_date
+          };
           aggMap[key].pallets += (typeof pallets === 'object' ? (pallets.total||0) : pallets);
         });
       });
@@ -3236,25 +3297,39 @@ function parseColes(wb,fname) {
     if(date) dateCols.push({col:c,date});
   }
   const weekly={};const daily={};let cnt=0;
+  const weeklyUnits={};
+  const unmatched={};
   for(let ri=1;ri<rows.length;ri++){
     const row=rows[ri];
     const item=parseInt(row[0]);
-    const sku=CO_SMAP[item];if(!sku)continue;
+    const sku=CO_SMAP[item];
+    if(!sku){ if(!isNaN(item)) unmatched[item]=(unmatched[item]||0)+1; continue; }
     dateCols.forEach(({col,date})=>{
       const v=parseFloat(row[col]);
       if(!v||v<=0||!date)return;
-      const pal=Math.ceil(v/UPP[sku]);
       const week=monOf(date);
-      if(!weekly[week])weekly[week]={};
-      weekly[week][sku]=(weekly[week][sku]||0)+pal;
+      if(!weeklyUnits[week])weeklyUnits[week]={};
+      weeklyUnits[week][sku]=(weeklyUnits[week][sku]||0)+v;
+      const pal=Math.ceil(v/UPP[sku]);
       if(!daily[date])daily[date]={};
       daily[date][sku]=(daily[date][sku]||0)+pal;
       cnt++;
     });
   }
+  Object.entries(weeklyUnits).forEach(([wk,skus])=>{
+    weekly[wk]={};
+    Object.entries(skus).forEach(([sku,u])=>{ weekly[wk][sku]=Math.ceil(u/UPP[sku]); });
+  });
   colesOvr={weekly,daily};
   rebuildData();
-  setStat('Coles',`✓ ${fname} — ${cnt} lines`,true);
+  const unmatchedKeys=Object.keys(unmatched);
+  let msg=`✓ ${fname} — ${cnt} lines`;
+  if(unmatchedKeys.length){
+    const total=Object.values(unmatched).reduce((a,b)=>a+b,0);
+    msg+=` ⚠ ${total} rows skipped (unknown items: ${unmatchedKeys.slice(0,5).join(', ')}${unmatchedKeys.length>5?'…':''})`;
+    console.warn('[Coles] unmatched items:',unmatched);
+  }
+  setStat('Coles',msg,true);
   // Push to Supabase — aggregate by week_date+sku to match UNIQUE(week_date, sku) constraint
   if (colesOvr) {
     const aggMap = {};  // key: week_date|sku → {pallets, units}
