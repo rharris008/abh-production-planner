@@ -3683,10 +3683,18 @@ const SB_CONFLICT_KEYS = {
   actuals:          'production_date,shift,sku',
 };
 
+// Datasets where the payload may include a `units` column. metcash_forecast
+// does not have this column, so zeroed sweep rows must omit it or PostgREST
+// rejects the batch with PGRST204.
+const SB_HAS_UNITS = { ww_forecast: true, coles_forecast: true, metcash_forecast: false };
+
 // True upsert — POST with resolution=merge-duplicates + on_conflict.
 // Rows with a colliding unique key are updated in place; new rows are inserted.
-// No DELETE is required (and DELETE is blocked by RLS on the anon key anyway,
-// which is why the previous insert+delete+retry pattern failed on every upload).
+// Before upserting, sweeps any (week, sku) rows in Supabase that fall within
+// the new file's week range but are NOT present in the new file — those get
+// overwritten with pallets=0 so stale data from a previous upload cannot
+// linger as phantom demand. DELETE is RLS-blocked on the anon key, which is
+// why we zero-out instead of deleting outright.
 async function sbPushUpsert(dataset, rows, filename = '') {
   if (!rows || !rows.length) return;
   const conflict = SB_CONFLICT_KEYS[dataset];
@@ -3698,7 +3706,44 @@ async function sbPushUpsert(dataset, rows, filename = '') {
   try {
     const BATCH = 500;
     const batchTs = new Date().toISOString();
-    const stampedRows = rows.map(r => ({ ...r, updated_at: batchTs }));
+
+    // ── Stale-sweep inside the new file's week range ────────────────────
+    const newKeys = new Set(rows.map(r => `${r.week_date}|${r.sku}`));
+    const weekDates = rows.map(r => r.week_date).filter(Boolean).sort();
+    const minWeek = weekDates[0];
+    const maxWeek = weekDates[weekDates.length - 1];
+    const sweepRows = [];
+    if (minWeek && maxWeek) {
+      const sweepUrl = `${SB_URL}/rest/v1/${dataset}?select=week_date,sku`
+        + `&week_date=gte.${minWeek}&week_date=lte.${maxWeek}&limit=10000`;
+      try {
+        const sweepRes = await sbFetchTimeout(
+          sweepUrl,
+          { headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY } },
+          SB_TIMEOUT_MS
+        );
+        if (sweepRes.ok) {
+          const live = await sweepRes.json();
+          const includeUnits = SB_HAS_UNITS[dataset];
+          live.forEach(r => {
+            const k = `${r.week_date}|${r.sku}`;
+            if (!newKeys.has(k)) {
+              const zero = { week_date: r.week_date, sku: r.sku, pallets: 0 };
+              if (includeUnits) zero.units = 0;
+              sweepRows.push(zero);
+            }
+          });
+        }
+      } catch (e) {
+        console.warn(`[${dataset}] sweep pre-check failed:`, e);
+      }
+    }
+
+    const combined = [...sweepRows, ...rows];
+    const stampedRows = combined.map(r => ({ ...r, updated_at: batchTs }));
+    if (sweepRows.length) {
+      console.log(`[${dataset}] sweep: zeroing ${sweepRows.length} stale (week,sku) rows in [${minWeek}..${maxWeek}]`);
+    }
 
     for (let i = 0; i < stampedRows.length; i += BATCH) {
       const res = await sbFetchTimeout(
