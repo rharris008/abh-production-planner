@@ -1,0 +1,44 @@
+name: Validate HTML + inline JS
+
+# Runs on every push and pull request to main. Parses the HTML and
+# runs `node --check` on every inline script block (skipping vendored
+# libraries and non-JS types). Fails the run if anything is broken.
+# Purpose: stop "git push and pray" — catch syntax errors before GH
+# Pages ships a broken single-page app to production.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - '.github/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - '.github/**'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate HTML + inline JS
+        run: python3 .github/validate_web_app.py index.html
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Web app validation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Result:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Target:** index.html" >> $GITHUB_STEP_SUMMARY
