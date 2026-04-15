@@ -3536,7 +3536,7 @@ async function sbPush(dataset, rows, isRetry = false, filename = '') {
     await sbFetchTimeout(
       `${SB_URL}/rest/v1/upload_log`,
       { method: 'POST', headers: { ...sbHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
-        body: JSON.stringify([{ dataset, uploaded_at: new Date().toISOString(), row_count: rows ? rows.length : 0, filename: filename || '' }]) },
+        body: JSON.stringify([{ dataset, uploaded_at: new Date().toISOString(), filename: filename || '' }]) },
       SB_TIMEOUT_MS
     );
     const ts = new Date().toLocaleString('en-AU', { timeZone: 'Australia/Brisbane', hour12: false });
@@ -3634,7 +3634,7 @@ async function sbPushUpsert(dataset, rows, filename = '') {
       { method: 'POST',
         headers: { ...sbHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
         body: JSON.stringify([{ dataset, uploaded_at: batchTs,
-          row_count: rows.length, filename }]) },
+          filename }]) },
       SB_TIMEOUT_MS
     );
     const ts = new Date().toLocaleString('en-AU', { timeZone: 'Australia/Brisbane', hour12: false });
@@ -3678,7 +3678,7 @@ async function sbPull() {
       sbStatus(`✓ Live: ${loaded.join(', ')} — ${ts}`, 'ok');
       // Show upload audit from upload_log
       try {
-        const logData = await sbFetch('upload_log?select=dataset,uploaded_at,row_count');
+        const logData = await sbFetch('upload_log?select=dataset,uploaded_at,filename');
         if (logData && logData.length) {
           const auditEl = document.getElementById('sbUploadAudit');
           // Map dataset names to drop zone stat element IDs
@@ -3697,8 +3697,7 @@ async function sbPull() {
               .map(l => {
                 const d = new Date(l.uploaded_at);
                 const label = dsToLabel[l.dataset] || l.dataset;
-                const rowNote = l.row_count ? ` (${l.row_count} rows)` : '';
-                return `${label}${rowNote}: ${d.toLocaleDateString('en-AU',{day:'2-digit',month:'2-digit'})} ${d.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Brisbane',hour12:false})}`;
+                return `${label}: ${d.toLocaleDateString('en-AU',{day:'2-digit',month:'2-digit'})} ${d.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Brisbane',hour12:false})}`;
               });
             auditEl.textContent = parts.join(' · ');
           }
@@ -3716,11 +3715,9 @@ async function sbPull() {
               const ts = d.toLocaleDateString('en-AU',{day:'2-digit',month:'2-digit',year:'2-digit'}) + ' ' +
                          d.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Brisbane',hour12:false});
               const label = dsToLabel[ds] || ds;
-              const rowNote = l.row_count ? `${l.row_count} rows` : '—';
               const fname = l.filename ? `<span style="color:#8EB4D8">${l.filename}</span>` : '<span style="color:#555">—</span>';
               return `<td style="padding:2px 12px 2px 0;color:#aac"><strong style="color:#fff">${label}</strong></td>
                       <td style="padding:2px 12px 2px 0;color:#8EB4D8">${fname}</td>
-                      <td style="padding:2px 12px 2px 0;color:#aac">${rowNote}</td>
                       <td style="padding:2px 0;color:#6A90B0">${ts}</td>`;
             }).filter(Boolean);
             if (rows.length) {
@@ -3737,8 +3734,7 @@ async function sbPull() {
             const d = new Date(l.uploaded_at);
             const ts = d.toLocaleDateString('en-AU',{day:'2-digit',month:'2-digit'}) + ' ' +
                        d.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Brisbane',hour12:false});
-            const rowNote = l.row_count ? ` — ${l.row_count} rows` : '';
-            el.textContent = `✓ Last synced ${ts}${rowNote}`;
+            el.textContent = `✓ Last synced ${ts}`;
             el.style.color = 'var(--green)';
             document.getElementById('dz' + (l.dataset==='ww_forecast'?'WW':l.dataset==='coles_forecast'?'Coles':l.dataset==='metcash_forecast'?'Metcash':l.dataset==='stock'?'Inventory':'Actuals'))?.classList.add('dz-loaded');
           });
@@ -3798,7 +3794,9 @@ function applyWWFromSB(rows) {
     WW_ORDERS.length = 0;
     orders.forEach(o => WW_ORDERS.push(o));
   }
-  setStat('WW', `✓ Live data from Supabase (${rows.length} rows)`, true);
+  const maxTs = rows.reduce((m, r) => r.updated_at && r.updated_at > m ? r.updated_at : m, '');
+  const tsLabel = maxTs ? new Date(maxTs).toLocaleDateString('en-AU',{day:'2-digit',month:'2-digit',year:'2-digit'}) + ' ' + new Date(maxTs).toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Brisbane',hour12:false}) : '';
+  setStat('WW', `✓ Live from Supabase — ${rows.length} rows${tsLabel ? ' — uploaded ' + tsLabel : ''}`, true);
 }
 
 function applyColesFromSB(rows) {
@@ -3825,7 +3823,9 @@ function applyColesFromSB(rows) {
     COLES_ORDERS.length = 0;
     orders.forEach(o => COLES_ORDERS.push(o));
   }
-  setStat('Coles', `✓ Live data from Supabase (${rows.length} rows)`, true);
+  const maxTs = rows.reduce((m, r) => r.updated_at && r.updated_at > m ? r.updated_at : m, '');
+  const tsLabel = maxTs ? new Date(maxTs).toLocaleDateString('en-AU',{day:'2-digit',month:'2-digit',year:'2-digit'}) + ' ' + new Date(maxTs).toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Brisbane',hour12:false}) : '';
+  setStat('Coles', `✓ Live from Supabase — ${rows.length} rows${tsLabel ? ' — uploaded ' + tsLabel : ''}`, true);
 }
 
 function applyMetcashFromSB(rows) {
@@ -3836,7 +3836,9 @@ function applyMetcashFromSB(rows) {
     // daily and orders stay empty — Metcash is weekly-grain only
   });
   metcashOvr = { weekly, daily, orders };
-  setStat('Metcash', `✓ Live data from Supabase (${rows.length} rows)`, true);
+  const maxTs = rows.reduce((m, r) => r.updated_at && r.updated_at > m ? r.updated_at : m, '');
+  const tsLabel = maxTs ? new Date(maxTs).toLocaleDateString('en-AU',{day:'2-digit',month:'2-digit',year:'2-digit'}) + ' ' + new Date(maxTs).toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Brisbane',hour12:false}) : '';
+  setStat('Metcash', `✓ Live from Supabase — ${rows.length} rows${tsLabel ? ' — uploaded ' + tsLabel : ''}`, true);
 }
 
 function applyActualsFromSB(rows) {
