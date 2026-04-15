@@ -2539,11 +2539,11 @@ function parseInventoryXLSX(arrayBuffer, fname) {
     for (let i = 0; i < rows.length; i++) {
       if (rows[i] && rows[i][0] === 'Item') { headerRow = i; break; }
     }
-    if (headerRow < 0) { setStat('Inventory', '❌ Could not find Item column', false); return; }
+    if (headerRow < 0) return false;
 
     const headers = rows[headerRow];
     const onHandIdx = headers.findIndex(h => h && h.toString().toLowerCase().includes('on hand'));
-    if (onHandIdx < 0) { setStat('Inventory', '❌ Could not find On Hand column', false); return; }
+    if (onHandIdx < 0) return false;
 
     let reportDate = '';
     for (let i = 0; i < headerRow; i++) {
@@ -2558,7 +2558,7 @@ function parseInventoryXLSX(arrayBuffer, fname) {
     for (let r = headerRow + 1; r < rows.length; r++) {
       const row = rows[r];
       if (!row || !row[0]) continue;
-      const sku = INV_MAP_NS[row[0].toString().trim()];
+      const sku = INV_MAP_NS[row[0].toString().replace(/[\s\u00A0]+/g, ' ').trim()];
       if (!sku) continue;
       const onHand = parseFloat(row[onHandIdx]) || 0;
       newStock[sku] = Math.floor(onHand / UPP[sku]);
@@ -2566,7 +2566,7 @@ function parseInventoryXLSX(arrayBuffer, fname) {
       updated++;
     }
 
-    if (!updated) { setStat('Inventory', '❌ No Pureau SKUs found', false); return; }
+    if (!updated) return false;
 
     SKUS.forEach(s => {
       if (newStock[s] !== undefined) {
@@ -2586,9 +2586,11 @@ function parseInventoryXLSX(arrayBuffer, fname) {
 
     const sbRows = SKUS.map(s => ({ sku: s, pallets: newStock[s] || 0, units: newUnits[s] || 0 }));
     sbPush('stock', sbRows);
+    return true;
 
   } catch(err) {
-    setStat('Inventory', '❌ Parse error: ' + err.message, false);
+    console.warn('parseInventoryXLSX error:', err.message);
+    return false;
   }
 }
 
@@ -2730,7 +2732,19 @@ function handleFile(file,retailer) {
   }
   if (retailer === 'Inventory') {
     const reader = new FileReader();
-    reader.onload = e => { try { parseInventoryXLSX(e.target.result, file.name); } catch(err) { setStat('Inventory', '❌ Error: ' + err.message, false); } };
+    reader.onload = e => {
+      const ok = parseInventoryXLSX(e.target.result, file.name);
+      if (!ok) {
+        // XLSX parse failed or found no data — retry as text (handles NetSuite HTML-as-XLS exports)
+        console.warn('XLSX parse did not find data, retrying as text/XML');
+        const textReader = new FileReader();
+        textReader.onload = e2 => {
+          try { parseInventory(e2.target.result, file.name); }
+          catch(err2) { setStat('Inventory', '❌ Could not parse file. Try opening in Excel and re-saving as .xlsx', false); }
+        };
+        textReader.readAsText(file, 'UTF-8');
+      }
+    };
     reader.readAsArrayBuffer(file);
     return;
   }
