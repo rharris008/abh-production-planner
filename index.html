@@ -439,7 +439,7 @@ tr.risk-a td{background:#FEF9F0}
       </div>
       <input type="file" id="fiOpenOrders" accept=".xls" style="display:none"
         onchange="handleFile(this.files[0],'OpenOrders');this.value=''">
-      <div style="background:var(--light);border-radius:6px;padding:12px;font-size:11px;max-width:300px;align-self:center">
+      <div id="openOrdersInstructions" style="background:var(--light);border-radius:6px;padding:12px;font-size:11px;max-width:300px;align-self:center">
         <div style="font-weight:700;margin-bottom:6px;color:var(--text)">📥 Get the open orders file from NetSuite</div>
         <div style="color:var(--muted);margin-bottom:8px;line-height:1.5">
           Shows open sales orders by retailer and SKU using <strong>Quantity Open</strong> (exact units)
@@ -3819,6 +3819,7 @@ async function sbPull() {
     const rAct = await sbFetch('actuals');           if (rAct && rAct.length) { applyActualsFromSB(rAct); loaded.push('Actuals'); }
     const rSt  = await sbFetch('stock');             if (rSt  && rSt.length)  { applyStockFromSB(rSt);   loaded.push('Stock'); }
     const rPH  = await sbFetch('public_holidays');   if (rPH  && rPH.length)  { applyPublicHolidays(rPH); loaded.push('Holidays'); }
+    const rOO  = await sbFetch('open_order_lines');   if (rOO  && rOO.length)  { applyOpenOrdersFromSB(rOO); loaded.push('OpenOrders'); }
 
     if (loaded.length) {
       rebuildData();
@@ -4044,6 +4045,66 @@ function applyStockFromSB(rows) {
 
   renderStockDetail(newStock, newUnits, tsLabel);
   renderManualStockGrid();
+}
+
+
+function applyOpenOrdersFromSB(rows) {
+  // rows: [{doc_num, customer, sku, ship_date, status, amount, units_ordered, updated_at}]
+  if (!rows || !rows.length) return;
+
+  // Find the most recent updated_at for "as at" display
+  let latestTs = null;
+  rows.forEach(r => {
+    if (r.updated_at && (!latestTs || r.updated_at > latestTs)) latestTs = r.updated_at;
+  });
+
+  // Standard sell prices per unit (ex-GST) — used to fill amount if missing
+  const OPEN_ORDER_PRICE_LOCAL = {
+    '10L Cask': 13.08, '5L Cask': 6.70, '2L Bottle': 2.17,
+    '600ml 12pk': 9.14, '600ml 6pk': 4.84,
+  };
+
+  const orders = rows
+    .filter(r => SKUS.includes(r.sku))
+    .map(r => {
+      const units  = parseInt(r.units_ordered) || 0;
+      const pallets = Math.ceil(units / (UPP[r.sku] || 1));
+      const amount = parseFloat(r.amount) || (units * (OPEN_ORDER_PRICE_LOCAL[r.sku] || 0));
+      return {
+        date:     r.ship_date ? r.ship_date.slice(0, 10) : '',
+        sku:      r.sku,
+        retailer: mapOORetailer(r.customer || ''),
+        docNum:   r.doc_num || '',
+        customer: (r.customer || '').split(':').pop().trim(),
+        status:   r.status || 'Pending Fulfillment',
+        amount,
+        units,
+        pallets,
+      };
+    });
+
+  openOrdersData = orders;
+  openOrdersPal = {};
+  SKUS.forEach(s => openOrdersPal[s] = 0);
+  orders.forEach(o => { openOrdersPal[o.sku] = (openOrdersPal[o.sku] || 0) + o.pallets; });
+
+  let tsLabel = 'Supabase (live)';
+  if (latestTs) {
+    const d = new Date(latestTs);
+    const ts = d.toLocaleDateString('en-AU', {day:'2-digit', month:'2-digit', year:'numeric', timeZone:'Australia/Brisbane'}) + ' ' +
+               d.toLocaleTimeString('en-AU', {hour:'2-digit', minute:'2-digit', timeZone:'Australia/Brisbane', hour12:false});
+    tsLabel = `as at ${ts}`;
+  }
+
+  renderOpenOrders(tsLabel, '');
+  onWeekChange();
+  setStat('OpenOrders', `✓ Live from Supabase — ${orders.length} lines (${tsLabel})`, true);
+
+  // Mark the drop zone as loaded and hide the manual upload instructions
+  const dz = document.getElementById('dzOpenOrders');
+  if (dz) dz.classList.add('dz-loaded');
+  const instr = document.getElementById('openOrdersInstructions');
+  if (instr) instr.style.display = 'none';
 }
 
 function applyPublicHolidays(rows) {
