@@ -245,6 +245,16 @@ tr.risk-a td{background:#FEF9F0}
       </div>
     </div>
   </div>
+  <div style="padding:6px 0 4px;display:flex;align-items:center;gap:8px;font-size:11px">
+    <span style="color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.5px">Retailer view:</span>
+    <div class="tog" style="background:var(--navy)">
+      <button id="rBtnAll"    class="on"  onclick="setRetailerView('All')"    >All</button>
+      <button id="rBtnWW"     class=""    onclick="setRetailerView('WW')"     >WW</button>
+      <button id="rBtnColes"  class=""    onclick="setRetailerView('Coles')"  >Coles</button>
+      <button id="rBtnMetcash"class=""    onclick="setRetailerView('Metcash')" >Metcash</button>
+    </div>
+    <span id="retailerViewNote" style="color:var(--muted);font-style:italic"></span>
+  </div>
   <div class="sku-strips" id="skuStrips"></div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
     <div class="panel"><div class="ph navy">Weekly Demand by SKU</div>
@@ -472,6 +482,7 @@ let publicHolidayNames = {};      // map of 'YYYY-MM-DD' -> holiday name
 let lineBSku = '5L';              // which SKU runs on Line B — '5L' or '10L', matches UI default
 let colesOvr    = null;
 let metcashOvr  = null;
+let activeRetailer = 'All';  // retailer filter for SKU strip — 'All', 'WW', 'Coles', 'Metcash'
 let actualsData    = null;  // parsed NetSuite runs filtered to current week
 let rawActualsData = null;  // all runs from uploaded file (unfiltered)
 
@@ -1243,11 +1254,23 @@ function renderSkuStrips(pr) {
   };
   let html = '';
   SKUS.forEach(s => {
-    const dem    = demand[s].total;
-    const todayStk = Math.round(stockPal[s]||0);      // today's physical stock — never changes
-    const projOpen = Math.round(pr.avail ? (pr.avail[s] ?? todayStk) : todayStk);  // projected opening for selected week
-    const cumMv    = projOpen - todayStk;              // cumulative net movement from today to selected week
-    const net    = Math.max(0, netDem[s]);
+    // Retailer allocation: when a specific retailer is selected, scale stock and
+    // cumulative movement by that retailer's share of total demand for this SKU.
+    // e.g. Coles = 92 pal of 230 total → allocPct = 0.40 → Stock (Today) = 230 × 0.40 = 92.
+    const demTotal = demand[s].total;
+    let allocPct = 1;
+    if (activeRetailer !== 'All' && demTotal > 0) {
+      const retKey = activeRetailer === 'WW' ? 'ww' : activeRetailer === 'Coles' ? 'coles' : 'metcash';
+      const retDem = demand[s][retKey] || 0;
+      allocPct = retDem / demTotal;
+    }
+    const dem    = activeRetailer === 'All' ? demTotal : (demand[s][activeRetailer === 'WW' ? 'ww' : activeRetailer === 'Coles' ? 'coles' : 'metcash'] || 0);
+    const sysStk   = stockPal[s] || 0;
+    const todayStk = Math.round(sysStk * allocPct);   // retailer-allocated share of today's physical stock
+    const sysProjOpen = pr.avail ? (pr.avail[s] ?? sysStk) : sysStk;
+    const projOpen = Math.round(sysProjOpen * allocPct);  // projected opening scaled to retailer share
+    const cumMv    = projOpen - todayStk;              // cumulative net movement for this retailer's share
+    const net    = Math.max(0, activeRetailer === 'All' ? netDem[s] : dem - projOpen);
     const cov    = coverDays[s] || 0;
     const close  = closing[s] ?? 0;
     const short  = finalShortfall[s] || 0;
@@ -3422,6 +3445,17 @@ function renderOCGrid() {
 function setHMPS(c){hmpsConfig=c;document.getElementById('bDual').className=c==='Dual'?'on':'';document.getElementById('bSingle').className=c==='Single'?'on':'';onWeekChange();}
 function setLineB(c){lineBSku=c;document.getElementById('bB5L').className=c==='5L'?'on':'';document.getElementById('bB10L').className=c==='10L'?'on':'';onWeekChange();}
 function setSat(c){satMode=c;['Auto','Off','On'].forEach(x=>document.getElementById('bSat'+x).className=c===x.toLowerCase()?'on':'');onWeekChange();}
+function setRetailerView(r) {
+  activeRetailer = r;
+  ['All','WW','Coles','Metcash'].forEach(x => {
+    const btn = document.getElementById('rBtn'+x);
+    if (btn) btn.className = (x === r) ? 'on' : '';
+  });
+  const note = document.getElementById('retailerViewNote');
+  if (note) note.textContent = r === 'All' ? '' : `Showing ${r}-allocated stock & movement`;
+  const pr = planWeek(currentWeek);
+  renderSkuStrips(pr);
+}
 function switchTab(n,el){document.querySelectorAll('.tc').forEach(e=>e.classList.remove('active'));document.querySelectorAll('.tab').forEach(e=>e.classList.remove('active'));document.getElementById('tab-'+n).classList.add('active');if(el)el.classList.add('active');}
 function exportCSV(){
   const pr=planWeek(currentWeek);
