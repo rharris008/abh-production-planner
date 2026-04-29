@@ -1948,8 +1948,8 @@ function mapOOItem(raw) {
 
 function mapOORetailer(customer) {
   const u = customer.toUpperCase();
-  if (u.includes('WOOLWORTHS') || u.includes('WOO')) return 'Woolworths';
-  if (u.includes('COLES') || u.includes('COL')) return 'Coles';
+  if (u.includes('WOOLWORTHS')) return 'Woolworths';
+  if (u.includes('COLES')) return 'Coles';
   if (u.includes('METCASH') || u.includes('IGA') || u.includes('MET')) return 'Metcash/IGA';
   if (u.includes('ALDI')) return 'Aldi';
   if (u.includes('COSTCO')) return 'Costco';
