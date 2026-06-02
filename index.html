@@ -151,9 +151,6 @@ tr.risk-a td{background:#FEF9F0}
     <div class="ctrl-grp"><span class="ctrl-lbl">HMPS</span>
       <div class="tog"><button id="bDual" class="on" onclick="setHMPS('Dual')">Dual (80/sh)</button>
         <button id="bSingle" onclick="setHMPS('Single')">Single (40/sh)</button></div></div>
-    <div class="ctrl-grp"><span class="ctrl-lbl">LINE B</span>
-      <div class="tog"><button id="bB5L" class="on" onclick="setLineB('5L')">5L Cask</button>
-        <button id="bB10L" onclick="setLineB('10L')">10L Cask</button></div></div>
     <div class="ctrl-grp"><span class="ctrl-lbl">SATURDAY</span>
       <div class="tog"><button id="bSatAuto" class="on" onclick="setSat('auto')">Auto (&lt;3d)</button>
         <button id="bSatOff" onclick="setSat('off')">Off</button>
@@ -235,11 +232,11 @@ tr.risk-a td{background:#FEF9F0}
           </div>
           <div class="oc-cell">
             <label>Line B out — from</label>
-            <input type="date" value="2026-04-13" onchange="lineBOutageStart=this.value;onWeekChange()">
+            <input type="date" value="2026-06-12" onchange="lineBOutageStart=this.value;onWeekChange()">
           </div>
           <div class="oc-cell">
             <label>Line B out — to</label>
-            <input type="date" value="2026-06-13" onchange="lineBOutageEnd=this.value;onWeekChange()">
+            <input type="date" value="2026-07-05" onchange="lineBOutageEnd=this.value;onWeekChange()">
           </div>
         </div>
       </div>
@@ -479,7 +476,7 @@ let wwOverride  = null;
 let planWeekCache = {};  // cache of {closingStock} per week — reset each onWeekChange
 let publicHolidays = new Set();  // Set of 'YYYY-MM-DD' strings — loaded from Supabase
 let publicHolidayNames = {};      // map of 'YYYY-MM-DD' -> holiday name
-let lineBSku = '5L';              // which SKU runs on Line B — '5L' or '10L', matches UI default
+const lineBSku = '5L';            // used for actuals label normalisation only — Line A and Line B always run combined
 let colesOvr    = null;
 let metcashOvr  = null;
 let activeRetailer = 'All';  // retailer filter for SKU strip — 'All', 'WW', 'Coles', 'Metcash'
@@ -506,8 +503,9 @@ let wwDispatchOffset   = 2;  // days before need_arrival ABH must dispatch to WW
 let colesDispatchOffset = 1;  // days before Coles DC arrival ABH must dispatch
 let epChangeoverMins    = 45; // EP New Line changeover time loss in minutes
 // Line B outage: during this period AS Line A&B runs Line A only (40 pal/shift for both SKUs)
-let lineBOutageStart = '2026-04-13';
-let lineBOutageEnd   = '2026-06-13';
+// Line B down 12/06/2026 – 05/07/2026; back operational from 06/07/2026
+let lineBOutageStart = '2026-06-12';
+let lineBOutageEnd   = '2026-07-05';
 
 // ══ HELPERS ══════════════════════════════════════════════════════════════════
 const fmt  = n => n==null||isNaN(n) ? '—' : Number(n).toLocaleString('en-AU');
@@ -592,9 +590,10 @@ function getDemand(week) {
 }
 
 // ══ AS LINE A&B — DAY-LEVEL SCHEDULER ════════════════════════════════════════
-// Line A&B is treated as a single combined machine at Ann Street / St Mary's.
+// Line A and Line B ALWAYS run combined as a single unit — they are never split
+// to run different SKUs simultaneously.
 // Each shift runs either 10L Cask (80 pal/shift: Line A 40 + Line B 40) or
-// 5L Cask (75 pal/shift: Line A 40 + Line B 35).
+// 5L Cask (75 pal/shift: Line A 40 + Line B 35) — both lines on the same SKU.
 // The scheduler allocates each shift to whichever SKU (10L or 5L) has the
 // worse stock position vs deliveries due — same priority logic as EP New Line.
 // No changeover penalty: these are separate machines so SKU switches are
@@ -2225,7 +2224,7 @@ function parseActuals(xmlText, fname) {
     actualsData._cutoff = cutoffDate;
     actualsData._completeDates = completeDates;
     actualsData._fname = fname;
-    actualsData._lineBSku = lineBSku;  // snapshot at parse time — prevents label mismatch if toggle changes
+    actualsData._lineBSku = lineBSku;  // snapshot at parse time for actuals label normalisation
     const daysMsg = completeDates.length
       ? completeDates.map(d => {const dt=new Date(d+'T00:00:00');return ['Mon','Tue','Wed','Thu','Fri'][dt.getDay()-1];}).join(', ')
       : 'none';
@@ -3443,7 +3442,8 @@ function renderOCGrid() {
 
 // ══ CONTROLS ══════════════════════════════════════════════════════════════════
 function setHMPS(c){hmpsConfig=c;document.getElementById('bDual').className=c==='Dual'?'on':'';document.getElementById('bSingle').className=c==='Single'?'on':'';onWeekChange();}
-function setLineB(c){lineBSku=c;document.getElementById('bB5L').className=c==='5L'?'on':'';document.getElementById('bB10L').className=c==='10L'?'on':'';onWeekChange();}
+// setLineB removed: Line A and Line B always run combined on the same SKU per shift.
+// lineBSku is retained as a read-only constant for actuals label normalisation.
 function setSat(c){satMode=c;['Auto','Off','On'].forEach(x=>document.getElementById('bSat'+x).className=c===x.toLowerCase()?'on':'');onWeekChange();}
 function setRetailerView(r) {
   activeRetailer = r;
