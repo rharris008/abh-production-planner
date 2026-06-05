@@ -486,7 +486,7 @@ let rawActualsData = null;  // all runs from uploaded file (unfiltered)
 // Planned pallets per shift by line config (matches planning engine)
 const PLAN_TARGETS = {
   'Line A':        {'10L Cask': 40},
-  'Line B':        {'5L Cask': 35, '10L Cask': 40},
+  'Line B':        {'5L Cask': 44, '10L Cask': 40},  // combined Line A&B 5L output = 44 pal/shift (updated 05/06/2026)
   'SM Bottle line':{'2L Bottle': 52},
   'HMPS - Dual':   {'10L Cask': 80},
   'HMPS - Single': {'10L Cask': 40},
@@ -593,7 +593,7 @@ function getDemand(week) {
 // Line A and Line B ALWAYS run combined as a single unit — they are never split
 // to run different SKUs simultaneously.
 // Each shift runs either 10L Cask (80 pal/shift: Line A 40 + Line B 40) or
-// 5L Cask (75 pal/shift: Line A 40 + Line B 35) — both lines on the same SKU.
+// 5L Cask (44 pal/shift: Line A&B combined — updated per Operations Manager 05/06/2026) — both lines on the same SKU.
 // The scheduler allocates each shift to whichever SKU (10L or 5L) has the
 // worse stock position vs deliveries due — same priority logic as EP New Line.
 // No changeover penalty: these are separate machines so SKU switches are
@@ -603,7 +603,7 @@ function scheduleASLines(weekStart, opDays, eff, openStock10, openStock5, minDay
   const lineAOnly = lineBOutageStart && lineBOutageEnd &&
     weekStart >= lineBOutageStart && weekStart <= lineBOutageEnd;
   const tgt10 = Math.floor((lineAOnly ? 40 : 80) * eff);
-  const tgt5  = Math.floor((lineAOnly ? 40 : 75) * eff);
+  const tgt5  = Math.floor((lineAOnly ? 40 : 44) * eff);
   let s10 = openStock10;
   let s5  = openStock5;
   const shifts = [];
@@ -690,7 +690,10 @@ function scheduleASLines(weekStart, opDays, eff, openStock10, openStock5, minDay
 // A changeover between 12pk and 6pk on the EP New Line loses approx 45 mins
 // of runtime (collator, carton former settings, first-off approval).
 // This is configurable via epChangeoverMins state variable.
-function scheduleEPNewLine(weekStart, opDays, eff, openStock12, openStock6, minShifts12=0, minShifts6=0) {
+// excludeDates: Set of date strings (YYYY-MM-DD) on which EP New Line cannot run.
+// Used to enforce the 600ml/2L same-day constraint — 2L Bottle and 600ml share
+// production resources and cannot run on the same calendar day.
+function scheduleEPNewLine(weekStart, opDays, eff, openStock12, openStock6, minShifts12=0, minShifts6=0, excludeDates=new Set()) {
   const shiftMins = 450;  // standard shift runtime in minutes
   const coMins    = epChangeoverMins;
   const coFrac    = Math.max(0, 1 - coMins / shiftMins);
@@ -707,6 +710,14 @@ function scheduleEPNewLine(weekStart, opDays, eff, openStock12, openStock6, minS
 
   for (let d = 0; d < workDays.length; d++) {
     const date = workDays[d];
+    // 600ml cannot run on the same day as 2L Bottle (shared production resource constraint)
+    if (excludeDates.has(date)) {
+      // Consume any deliveries due today but produce nothing
+      const due  = DAILY_REQUIRED[date] || {};
+      s12 -= (due['600ml 12pk'] || 0);
+      s6  -= (due['600ml 6pk']  || 0);
+      continue;
+    }
     const due  = DAILY_REQUIRED[date] || {};
     const due12 = due['600ml 12pk'] || 0;
     const due6  = due['600ml 6pk']  || 0;
@@ -794,7 +805,7 @@ function forwardSimulate(fromWeekIdx, openStock, eff) {
     const lineAOnly = lineBOutageStart && lineBOutageEnd &&
       wk >= lineBOutageStart && wk <= lineBOutageEnd;
     const cap10perShift = Math.floor((lineAOnly ? 40 : 80) * eff);
-    const cap5perShift  = Math.floor((lineAOnly ? 40 : 75) * eff);
+    const cap5perShift  = Math.floor((lineAOnly ? 40 : 44) * eff);
     const hmpsTgt = hmpsConfig === 'Dual' ? 80 : 40;
     const fwdOpDays = opDaysInWeek(wk);
     const capHMPS = Math.floor(hmpsTgt * 2 * fwdOpDays * eff);  // working days × 2 shifts
@@ -910,7 +921,7 @@ function planWeek(week) {
   const lineAOnlyNow = lineBOutageStart && lineBOutageEnd &&
     week >= lineBOutageStart && week <= lineBOutageEnd;
   const cap10shift = Math.floor((lineAOnlyNow ? 40 : 80) * eff);
-  const cap5shift  = Math.floor((lineAOnlyNow ? 40 : 75) * eff);
+  const cap5shift  = Math.floor((lineAOnlyNow ? 40 : 44) * eff);
 
   let minDays10 = 0, minDays5 = 0;
   {
@@ -926,7 +937,7 @@ function planWeek(week) {
       const la = lineBOutageStart && lineBOutageEnd &&
         wk >= lineBOutageStart && wk <= lineBOutageEnd;
       const c10s = Math.floor((la ? 40 : 80) * eff);
-      const c5s  = Math.floor((la ? 40 : 75) * eff);
+      const c5s  = Math.floor((la ? 40 : 44) * eff);
       const d10  = dem['10L Cask'].total || 0;
       const d5   = dem['5L Cask'].total  || 0;
       const wkOpDays2 = opDaysInWeek(wk);  // respect public holidays in future weeks
@@ -981,6 +992,12 @@ function planWeek(week) {
   const as2l = makeLine('AS Bottle Line (2L)', 'AS', '2L Bottle', 52, days2);
   const stockEnd2 = s2 + as2l.cap - d2;
 
+  // 600ml / 2L same-day constraint: 2L Bottle and 600ml share production resources —
+  // they cannot run on the same calendar day. Calculate which dates 2L is scheduled
+  // (makeLine assigns the first days2 working days) and exclude those from EP New Line.
+  const workDaysAll = workingDaysInWeek(week);
+  const bottle2LDates = new Set(workDaysAll.slice(0, days2));
+
   // EP New Line forward scan — look 1 week ahead per SKU, enforce minimum shift floor
   let minShifts12 = 0, minShifts6 = 0;
   {
@@ -1001,7 +1018,7 @@ function planWeek(week) {
   }
 
   const epResult = scheduleEPNewLine(week, opDays, eff,
-    avail['600ml 12pk']||0, avail['600ml 6pk']||0, minShifts12, minShifts6);
+    avail['600ml 12pk']||0, avail['600ml 6pk']||0, minShifts12, minShifts6, bottle2LDates);
   const prod12 = epResult.shifts.filter(s=>s.sku==='600ml 12pk').reduce((a,s)=>a+s.pallets,0);
   const prod6  = epResult.shifts.filter(s=>s.sku==='600ml 6pk' ).reduce((a,s)=>a+s.pallets,0);
   const days12 = epResult.shifts.filter(s=>s.sku==='600ml 12pk').length / 2;
@@ -1098,7 +1115,7 @@ function planWeek(week) {
       let tgt = 0, label = '', cls = '';
       if (sku==='10L Cask')      { tgt=hmpsTgt; label=`EP HMPS (${hmpsConfig}) — Sat`; cls='ep10'; }
       else if(sku==='5L Cask')   {
-        tgt = lineAOnlyNow ? 40 : 75;
+        tgt = lineAOnlyNow ? 40 : 44;
         label = lineAOnlyNow
           ? `AS Line A (5L) — Sat${lineBOutageSatNeeded5L ? ' 🔴 Pre-build (Line B out)' : ''}`
           : `AS Line A&B (5L) — Sat`;
@@ -1162,6 +1179,7 @@ function planWeek(week) {
     satUsed: needSat && !satIsHoliday && satLines.length > 0,
     satIsHoliday,
     lines: {hmps, as2l},
+    bottle2LDates,
     as: {asProd10, asProd5, asDays10, asDays5, shifts: asResult.shifts,
          endStock10: asResult.endStock10, endStock5: asResult.endStock5},
     ep: {prod12, prod6, days12, days6, shifts: epResult.shifts,
@@ -1446,7 +1464,7 @@ function renderRollingTable(pr) {
     const la = lineBOutageStart && lineBOutageEnd && wk >= lineBOutageStart && wk <= lineBOutageEnd;
     const wkOp = opDaysInWeek(wk);
     const cap10 = Math.floor((la ? 40 : 80) * eff) * 2 * wkOp + Math.floor(hmpsTgt * 2 * wkOp * eff);
-    const cap5  = Math.floor((la ? 40 : 75) * eff) * 2 * wkOp;
+    const cap5  = Math.floor((la ? 40 : 44) * eff) * 2 * wkOp;
     const cap2  = Math.floor(52 * eff) * 2 * wkOp;
     const cap12 = Math.floor(34 * eff) * 2 * wkOp;
     const cap6  = Math.floor(32 * eff) * 2 * wkOp;
@@ -1775,7 +1793,7 @@ function renderDispatch() {
 
 // ══ RENDER: ALERTS ════════════════════════════════════════════════════════════
 function renderAlerts(pr) {
-  const {demand,coverDays,finalShortfall,satTriggers,satLines,satUsed,ep} = pr;
+  const {demand,coverDays,finalShortfall,satTriggers,satLines,satUsed,ep,bottle2LDates} = pr;
   const alerts=[];
 
   Object.entries(finalShortfall).filter(([,v])=>v>0.5).forEach(([sku,rem])=>{
@@ -1796,6 +1814,12 @@ function renderAlerts(pr) {
   const d12=demand['600ml 12pk'].total, d6=demand['600ml 6pk'].total;
   if(d12>0&&d6>0) {
     alerts.push({t:'b',msg:`EP New Line scheduled ${ep.days12} shifts on 12pk and ${ep.days6} shifts on 6pk based on daily delivery sequence. Both SKUs prioritised by need-arrival date.`});
+  }
+
+  // 600ml / 2L same-day constraint alert
+  if(bottle2LDates&&bottle2LDates.size>0) {
+    const dateList=[...bottle2LDates].map(fmtD).join(', ');
+    alerts.push({t:'b',msg:`<strong>Constraint active:</strong> 2L Bottle and 600ml cannot run on the same day. EP New Line idle on 2L production day${bottle2LDates.size>1?'s':''}: ${dateList}.`});
   }
 
   SKUS.forEach(s=>{
