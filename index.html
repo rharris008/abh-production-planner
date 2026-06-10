@@ -272,9 +272,9 @@ tr.risk-a td{background:#FEF9F0}
     <div class="ph navy" id="schedHdr">Shift Schedule</div>
     <div style="padding:8px 12px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border);display:flex;gap:16px;flex-wrap:wrap">
       <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:var(--red);border-radius:2px;display:inline-block"></span>EP HMPS</span>
-      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:var(--blue);border-radius:2px;display:inline-block"></span>AS Line A</span>
-      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:var(--green);border-radius:2px;display:inline-block"></span>AS Line B</span>
-      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:var(--amber);border-radius:2px;display:inline-block"></span>AS Bottle</span>
+      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:var(--blue);border-radius:2px;display:inline-block"></span>EP Line A</span>
+      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:var(--green);border-radius:2px;display:inline-block"></span>EP Line B</span>
+
       <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:var(--purple);border-radius:2px;display:inline-block"></span>EP New (12pk)</span>
       <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:#E91E8C;border-radius:2px;display:inline-block"></span>EP New (6pk)</span>
     </div>
@@ -989,7 +989,7 @@ function planWeek(week) {
   const d2  = demand['2L Bottle'].total;
   const need2 = Math.max(0, d2 + d2 - s2);
   const days2 = Math.min(5, need2 > 0 ? Math.ceil(need2 / (52 * 2 * eff)) : 0);
-  const as2l = makeLine('AS Bottle Line (2L)', 'AS', '2L Bottle', 52, days2);
+  const as2l = makeLine('EP Bottle Line (2L)', 'EP', '2L Bottle', 52, days2);
   const stockEnd2 = s2 + as2l.cap - d2;
 
   // 600ml / 2L same-day constraint: 2L Bottle and 600ml share production resources —
@@ -1117,11 +1117,11 @@ function planWeek(week) {
       else if(sku==='5L Cask')   {
         tgt = lineAOnlyNow ? 40 : 44;
         label = lineAOnlyNow
-          ? `AS Line A (5L) — Sat${lineBOutageSatNeeded5L ? ' 🔴 Pre-build (Line B out)' : ''}`
-          : `AS Line A&B (5L) — Sat`;
+          ? `EP Line A (5L) — Sat${lineBOutageSatNeeded5L ? ' 🔴 Pre-build (Line B out)' : ''}`
+          : `EP Line A&B (5L) — Sat`;
         cls='as5';
       }
-      else if(sku==='2L Bottle') { tgt=52;       label='AS Bottle — Sat'; cls='as2'; }
+      else if(sku==='2L Bottle') { tgt=52;       label='EP Bottle — Sat'; cls='as2'; }
       else if(sku==='600ml 12pk'){ tgt=34;       label='EP New Line (12pk) — Sat'; cls='ep12'; }
       else if(sku==='600ml 6pk') { tgt=32;       label='EP New Line (6pk) — Sat'; cls='ep6'; }
       if(!tgt) return;
@@ -1222,21 +1222,21 @@ function buildSchedule(week, pr) {
 
   addLine(lines.hmps, 'ep10');
 
-  // AS Line A&B: use the day-level scheduler output
+  // EP Line A&B: use the day-level scheduler output
   const lineAOnlyWeek = lineBOutageStart && lineBOutageEnd &&
     week >= lineBOutageStart && week <= lineBOutageEnd;
   as.shifts.forEach(s => schedule.push({
     day:s.day, date:s.date, shift:s.shift,
     label: s.sku === '10L Cask'
-      ? (lineAOnlyWeek ? 'AS Line A only (10L)' : 'AS Line A&B (10L)')
-      : (lineAOnlyWeek ? 'AS Line A only (5L)'  : 'AS Line A&B (5L)'),
+      ? (lineAOnlyWeek ? 'EP Line A only (10L)' : 'EP Line A&B (10L)')
+      : (lineAOnlyWeek ? 'EP Line A only (5L)'  : 'EP Line A&B (5L)'),
     sku:s.sku, pallets:s.pallets, target:s.target,
     cls: s.sku === '10L Cask' ? 'as10' : 'as5',
-    site:'AS', riskFlag:s.riskFlag,
+    site:'EP', riskFlag:s.riskFlag,
     stockAfter10:s.stockAfter10, stockAfter5:s.stockAfter5
   }));
 
-  addLine(lines.as2l, 'as2');
+  // 2L Bottle row removed from shift schedule (single EP site, no separate AS display)
 
   // EP New Line: use the day-level scheduler output
   ep.shifts.forEach(s => schedule.push({
@@ -1250,7 +1250,7 @@ function buildSchedule(week, pr) {
     const satDate = addDays(week, 5);
     satLines.forEach(sl => {
       schedule.push({day:5, date:satDate, shift:'Day', label:sl.label, sku:sl.sku,
-        pallets:sl.satAlloc, target:Math.floor(sl.tgt*eff), cls:sl.cls+' sat', site:sl.label.includes('EP')?'EP':'AS'});
+        pallets:sl.satAlloc, target:Math.floor(sl.tgt*eff), cls:sl.cls+' sat', site:'EP'});
     });
   }
   return schedule;
@@ -1525,7 +1525,7 @@ function renderProdTable(pr) {
       <td>${ub}</td></tr>`;
   }
 
-  // AS Line A&B summary rows — one per SKU from day-level scheduler
+  // EP Line A&B summary rows — one per SKU from day-level scheduler
   function asRow(sku, prod, days, se, cov) {
     if(prod===0 && days===0) return '';
     const totalShifts = opDays * 2;
@@ -1536,8 +1536,8 @@ function renderProdTable(pr) {
     const lineAOnly = lineBOutageStart && lineBOutageEnd &&
       currentWeek >= lineBOutageStart && currentWeek <= lineBOutageEnd;
     const lineLabel = lineAOnly
-      ? 'AS Line A only <span style="font-size:10px;color:var(--amber);font-weight:600">LINE B OUT</span>'
-      : 'AS Line A&amp;B';
+      ? 'EP Line A only <span style="font-size:10px;color:var(--amber);font-weight:600">LINE B OUT</span>'
+      : 'EP Line A&amp;B';
     return `<tr><td><span class="chip ${CHIP[sku]}">${sku}</span></td>
       <td><strong>${lineLabel}</strong> <span style="font-size:10px;color:var(--muted)">(day-level scheduled)</span></td>
       <td class="num">${days}d / ${opDays}d</td>
@@ -1551,7 +1551,7 @@ function renderProdTable(pr) {
   h+=lr(lines.hmps, stockEnd['10L Cask'], coverDays['10L Cask']);
   h+=asRow('10L Cask', as.asProd10, as.asDays10, stockEnd['10L Cask'], coverDays['10L Cask']);
   h+=asRow('5L Cask',  as.asProd5,  as.asDays5,  pr.stockEnd5, coverDays['5L Cask']);
-  h+=lr(lines.as2l, pr.stockEnd2, coverDays['2L Bottle']);
+  // 2L Bottle row removed from Production Plan table (single EP site)
 
   // EP New Line — summarise from day-level schedule
   const cov12=coverDays['600ml 12pk'], cov6=coverDays['600ml 6pk'];
@@ -1801,7 +1801,7 @@ function renderAlerts(pr) {
     const la = lineBOutageStart && lineBOutageEnd &&
       currentWeek >= lineBOutageStart && currentWeek <= lineBOutageEnd;
     const capNote = la
-      ? ` Line B is out — AS Line A cannot cover both 10L and 5L demand in a single week. Pre-build ${sku} in prior weeks.`
+      ? ` Line B is out — EP Line A cannot cover both 10L and 5L demand in a single week. Pre-build ${sku} in prior weeks.`
       : ` Review HMPS config or efficiency.`;
     alerts.push({t:'r',msg:`<strong>SHORTFALL: ${sku}</strong> — ${fmt(Math.round(rem))} pallets cannot be produced even${satUsed?' with Saturday':''}.${capNote}`});
   });
@@ -2388,9 +2388,9 @@ function normaliseLineLabel(line, loc, snapshotLineBSku) {
   // snapshotLineBSku: use the value captured at actuals parse time so that
   // changing the Line B toggle after upload does not break attainment matching.
   const effectiveLineBSku = snapshotLineBSku || lineBSku;
-  if (line === 'Line A')          return 'AS Line A (10L)';
-  if (line === 'Line B')          return `AS Line B (${effectiveLineBSku})`;
-  if (line === 'SM Bottle line')  return 'AS Bottle Line (2L)';
+  if (line === 'Line A')          return 'EP Line A (10L)';
+  if (line === 'Line B')          return `EP Line B (${effectiveLineBSku})`;
+  if (line === 'SM Bottle line')  return 'EP Bottle Line (2L)';
   if (line === 'HMPS - Dual')     return `EP HMPS (Dual)`;
   if (line === 'HMPS - Single')   return `EP HMPS (Single)`;
   if (line === 'EP new line')     return 'EP New Line';
