@@ -907,7 +907,10 @@ function planWeek(week) {
   const need10 = Math.max(0, d10 + d10 - s10);
   const hmpsOnly10 = hmpsTgt * 2 * eff;
   // HMPS runs every available working day — cap at opDays (respects public holidays)
-  const days10hmps = Math.min(opDays, need10 > 0 ? Math.ceil(need10 / hmpsOnly10) : opDays);
+  // HMPS is the primary 10L machine — runs every available working day, always.
+  // It is never demand-capped. AS Line then uses the net 10L position (stock + HMPS output)
+  // to decide whether to run 10L or switch to 5L.
+  const days10hmps = opDays;
   const hmps   = makeLine(`EP HMPS (${hmpsConfig})`, 'EP', '10L Cask', hmpsTgt, days10hmps);
 
   // ── Pre-build scan: look ahead and bias AS scheduler toward SKUs facing future deficits
@@ -973,8 +976,11 @@ function planWeek(week) {
   }
 
     // Enforce minimum days: pass floor constraints to scheduler
+  // Tell AS Line scheduler that HMPS has already covered 10L — it sees effective 10L stock
+  // as current stock + HMPS weekly output, freeing Line A to run 5L.
+  const s10forAS = (avail['10L Cask'] || 0) + hmps.cap;
   const asResult = scheduleASLines(week, opDays, eff,
-    avail['10L Cask'] || 0, avail['5L Cask'] || 0,
+    s10forAS, avail['5L Cask'] || 0,
     minDays10, minDays5);
   const asProd10 = asResult.shifts.filter(s => s.sku === '10L Cask').reduce((a,s) => a + s.pallets, 0);
   const asProd5  = asResult.shifts.filter(s => s.sku === '5L Cask' ).reduce((a,s) => a + s.pallets, 0);
