@@ -502,7 +502,7 @@ const SKU_MAP_NS = {
 let wwDispatchOffset   = 2;  // days before need_arrival ABH must dispatch to WW
 let colesDispatchOffset = 1;  // days before Coles DC arrival ABH must dispatch
 let epChangeoverMins    = 45; // EP New Line changeover time loss in minutes
-// Line B outage: during this period AS Line A&B runs Line A only (40 pal/shift for both SKUs)
+// Line B outage: during this period EP Line A&B runs Line A only (40 pal/shift for both SKUs)
 // Line B down 12/06/2026 – 05/07/2026; back operational from 06/07/2026
 let lineBOutageStart = '2026-06-12';
 let lineBOutageEnd   = '2026-07-05';
@@ -589,7 +589,7 @@ function getDemand(week) {
   return r;
 }
 
-// ══ AS LINE A&B — DAY-LEVEL SCHEDULER ════════════════════════════════════════
+// ══ EP LINE A&B — DAY-LEVEL SCHEDULER ════════════════════════════════════════
 // Line A and Line B ALWAYS run combined as a single unit — they are never split
 // to run different SKUs simultaneously.
 // Each shift runs either 10L Cask (80 pal/shift: Line A 40 + Line B 40) or
@@ -598,7 +598,7 @@ function getDemand(week) {
 // worse stock position vs deliveries due — same priority logic as EP New Line.
 // No changeover penalty: these are separate machines so SKU switches are
 // instantaneous between shifts.
-function scheduleASLines(weekStart, opDays, eff, openStock10, openStock5, minDays10=0, minDays5=0) {
+function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, minDays10=0, minDays5=0) {
   // During Line B outage, Line A runs alone: 40 pal/shift for both SKUs
   const lineAOnly = lineBOutageStart && lineBOutageEnd &&
     weekStart >= lineBOutageStart && weekStart <= lineBOutageEnd;
@@ -809,22 +809,21 @@ function forwardSimulate(fromWeekIdx, openStock, eff) {
     const hmpsTgt = hmpsConfig === 'Dual' ? 80 : 40;
     const fwdOpDays = opDaysInWeek(wk);
     const capHMPS = Math.floor(hmpsTgt * 2 * fwdOpDays * eff);  // working days × 2 shifts
-    const capAS   = Math.floor((cap10perShift + cap5perShift) * 2 * fwdOpDays);  // working days
 
     // Project: assume max production on constrained lines
-    // 10L: HMPS full week + AS full week at lineA capacity
-    // 5L: AS full week at lineA capacity
+    // 10L: HMPS full week + EP Line A&B full week at Line A capacity
+    // 5L: EP Line A&B full week at Line A capacity
     // Others: their respective line capacities
-    // AS Line A&B can only run ONE SKU per shift — split days between 10L and 5L
+    // EP Line A&B can only run ONE SKU per shift — split days between 10L and 5L
     // by demand ratio, not give each full capacity simultaneously
     const d10 = dem['10L Cask'].total || 0;
     const d5  = dem['5L Cask'].total  || 0;
-    const totalASDem = d10 + d5 || 1;
-    const asDays10 = Math.round(fwdOpDays * d10 / totalASDem);
-    const asDays5  = fwdOpDays - asDays10;
+    const totalEPDem = d10 + d5 || 1;
+    const fwdDays10 = Math.round(fwdOpDays * d10 / totalEPDem);
+    const fwdDays5  = fwdOpDays - fwdDays10;
     const maxProd = {
-      '10L Cask':    capHMPS + Math.floor(cap10perShift * 2 * asDays10 * eff),
-      '5L Cask':     Math.floor(cap5perShift * 2 * asDays5 * eff),
+      '10L Cask':    capHMPS + Math.floor(cap10perShift * 2 * fwdDays10 * eff),
+      '5L Cask':     Math.floor(cap5perShift * 2 * fwdDays5 * eff),
       '2L Bottle':   Math.floor(52 * 2 * fwdOpDays * eff),
       '600ml 12pk':  Math.floor(34 * 2 * fwdOpDays * eff),
       '600ml 6pk':   Math.floor(32 * 2 * fwdOpDays * eff),
@@ -908,17 +907,17 @@ function planWeek(week) {
   const hmpsOnly10 = hmpsTgt * 2 * eff;
   // HMPS runs every available working day — cap at opDays (respects public holidays)
   // HMPS is the primary 10L machine — runs every available working day, always.
-  // It is never demand-capped. AS Line then uses the net 10L position (stock + HMPS output)
+  // It is never demand-capped. EP Line A&B then uses the net 10L position (stock + HMPS output)
   // to decide whether to run 10L or switch to 5L.
   const days10hmps = opDays;
   const hmps   = makeLine(`EP HMPS (${hmpsConfig})`, 'EP', '10L Cask', hmpsTgt, days10hmps);
 
-  // ── Pre-build scan: look ahead and bias AS scheduler toward SKUs facing future deficits
+  // ── Pre-build scan: look ahead and bias EP Line A&B scheduler toward SKUs facing future deficits
   // Run a simplified forward projection using current closing stock to identify
   // which SKU needs extra pre-build this week. Inflate the "virtual need" for that SKU
   // so the day-level scheduler naturally prioritises it.
   const weekIdx = ALL_WEEKS.indexOf(week);
-  // ── Pre-build scan: calculate minimum days needed per SKU on AS Line A&B
+  // ── Pre-build scan: calculate minimum days needed per SKU on EP Line A&B
   // Look ahead up to 4 weeks. If a SKU will go short, calculate how many
   // extra pallets need to be built THIS week and enforce a minimum day count.
   const lineAOnlyNow = lineBOutageStart && lineBOutageEnd &&
@@ -945,7 +944,7 @@ function planWeek(week) {
       const d5   = dem['5L Cask'].total  || 0;
       const wkOpDays2 = opDaysInWeek(wk);  // respect public holidays in future weeks
       const hmpsWeek = Math.floor(hmpsTgt * 2 * wkOpDays2 * eff);
-      // Estimate realistic AS day split: proportional to remaining need after HMPS
+      // Estimate realistic EP day split: proportional to remaining need after HMPS
       const net10 = Math.max(0, d10 - proj10 - hmpsWeek);
       const net5  = Math.max(0, d5  - proj5);
       const totalNeed = net10 + net5;
@@ -976,20 +975,20 @@ function planWeek(week) {
   }
 
     // Enforce minimum days: pass floor constraints to scheduler
-  // Tell AS Line scheduler that HMPS has already covered 10L — it sees effective 10L stock
-  // as current stock + HMPS weekly output, freeing Line A to run 5L.
-  const s10forAS = (avail['10L Cask'] || 0) + hmps.cap;
-  const asResult = scheduleASLines(week, opDays, eff,
-    s10forAS, avail['5L Cask'] || 0,
+  // Tell EP Line A&B scheduler that HMPS has already covered 10L — it sees effective 10L stock
+  // as current stock + HMPS weekly output, freeing Line A to run 5L. (EP Line A&B scheduler)
+  const s10forEP = (avail['10L Cask'] || 0) + hmps.cap;
+  const caskResult = scheduleEPCaskLines(week, opDays, eff,
+    s10forEP, avail['5L Cask'] || 0,
     minDays10, minDays5);
-  const asProd10 = asResult.shifts.filter(s => s.sku === '10L Cask').reduce((a,s) => a + s.pallets, 0);
-  const asProd5  = asResult.shifts.filter(s => s.sku === '5L Cask' ).reduce((a,s) => a + s.pallets, 0);
-  const asDays10 = asResult.shifts.filter(s => s.sku === '10L Cask').length / 2;
-  const asDays5  = asResult.shifts.filter(s => s.sku === '5L Cask' ).length / 2;
+  const caskProd10 = caskResult.shifts.filter(s => s.sku === '10L Cask').reduce((a,s) => a + s.pallets, 0);
+  const caskProd5  = caskResult.shifts.filter(s => s.sku === '5L Cask' ).reduce((a,s) => a + s.pallets, 0);
+  const caskDays10 = caskResult.shifts.filter(s => s.sku === '10L Cask').length / 2;
+  const caskDays5  = caskResult.shifts.filter(s => s.sku === '5L Cask' ).length / 2;
 
-  const prod10 = hmps.cap + asProd10;
+  const prod10 = hmps.cap + caskProd10;
   const stockEnd10 = s10 + prod10 - d10;
-  const stockEnd5  = (avail['5L Cask'] || 0) + asProd5 - demand['5L Cask'].total;
+  const stockEnd5  = (avail['5L Cask'] || 0) + caskProd5 - demand['5L Cask'].total;
 
   const s2  = avail['2L Bottle'] || 0;
   const d2  = demand['2L Bottle'].total;
@@ -1062,8 +1061,8 @@ function planWeek(week) {
     (stockEnd5 + (cap5shift * 2 * opDaysInWeek(nextWk1)) + (cap5shift * 2 * opDaysInWeek(nextWk2)) - getDemand(nextWk1)['5L Cask'].total - getDemand(nextWk2)['5L Cask'].total) < 0);
 
   // During Line B outage: check if a future week (up to 3 weeks ahead) will have
-  // a capacity shortfall because AS Line A cannot cover both 10L and 5L demand.
-  // If so, trigger Saturday AS Line A for the constrained SKU in advance.
+  // a capacity shortfall because EP Line A cannot cover both 10L and 5L demand.
+  // If so, trigger Saturday EP Line A for the constrained SKU in advance.
   let lineBOutageSatNeeded5L = false;
   let lineBOutageSatNeeded10L = false;
   if (lineAOnlyNow) {
@@ -1081,7 +1080,7 @@ function planWeek(week) {
       const fwkCap10 = Math.floor(40 * eff) * 2 * fwkOpDays;
       const fwkD5    = fwkDem['5L Cask'].total || 0;
       const fwkD10   = fwkDem['10L Cask'].total || 0;
-      // Combined AS demand vs combined AS capacity — if they exceed total capacity, flag
+      // Combined EP demand vs combined EP capacity — if they exceed total capacity, flag
       const fwkNet10 = Math.max(0, fwkD10 - fwkHmps);
       const fwkTotalNeed = fwkNet10 + fwkD5;
       const fwkTotalCap  = fwkCap5;  // Line A serves both — total cap = cap per sku per day * days
@@ -1109,13 +1108,13 @@ function planWeek(week) {
   const satStock = {...stockEnd};
   if (needSat && !satIsHoliday) {
     // Saturday rules:
-    // - 5L Cask: AS Line A runs Saturday for 5L (pre-build priority)
+    // - 5L Cask: EP Line A runs Saturday for 5L (pre-build priority)
     // - 10L Cask: HMPS runs Saturday
     // - If only 5L triggered: also run HMPS Saturday to bank 10L stock
     // - Other SKUs: their natural Saturday line
     const satSkus = [...satTriggers];
     if (satTriggers.includes('5L Cask') && !satTriggers.includes('10L Cask')) {
-      satSkus.push('10L Cask');  // run HMPS Saturday too to free AS days for 5L
+      satSkus.push('10L Cask');  // run HMPS Saturday too to free EP Line A&B days for 5L
     }
     satSkus.forEach(sku => {
       let tgt = 0, label = '', cls = '';
@@ -1186,8 +1185,8 @@ function planWeek(week) {
     satIsHoliday,
     lines: {hmps, as2l},
     bottle2LDates,
-    as: {asProd10, asProd5, asDays10, asDays5, shifts: asResult.shifts,
-         endStock10: asResult.endStock10, endStock5: asResult.endStock5},
+    cask: {prod10: caskProd10, prod5: caskProd5, days10: caskDays10, days5: caskDays5, shifts: caskResult.shifts,
+           endStock10: caskResult.endStock10, endStock5: caskResult.endStock5},
     ep: {prod12, prod6, days12, days6, shifts: epResult.shifts,
          endStock12: epResult.endStock12, endStock6: epResult.endStock6},
     stockEnd10, stockEnd5, stockEnd2,
@@ -1211,7 +1210,7 @@ function planWeek(week) {
 // ══ BUILD FULL SHIFT SCHEDULE ═════════════════════════════════════════════════
 function buildSchedule(week, pr) {
   const eff = getEff();
-  const {lines, as, ep, satLines, satUsed} = pr;
+  const {lines, cask, ep, satLines, satUsed} = pr;
   const schedule = [];
 
   function addLine(line, cls) {
@@ -1242,7 +1241,7 @@ function buildSchedule(week, pr) {
     stockAfter10:s.stockAfter10, stockAfter5:s.stockAfter5
   }));
 
-  // 2L Bottle row removed from shift schedule (single EP site, no separate AS display)
+  // 2L Bottle row removed from shift schedule (single EP site)
 
   // EP New Line: use the day-level scheduler output
   ep.shifts.forEach(s => schedule.push({
@@ -1442,8 +1441,8 @@ function renderRollingTable(pr) {
   const todayMon = monOf(localToday());
   const pr0 = planWeekCache[todayMon]?._full ?? planWeek(todayMon);
   const actualProd0 = {
-    '10L Cask':   (pr0?.as?.asProd10 ?? 0) + (pr0?.lines?.hmps?.cap ?? 0),
-    '5L Cask':    pr0?.as?.asProd5   ?? 0,
+    '10L Cask':   (pr0?.cask?.prod10 ?? 0) + (pr0?.lines?.hmps?.cap ?? 0),
+    '5L Cask':    pr0?.cask?.prod5   ?? 0,
     '2L Bottle':  pr0?.lines?.as2l?.cap ?? 0,
     '600ml 12pk': pr0?.ep?.prod12    ?? 0,
     '600ml 6pk':  pr0?.ep?.prod6     ?? 0,
@@ -1531,8 +1530,8 @@ function renderProdTable(pr) {
       <td>${ub}</td></tr>`;
   }
 
-  // EP Line A&B summary rows — one per SKU from day-level scheduler
-  function asRow(sku, prod, days, se, cov) {
+  // EP Line A&B summary rows — one per SKU from day-level scheduler (cask line)
+  function caskRow(sku, prod, days, se, cov) {
     if(prod===0 && days===0) return '';
     const totalShifts = opDays * 2;
     const shiftsRun = days * 2;
@@ -1555,8 +1554,8 @@ function renderProdTable(pr) {
   }
 
   h+=lr(lines.hmps, stockEnd['10L Cask'], coverDays['10L Cask']);
-  h+=asRow('10L Cask', as.asProd10, as.asDays10, stockEnd['10L Cask'], coverDays['10L Cask']);
-  h+=asRow('5L Cask',  as.asProd5,  as.asDays5,  pr.stockEnd5, coverDays['5L Cask']);
+  h+=caskRow('10L Cask', cask.prod10, cask.days10, stockEnd['10L Cask'], coverDays['10L Cask']);
+  h+=caskRow('5L Cask',  cask.prod5,  cask.days5,  pr.stockEnd5, coverDays['5L Cask']);
   // 2L Bottle row removed from Production Plan table (single EP site)
 
   // EP New Line — summarise from day-level schedule
