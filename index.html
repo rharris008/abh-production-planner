@@ -1246,7 +1246,8 @@ function buildSchedule(week, pr) {
     stockAfter10:s.stockAfter10, stockAfter5:s.stockAfter5
   }));
 
-  // 2L Bottle row removed from shift schedule (single EP site)
+  // EP Bottle Line (2L)
+  addLine(lines.as2l, 'as2');
 
   // EP New Line: use the day-level scheduler output
   ep.shifts.forEach(s => schedule.push({
@@ -1561,7 +1562,7 @@ function renderProdTable(pr) {
   h+=lr(lines.hmps, stockEnd['10L Cask'], coverDays['10L Cask']);
   h+=caskRow('10L Cask', cask.prod10, cask.days10, stockEnd['10L Cask'], coverDays['10L Cask']);
   h+=caskRow('5L Cask',  cask.prod5,  cask.days5,  pr.stockEnd5, coverDays['5L Cask']);
-  // 2L Bottle row removed from Production Plan table (single EP site)
+  h+=lr(lines.as2l, pr.stockEnd2, coverDays['2L Bottle']);
 
   // EP New Line — summarise from day-level schedule
   const cov12=coverDays['600ml 12pk'], cov6=coverDays['600ml 6pk'];
