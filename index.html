@@ -355,7 +355,7 @@ tr.risk-a td{background:#FEF9F0}
     <div class="panel">
       <div class="ph blue" id="replanHdr">Replan — Remaining Days to Recover</div>
       <div style="padding:8px 12px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border)">
-        Today and remaining days at planned capacity. Saturday available for HMPS, Line A and Line B.
+        Today and remaining days at planned capacity. HMPS does not run Saturday. Saturday is emergency-only for EP lines — night shift preferred.
       </div>
       <div class="tscroll"><table id="replanTable"></table></div>
     </div>
@@ -1132,18 +1132,14 @@ function planWeek(week) {
   const satStock = {...stockEnd};
   if (needSat && !satIsHoliday) {
     // Saturday rules:
-    // - 5L Cask: EP Line A runs Saturday for 5L (pre-build priority)
-    // - 10L Cask: HMPS runs Saturday
-    // - If only 5L triggered: also run HMPS Saturday to bank 10L stock
-    // - Other SKUs: their natural Saturday line
-    const satSkus = [...satTriggers];
-    if (satTriggers.includes('5L Cask') && !satTriggers.includes('10L Cask')) {
-      satSkus.push('10L Cask');  // run HMPS Saturday too to free EP Line A&B days for 5L
-    }
+    // - HMPS never runs Saturday (double time, not cost effective).
+    //   If 10L is short, a night shift (22:00-06:00) on a weekday is the preferred option.
+    // - EP Line A&B, Bottle Line, and EP New Line can run Saturday as a last resort.
+    // - Night shift alert fires whenever satTriggers > 0 (see renderAlerts).
+    const satSkus = satTriggers.filter(s => s !== '10L Cask');  // HMPS never Saturday
     satSkus.forEach(sku => {
       let tgt = 0, label = '', cls = '';
-      if (sku==='10L Cask')      { tgt=hmpsTgt; label=`EP HMPS (${hmpsConfig}) — Sat`; cls='ep10'; }
-      else if(sku==='5L Cask')   {
+      if (sku==='5L Cask')   {
         tgt = lineAOnlyNow ? 27 : 50;
         const runLine5Sat = lineOutNow === 'B' ? 'A' : lineOutNow === 'A' ? 'B' : 'A&B';
         const outBadge5   = lineAOnlyNow ? ` 🔴 Pre-build (Line ${lineOutNow} out)` : '';
@@ -1445,21 +1441,23 @@ function renderRollingTable(pr) {
     '600ml 6pk':  Math.max(0, baseStock['600ml 6pk']  ?? 0),
   };
 
-  // Open orders row — show committed stock as negative adjustment before week 1 production
+  // Open orders row — display only (informational). These confirmed orders are already
+  // included in the weekly forecast demand, so deducting them here would double-count.
+  // Show as reference to indicate which stock is committed, but do NOT reduce stock[s].
   const hasOO = Object.values(openOrdersPal).some(v => v > 0);
   if (hasOO) {
     h += `<tr style="background:#FFF3E0;font-weight:600">
-      <td style="font-size:11px;color:var(--red)">📋 Open Orders (committed)</td>`;
+      <td style="font-size:11px;color:var(--red)">📋 Open Orders (committed — already in forecast)</td>`;
     skuCols.forEach(s => {
       const oo = Math.round(openOrdersPal[s] || 0);
       const afterOO = stock[s] - oo;
       const cls = afterOO < 0 ? 'color:var(--red);font-weight:700' : 'color:var(--amber)';
       h += `<td class="num" style="border-left:2px solid var(--border);${oo>0?cls:''}">${oo>0?`-${fmt(oo)}`:'—'}</td>
             <td class="num">—</td>
-            <td class="num" style="${afterOO<0?'color:var(--red);font-weight:700':''}">${fmt(afterOO)}</td>
+            <td class="num" style="${afterOO<0?'color:var(--red);font-weight:700':''}">${oo>0?fmt(afterOO):'—'}</td>
             <td class="num">—</td>`;
-      // Deduct open orders from stock before rolling forward
-      stock[s] = Math.max(0, afterOO);
+      // DO NOT reduce stock[s] — open orders are included in the weekly forecast demand.
+      // Deducting here AND from forecast demand is a double-count.
     });
     h += `</tr>`;
   }
@@ -1840,8 +1838,17 @@ function renderAlerts(pr) {
     alerts.push({t:'r',msg:`<strong>SHORTFALL: ${sku}</strong> — ${fmt(Math.round(rem))} pallets cannot be produced even${satUsed?' with Saturday':''}.${capNote}`});
   });
 
-  if(satUsed&&satTriggers.length) {
-    alerts.push({t:'a',msg:`<strong>Saturday triggered</strong> — ${satTriggers.join(', ')} projected below 3 days cover. Saturday single shift on: ${satLines.map(s=>s.label).join(', ')}.`});
+  // Night shift recommendation — fires whenever Saturday would have been triggered.
+  // HMPS never runs Saturday (double time). Night shift (22:00-06:00) is the preferred option.
+  // Saturday is emergency-only for EP lines (5L, 2L, 600ml).
+  if(satTriggers.length) {
+    const hmpsSkus = satTriggers.filter(s => s === '10L Cask');
+    const epSkus   = satTriggers.filter(s => s !== '10L Cask');
+    const parts = [];
+    if(hmpsSkus.length) parts.push(`<strong>Night shift recommended on HMPS</strong> — 10L Cask projected below cover target. HMPS cannot run Saturday (double time). Activate a night shift (22:00–06:00) this week.`);
+    if(epSkus.length && satUsed)   parts.push(`<strong>Saturday EP lines activated</strong> — ${epSkus.join(', ')} below 3 days cover. Saturday single shift on: ${satLines.map(s=>s.label).join(', ')}.`);
+    if(epSkus.length && !satUsed)  parts.push(`<strong>Night shift recommended on EP lines</strong> — ${epSkus.join(', ')} projected short. Consider night shift (22:00–06:00) before authorising Saturday (double time).`);
+    parts.forEach(msg => alerts.push({t:'a', msg}));
   }
 
   // EP New Line shift mix
@@ -1887,7 +1894,7 @@ function renderAlerts(pr) {
   const totalHold=SKUS.reduce((a,s)=>a+(onHoldPal[s]||0),0);
   if(totalHold>0) alerts.push({t:'a',msg:`<strong>${fmt(totalHold)} pallets on hold</strong> excluded from planning. Update when QA releases stock.`});
   if(pr.midWeekAtRisk&&pr.midWeekAtRisk.size>0) {
-    alerts.push({t:'r',msg:`<strong>Mid-week stockout risk:</strong> ${[...pr.midWeekAtRisk].join(', ')} may not cover Mon-Wed deliveries. Saturday trigger activated.`});
+    alerts.push({t:'r',msg:`<strong>Mid-week stockout risk:</strong> ${[...pr.midWeekAtRisk].join(', ')} may not cover Mon-Wed deliveries. Consider night shift (22:00–06:00) to close the gap.`});
   }
   if(!alerts.length) alerts.push({t:'g',msg:`All lines on plan. All deliveries scheduled. All SKUs building toward 7-day stock cover.`});
   document.getElementById('alertsPanel').innerHTML=
@@ -2558,10 +2565,10 @@ function renderReplan(pr, skuPlan, skuActual, completedDaysLoop) {
   });
   document.getElementById('replanTable').innerHTML = rt + '</tbody>';
 
-  // Saturday capacity — HMPS, Line A, Line B available on Saturday
+  // Saturday capacity — EP lines only (HMPS never runs Saturday — double time cost)
   const satCap = {
-    '10L Cask':   (hmpsTgt + 40) * eff,   // HMPS + Line A, single shift
-    '5L Cask':    lineBTgt * eff,           // Line B single shift
+    '10L Cask':   0,                        // HMPS not available Saturday — use night shift instead
+    '5L Cask':    lineBTgt * eff,           // EP Line A or B single shift (whichever is running)
     '2L Bottle':  52 * eff,                 // Bottle line single shift
     '600ml 12pk': 34 * eff,
     '600ml 6pk':  32 * eff,
@@ -2570,7 +2577,7 @@ function renderReplan(pr, skuPlan, skuActual, completedDaysLoop) {
   // Note explaining today estimate and Saturday
   const noteEl = document.createElement('div');
   noteEl.style.cssText = 'padding:8px 12px;font-size:10px;color:var(--muted);border-top:1px solid var(--border)';
-  noteEl.innerHTML = `Today and remaining days at ${Math.round(eff*100)}% planned capacity (${nComplete} complete day${nComplete!==1?'s':''} already in actuals). <strong>Saturday available: HMPS + Line A (${fmt(Math.round(satCap['10L Cask']))} pal 10L), Line B (${fmt(Math.round(satCap['5L Cask']))} pal 5L).</strong>`;
+  noteEl.innerHTML = `Today and remaining days at ${Math.round(eff*100)}% planned capacity (${nComplete} complete day${nComplete!==1?'s':''} already in actuals). <strong>Saturday emergency only (EP lines, no HMPS).</strong> Night shift (22:00–06:00) preferred over Saturday where possible.`;
   const tbl = document.getElementById('replanTable');
   if (tbl.parentNode) tbl.parentNode.appendChild(noteEl);
 
@@ -2583,7 +2590,7 @@ function renderReplan(pr, skuPlan, skuActual, completedDaysLoop) {
   } else {
     rp.innerHTML = riskSkus.map(({s, gap, needed, expected, availStock}) => {
       const stockNote = availStock > 0 ? ` (${fmt(availStock)} pal available stock already factored in)` : '';
-      return `<div class="alert alert-r">⚠ <div><strong>${s}</strong> — expected total production ${fmt(Math.round((skuActual[s]||0)+expected))} pal + available stock ${fmt(availStock)} pal vs ${fmt(needed)} pal still needed. Short by ${fmt(gap)} pal after stock${stockNote}. Consider Saturday shift or review dispatch commitments.</div></div>`;
+      return `<div class="alert alert-r">⚠ <div><strong>${s}</strong> — expected total production ${fmt(Math.round((skuActual[s]||0)+expected))} pal + available stock ${fmt(availStock)} pal vs ${fmt(needed)} pal still needed. Short by ${fmt(gap)} pal after stock${stockNote}. Consider night shift or review dispatch commitments.</div></div>`;
     }).join('');
   }
 }
