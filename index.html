@@ -600,7 +600,7 @@ function getDemand(week) {
 // worse stock position vs deliveries due — same priority logic as EP New Line.
 // No changeover penalty: these are separate machines so SKU switches are
 // instantaneous between shifts.
-function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, minDays10=0, minDays5=0) {
+function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, minDays10=0, minDays5=0, hmpsCovers10L=false) {
   // During Line B outage, Line A runs alone.
   // Base capacities (before efficiency factor): Line A alone: 10L=30, 5L=27; Combined A+B: 10L=60, 5L=50.
   // At default 75% efficiency: lineAOnly 10L=44/day, 5L=40/day; combined 10L=90/day, 5L=74/day.
@@ -655,6 +655,7 @@ function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, mi
           : s5  / weekDem5;
         if (weekDem5 <= 0) sku = '10L Cask';
         else if (weekDem10 <= 0) sku = '5L Cask';
+        else if (hmpsCovers10L) sku = '5L Cask';  // HMPS handles 10L — Line A&B runs 5L
         else sku = cover10 <= cover5adj ? '10L Cask' : '5L Cask';
       }
     }
@@ -983,9 +984,14 @@ function planWeek(week) {
   // Tell EP Line A&B scheduler that HMPS has already covered 10L — it sees effective 10L stock
   // as current stock + HMPS weekly output, freeing Line A to run 5L. (EP Line A&B scheduler)
   const s10forEP = (avail['10L Cask'] || 0) + hmps.cap;
+  // If HMPS + opening stock covers this week's 10L demand, Line A&B should run 5L the whole week.
+  // The cover-ratio comparison in the day-level scheduler can flip to 10L after a few days of
+  // 5L pre-build (5L stock rises, 10L stock drawn down by deliveries), but that's wrong —
+  // HMPS is already producing 10L continuously. Flag tells the scheduler to ignore that flip.
+  const hmpsCovers10L = s10forEP >= (d10 || 0);
   const caskResult = scheduleEPCaskLines(week, opDays, eff,
     s10forEP, avail['5L Cask'] || 0,
-    minDays10, minDays5);
+    minDays10, minDays5, hmpsCovers10L);
   const caskProd10 = caskResult.shifts.filter(s => s.sku === '10L Cask').reduce((a,s) => a + s.pallets, 0);
   const caskProd5  = caskResult.shifts.filter(s => s.sku === '5L Cask' ).reduce((a,s) => a + s.pallets, 0);
   const caskDays10 = caskResult.shifts.filter(s => s.sku === '10L Cask').length / 2;
