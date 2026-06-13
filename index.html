@@ -1230,13 +1230,13 @@ function buildSchedule(week, pr) {
   // EP Line A&B: use the day-level scheduler output
   const lineAOnlyWeek = lineBOutageStart && lineBOutageEnd &&
     week >= lineBOutageStart && week <= lineBOutageEnd;
-  as.shifts.forEach(s => schedule.push({
+  cask.shifts.forEach(s => schedule.push({
     day:s.day, date:s.date, shift:s.shift,
     label: s.sku === '10L Cask'
       ? (lineAOnlyWeek ? 'EP Line A only (10L)' : 'EP Line A&B (10L)')
       : (lineAOnlyWeek ? 'EP Line A only (5L)'  : 'EP Line A&B (5L)'),
     sku:s.sku, pallets:s.pallets, target:s.target,
-    cls: s.sku === '10L Cask' ? 'as10' : 'as5',
+    cls: s.sku === '10L Cask' ? 'ep10' : 'ep5',
     site:'EP', riskFlag:s.riskFlag,
     stockAfter10:s.stockAfter10, stockAfter5:s.stockAfter5
   }));
@@ -1511,7 +1511,7 @@ function renderRollingTable(pr) {
 
 // ══ RENDER: PRODUCTION PLAN TABLE ════════════════════════════════════════════
 function renderProdTable(pr) {
-  const {lines,as,ep,coverDays,finalShortfall,satLines,satUsed,demand,stockEnd} = pr;
+  const {lines,cask,ep,coverDays,finalShortfall,satLines,satUsed,demand,stockEnd} = pr;
   const opDays = opDaysInWeek(currentWeek);
   let h=`<thead><tr><th>SKU</th><th>Line</th><th class="num">Days Run</th><th class="num">Produced (pal)</th><th class="num">Demand (pal)</th><th class="num">End Stock (pal)</th><th class="num">Days Cover</th><th>Line Use</th></tr></thead><tbody>`;
 
