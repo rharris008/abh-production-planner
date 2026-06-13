@@ -232,11 +232,19 @@ tr.risk-a td{background:#FEF9F0}
           </div>
           <div class="oc-cell">
             <label>Line B out — from</label>
-            <input type="date" value="2026-06-19" onchange="lineBOutageStart=this.value;onWeekChange()">
+            <input type="date" value="2026-06-15" onchange="lineBOutageStart=this.value;onWeekChange()">
           </div>
           <div class="oc-cell">
             <label>Line B out — to</label>
-            <input type="date" value="2026-07-05" onchange="lineBOutageEnd=this.value;onWeekChange()">
+            <input type="date" value="2026-06-19" onchange="lineBOutageEnd=this.value;onWeekChange()">
+          </div>
+          <div class="oc-cell">
+            <label>Line A out — from</label>
+            <input type="date" value="2026-06-22" onchange="lineAOutageStart=this.value;onWeekChange()">
+          </div>
+          <div class="oc-cell">
+            <label>Line A out — to</label>
+            <input type="date" value="2026-06-26" onchange="lineAOutageEnd=this.value;onWeekChange()">
           </div>
         </div>
       </div>
@@ -502,10 +510,24 @@ const SKU_MAP_NS = {
 let wwDispatchOffset   = 2;  // days before need_arrival ABH must dispatch to WW
 let colesDispatchOffset = 1;  // days before Coles DC arrival ABH must dispatch
 let epChangeoverMins    = 45; // EP New Line changeover time loss in minutes
-// Line B outage: during this period EP Line A&B runs Line A only (40 pal/shift for both SKUs)
-// Line B down 12/06/2026 – 05/07/2026; back operational from 06/07/2026
-let lineBOutageStart = '2026-06-19';
-let lineBOutageEnd   = '2026-07-05';
+// Line outages: during these periods EP Line A&B runs on a single line.
+// Single-line capacity is identical regardless of which line is down.
+// Week 15/06: Line B out → run Line A only
+// Week 22/06: Line A out → run Line B only
+let lineBOutageStart = '2026-06-15';
+let lineBOutageEnd   = '2026-06-19';
+let lineAOutageStart = '2026-06-22';
+let lineAOutageEnd   = '2026-06-26';
+
+// Returns {single: bool, out: 'A'|'B'|null} for a given week date string.
+// 'single' = true when only one EP cask line is running; 'out' = which line is down.
+function lineOutageForWeek(wk) {
+  const bOut = lineBOutageStart && lineBOutageEnd && wk >= lineBOutageStart && wk <= lineBOutageEnd;
+  const aOut = lineAOutageStart && lineAOutageEnd && wk >= lineAOutageStart && wk <= lineAOutageEnd;
+  if (bOut) return {single: true, out: 'B'};
+  if (aOut) return {single: true, out: 'A'};
+  return {single: false, out: null};
+}
 
 // ══ HELPERS ══════════════════════════════════════════════════════════════════
 const fmt  = n => n==null||isNaN(n) ? '—' : Number(n).toLocaleString('en-AU');
@@ -601,12 +623,11 @@ function getDemand(week) {
 // No changeover penalty: these are separate machines so SKU switches are
 // instantaneous between shifts.
 function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, minDays10=0, minDays5=0, hmpsCovers10L=false, shifts5=2) {
-  // During Line B outage, Line A runs alone.
-  // Base capacities (before efficiency factor): Line A alone: 10L=30, 5L=27; Combined A+B: 10L=60, 5L=50.
-  // At default 75% efficiency: lineAOnly 10L=44/day, 5L=40/day; combined 10L=90/day, 5L=74/day.
+  // During a line outage, only one cask line runs (same single-line capacity regardless of which is down).
+  // Base capacities (before efficiency factor): single line: 10L=30, 5L=27; Combined A+B: 10L=60, 5L=50.
+  // At default 75% efficiency: single-line 10L=44/day, 5L=40/day; combined 10L=90/day, 5L=74/day.
   // Per Aaron Mattin (Operations Manager) 13/06/2026.
-  const lineAOnly = lineBOutageStart && lineBOutageEnd &&
-    weekStart >= lineBOutageStart && weekStart <= lineBOutageEnd;
+  const {single: lineAOnly} = lineOutageForWeek(weekStart);
   const tgt10 = Math.floor((lineAOnly ? 30 : 60) * eff);
   const tgt5  = Math.floor((lineAOnly ? 27 : 50) * eff);
   let s10 = openStock10;
@@ -795,8 +816,7 @@ function forwardSimulate(fromWeekIdx, openStock, eff) {
     const dem = getDemand(wk);
 
     // Capacity available this future week on each line
-    const lineAOnly = lineBOutageStart && lineBOutageEnd &&
-      wk >= lineBOutageStart && wk <= lineBOutageEnd;
+    const {single: lineAOnly} = lineOutageForWeek(wk);
     const cap10perShift = Math.floor((lineAOnly ? 30 : 60) * eff);
     const cap5perShift  = Math.floor((lineAOnly ? 27 : 50) * eff);
     const hmpsTgt = hmpsConfig === 'Dual' ? 80 : 40;
@@ -914,8 +934,7 @@ function planWeek(week) {
   // ── Pre-build scan: calculate minimum days needed per SKU on EP Line A&B
   // Look ahead up to 4 weeks. If a SKU will go short, calculate how many
   // extra pallets need to be built THIS week and enforce a minimum day count.
-  const lineAOnlyNow = lineBOutageStart && lineBOutageEnd &&
-    week >= lineBOutageStart && week <= lineBOutageEnd;
+  const {single: lineAOnlyNow, out: lineOutNow} = lineOutageForWeek(week);
   const cap10shift = Math.floor((lineAOnlyNow ? 30 : 60) * eff);
   const cap5shift  = Math.floor((lineAOnlyNow ? 27 : 50) * eff);
 
@@ -938,8 +957,7 @@ function planWeek(week) {
       if (wkIdx2 >= ALL_WEEKS.length) break;
       const wk = ALL_WEEKS[wkIdx2];
       const dem = i === 0 ? demand : getDemand(wk);
-      const la = lineBOutageStart && lineBOutageEnd &&
-        wk >= lineBOutageStart && wk <= lineBOutageEnd;
+      const {single: la} = lineOutageForWeek(wk);
       const c10s = Math.floor((la ? 30 : 60) * eff);
       const c5s  = Math.floor((la ? 27 : 50) * eff);
       const d10  = dem['10L Cask'].total || 0;
@@ -1077,8 +1095,7 @@ function planWeek(week) {
       const fwkIdx = weekIdx + i;
       if (fwkIdx >= ALL_WEEKS.length) break;
       const fwk = ALL_WEEKS[fwkIdx];
-      const fwkLa = lineBOutageStart && lineBOutageEnd &&
-        fwk >= lineBOutageStart && fwk <= lineBOutageEnd;
+      const {single: fwkLa} = lineOutageForWeek(fwk);
       if (!fwkLa) break;  // outage ends before this week
       const fwkDem = getDemand(fwk);
       const fwkOpDays = opDaysInWeek(fwk);
@@ -1128,8 +1145,10 @@ function planWeek(week) {
       if (sku==='10L Cask')      { tgt=hmpsTgt; label=`EP HMPS (${hmpsConfig}) — Sat`; cls='ep10'; }
       else if(sku==='5L Cask')   {
         tgt = lineAOnlyNow ? 27 : 50;
+        const runLine5Sat = lineOutNow === 'B' ? 'A' : lineOutNow === 'A' ? 'B' : 'A&B';
+        const outBadge5   = lineAOnlyNow ? ` 🔴 Pre-build (Line ${lineOutNow} out)` : '';
         label = lineAOnlyNow
-          ? `EP Line A (5L) — Sat${lineBOutageSatNeeded5L ? ' 🔴 Pre-build (Line B out)' : ''}`
+          ? `EP Line ${runLine5Sat} (5L) — Sat${lineBOutageSatNeeded5L ? outBadge5 : ''}`
           : `EP Line A&B (5L) — Sat`;
         cls='as5';
       }
@@ -1237,13 +1256,13 @@ function buildSchedule(week, pr) {
   addLine(lines.hmps, 'ep10');
 
   // EP Line A&B: use the day-level scheduler output
-  const lineAOnlyWeek = lineBOutageStart && lineBOutageEnd &&
-    week >= lineBOutageStart && week <= lineBOutageEnd;
+  const {single: lineAOnlyWeek, out: lineOutWeek} = lineOutageForWeek(week);
+  const runLineWeek = lineOutWeek === 'B' ? 'A' : lineOutWeek === 'A' ? 'B' : 'A&B';
   cask.shifts.forEach(s => schedule.push({
     day:s.day, date:s.date, shift:s.shift,
     label: s.sku === '10L Cask'
-      ? (lineAOnlyWeek ? 'EP Line A only (10L)' : 'EP Line A&B (10L)')
-      : (lineAOnlyWeek ? 'EP Line A only (5L)'  : 'EP Line A&B (5L)'),
+      ? (lineAOnlyWeek ? `EP Line ${runLineWeek} only (10L)` : 'EP Line A&B (10L)')
+      : (lineAOnlyWeek ? `EP Line ${runLineWeek} only (5L)`  : 'EP Line A&B (5L)'),
     sku:s.sku, pallets:s.pallets, target:s.target,
     cls: s.sku === '10L Cask' ? 'ep10' : 'ep5',
     site:'EP', riskFlag:s.riskFlag,
@@ -1475,8 +1494,8 @@ function renderRollingTable(pr) {
     const isCurrentSelected = wk === currentWeek;  // highlight selected week
     const isThisWeek = i === 0;                     // actual current week for production data
 
-    // Max production per SKU this week (capacity aware of Line B outage)
-    const la = lineBOutageStart && lineBOutageEnd && wk >= lineBOutageStart && wk <= lineBOutageEnd;
+    // Max production per SKU this week (capacity aware of line outages)
+    const {single: la, out: laOut} = lineOutageForWeek(wk);
     const wkOp = opDaysInWeek(wk);
     const cap10 = Math.floor((la ? 30 : 60) * eff) * 2 * wkOp + Math.floor(hmpsTgt * 2 * wkOp * eff);
     const cap5  = Math.floor((la ? 27 : 50) * eff) * 2 * wkOp;
@@ -1491,7 +1510,7 @@ function renderRollingTable(pr) {
     const rowStyle = isCurrentSelected ? 'background:rgba(0,120,255,0.12);font-weight:600;outline:2px solid var(--blue)' :
       isThisWeek ? 'background:rgba(0,120,255,0.04)' :
       la ? 'background:rgba(255,165,0,0.06)' : '';
-    const lineBLabel = la ? ' <span style="font-size:9px;color:var(--amber);font-weight:700">LINE B OUT</span>' : '';
+    const lineBLabel = la ? ` <span style="font-size:9px;color:var(--amber);font-weight:700">LINE ${laOut} OUT</span>` : '';
     h += `<tr style="${rowStyle}"><td style="font-size:11px;white-space:nowrap">${fmtD(wk)}${lineBLabel}</td>`;
 
     skuCols.forEach(s => {
@@ -1548,10 +1567,10 @@ function renderProdTable(pr) {
     const util = shiftsRun / totalShifts;
     const ub = util>=0.9?'<span class="badge bg">FULL</span>':util>=0.5?'<span class="badge ba">PARTIAL</span>':shiftsRun===0?'<span class="badge bn">IDLE</span>':'<span class="badge bn">LOW</span>';
     const ec = se<0?'r':'g'; const cc = cov<3?'r':cov<5?'a':'g';
-    const lineAOnly = lineBOutageStart && lineBOutageEnd &&
-      currentWeek >= lineBOutageStart && currentWeek <= lineBOutageEnd;
+    const {single: lineAOnly, out: lineOut} = lineOutageForWeek(currentWeek);
+    const runLine = lineOut === 'B' ? 'A' : lineOut === 'A' ? 'B' : 'A&amp;B';
     const lineLabel = lineAOnly
-      ? 'EP Line A only <span style="font-size:10px;color:var(--amber);font-weight:600">LINE B OUT</span>'
+      ? `EP Line ${runLine} only <span style="font-size:10px;color:var(--amber);font-weight:600">LINE ${lineOut} OUT</span>`
       : 'EP Line A&amp;B';
     return `<tr><td><span class="chip ${CHIP[sku]}">${sku}</span></td>
       <td><strong>${lineLabel}</strong> <span style="font-size:10px;color:var(--muted)">(day-level scheduled)</span></td>
@@ -1588,8 +1607,9 @@ function renderProdTable(pr) {
     <td><span class="badge ba">SCHEDULED</span></td></tr>`;
 
   if(satUsed&&satLines.length) {
-    const satReason = lineBOutageStart && lineBOutageEnd && currentWeek >= lineBOutageStart && currentWeek <= lineBOutageEnd
-      ? `Pre-build for Line B outage — ${satLines.map(s=>s.sku).join(', ')}`
+    const {single: satOutage, out: satLineOut} = lineOutageForWeek(currentWeek);
+    const satReason = satOutage
+      ? `Pre-build for Line ${satLineOut} outage — ${satLines.map(s=>s.sku).join(', ')}`
       : `stock cover below 3 days on: ${satLines.map(s=>s.sku).join(', ')}`;
     h+=`<tr style="background:#EEE8F8"><td colspan="8" style="font-weight:700;font-size:11px;padding:5px 10px;color:#4A0E82">SATURDAY — Single shift (${satReason})</td></tr>`;
     satLines.forEach(sl=>{
@@ -1813,10 +1833,9 @@ function renderAlerts(pr) {
 
   Object.entries(finalShortfall).filter(([,v])=>v>0.5).forEach(([sku,rem])=>{
     // Check if this is a capacity constraint (Line B out) vs a stock/efficiency issue
-    const la = lineBOutageStart && lineBOutageEnd &&
-      currentWeek >= lineBOutageStart && currentWeek <= lineBOutageEnd;
+    const {single: la, out: laOut} = lineOutageForWeek(currentWeek);
     const capNote = la
-      ? ` Line B is out — EP Line A cannot cover both 10L and 5L demand in a single week. Pre-build ${sku} in prior weeks.`
+      ? ` Line ${laOut} is out — EP cannot cover both 10L and 5L demand on a single line. Pre-build ${sku} in prior weeks.`
       : ` Review HMPS config or efficiency.`;
     alerts.push({t:'r',msg:`<strong>SHORTFALL: ${sku}</strong> — ${fmt(Math.round(rem))} pallets cannot be produced even${satUsed?' with Saturday':''}.${capNote}`});
   });
