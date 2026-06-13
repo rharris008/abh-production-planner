@@ -232,7 +232,7 @@ tr.risk-a td{background:#FEF9F0}
           </div>
           <div class="oc-cell">
             <label>Line B out — from</label>
-            <input type="date" value="2026-06-12" onchange="lineBOutageStart=this.value;onWeekChange()">
+            <input type="date" value="2026-06-19" onchange="lineBOutageStart=this.value;onWeekChange()">
           </div>
           <div class="oc-cell">
             <label>Line B out — to</label>
@@ -504,7 +504,7 @@ let colesDispatchOffset = 1;  // days before Coles DC arrival ABH must dispatch
 let epChangeoverMins    = 45; // EP New Line changeover time loss in minutes
 // Line B outage: during this period EP Line A&B runs Line A only (40 pal/shift for both SKUs)
 // Line B down 12/06/2026 – 05/07/2026; back operational from 06/07/2026
-let lineBOutageStart = '2026-06-12';
+let lineBOutageStart = '2026-06-19';
 let lineBOutageEnd   = '2026-07-05';
 
 // ══ HELPERS ══════════════════════════════════════════════════════════════════
