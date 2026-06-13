@@ -592,18 +592,23 @@ function getDemand(week) {
 // ══ EP LINE A&B — DAY-LEVEL SCHEDULER ════════════════════════════════════════
 // Line A and Line B ALWAYS run combined as a single unit — they are never split
 // to run different SKUs simultaneously.
-// Each shift runs either 10L Cask (80 pal/shift: Line A 40 + Line B 40) or
-// 5L Cask (44 pal/shift: Line A&B combined — updated per Operations Manager 05/06/2026) — both lines on the same SKU.
+// Each shift runs either 10L Cask (A+B combined: 60 base/shift = 90 pal/day at 75% eff; Line A only: 30 base = 44/day)
+// or 5L Cask (A+B combined: 50 base/shift = 74 pal/day at 75% eff; Line A only: 27 base = 40/day).
+// Capacity per Aaron Mattin (Operations Manager) 13/06/2026:
+//   Line A alone: 10L=45/day, 5L=40/day; Combined A+B: 10L=90/day, 5L=75/day.
 // The scheduler allocates each shift to whichever SKU (10L or 5L) has the
 // worse stock position vs deliveries due — same priority logic as EP New Line.
 // No changeover penalty: these are separate machines so SKU switches are
 // instantaneous between shifts.
 function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, minDays10=0, minDays5=0) {
-  // During Line B outage, Line A runs alone: 40 pal/shift for both SKUs
+  // During Line B outage, Line A runs alone.
+  // Base capacities (before efficiency factor): Line A alone: 10L=30, 5L=27; Combined A+B: 10L=60, 5L=50.
+  // At default 75% efficiency: lineAOnly 10L=44/day, 5L=40/day; combined 10L=90/day, 5L=74/day.
+  // Per Aaron Mattin (Operations Manager) 13/06/2026.
   const lineAOnly = lineBOutageStart && lineBOutageEnd &&
     weekStart >= lineBOutageStart && weekStart <= lineBOutageEnd;
-  const tgt10 = Math.floor((lineAOnly ? 40 : 80) * eff);
-  const tgt5  = Math.floor((lineAOnly ? 40 : 44) * eff);
+  const tgt10 = Math.floor((lineAOnly ? 30 : 60) * eff);
+  const tgt5  = Math.floor((lineAOnly ? 27 : 50) * eff);
   let s10 = openStock10;
   let s5  = openStock5;
   const shifts = [];
@@ -804,8 +809,8 @@ function forwardSimulate(fromWeekIdx, openStock, eff) {
     // Capacity available this future week on each line
     const lineAOnly = lineBOutageStart && lineBOutageEnd &&
       wk >= lineBOutageStart && wk <= lineBOutageEnd;
-    const cap10perShift = Math.floor((lineAOnly ? 40 : 80) * eff);
-    const cap5perShift  = Math.floor((lineAOnly ? 40 : 44) * eff);
+    const cap10perShift = Math.floor((lineAOnly ? 30 : 60) * eff);
+    const cap5perShift  = Math.floor((lineAOnly ? 27 : 50) * eff);
     const hmpsTgt = hmpsConfig === 'Dual' ? 80 : 40;
     const fwdOpDays = opDaysInWeek(wk);
     const capHMPS = Math.floor(hmpsTgt * 2 * fwdOpDays * eff);  // working days × 2 shifts
@@ -922,8 +927,8 @@ function planWeek(week) {
   // extra pallets need to be built THIS week and enforce a minimum day count.
   const lineAOnlyNow = lineBOutageStart && lineBOutageEnd &&
     week >= lineBOutageStart && week <= lineBOutageEnd;
-  const cap10shift = Math.floor((lineAOnlyNow ? 40 : 80) * eff);
-  const cap5shift  = Math.floor((lineAOnlyNow ? 40 : 44) * eff);
+  const cap10shift = Math.floor((lineAOnlyNow ? 30 : 60) * eff);
+  const cap5shift  = Math.floor((lineAOnlyNow ? 27 : 50) * eff);
 
   let minDays10 = 0, minDays5 = 0;
   {
@@ -938,8 +943,8 @@ function planWeek(week) {
       const dem = i === 0 ? demand : getDemand(wk);
       const la = lineBOutageStart && lineBOutageEnd &&
         wk >= lineBOutageStart && wk <= lineBOutageEnd;
-      const c10s = Math.floor((la ? 40 : 80) * eff);
-      const c5s  = Math.floor((la ? 40 : 44) * eff);
+      const c10s = Math.floor((la ? 30 : 60) * eff);
+      const c5s  = Math.floor((la ? 27 : 50) * eff);
       const d10  = dem['10L Cask'].total || 0;
       const d5   = dem['5L Cask'].total  || 0;
       const wkOpDays2 = opDaysInWeek(wk);  // respect public holidays in future weeks
@@ -1120,7 +1125,7 @@ function planWeek(week) {
       let tgt = 0, label = '', cls = '';
       if (sku==='10L Cask')      { tgt=hmpsTgt; label=`EP HMPS (${hmpsConfig}) — Sat`; cls='ep10'; }
       else if(sku==='5L Cask')   {
-        tgt = lineAOnlyNow ? 40 : 44;
+        tgt = lineAOnlyNow ? 27 : 50;
         label = lineAOnlyNow
           ? `EP Line A (5L) — Sat${lineBOutageSatNeeded5L ? ' 🔴 Pre-build (Line B out)' : ''}`
           : `EP Line A&B (5L) — Sat`;
@@ -1468,8 +1473,8 @@ function renderRollingTable(pr) {
     // Max production per SKU this week (capacity aware of Line B outage)
     const la = lineBOutageStart && lineBOutageEnd && wk >= lineBOutageStart && wk <= lineBOutageEnd;
     const wkOp = opDaysInWeek(wk);
-    const cap10 = Math.floor((la ? 40 : 80) * eff) * 2 * wkOp + Math.floor(hmpsTgt * 2 * wkOp * eff);
-    const cap5  = Math.floor((la ? 40 : 44) * eff) * 2 * wkOp;
+    const cap10 = Math.floor((la ? 30 : 60) * eff) * 2 * wkOp + Math.floor(hmpsTgt * 2 * wkOp * eff);
+    const cap5  = Math.floor((la ? 27 : 50) * eff) * 2 * wkOp;
     const cap2  = Math.floor(52 * eff) * 2 * wkOp;
     const cap12 = Math.floor(34 * eff) * 2 * wkOp;
     const cap6  = Math.floor(32 * eff) * 2 * wkOp;
@@ -2416,9 +2421,9 @@ function renderReplan(pr, skuPlan, skuActual, completedDaysLoop) {
   // Planned capacity reflects current line settings selected in the header
   const todayEst = {};
   const hmpsTgt0 = hmpsConfig === 'Dual' ? 80 : 40;
-  const lineBTgt0 = lineBSku === '5L' ? 35 : 40;
+  const lineBTgt0 = lineBSku === '5L' ? 27 : 30;  // per Aaron 13/06/2026: Line A alone 5L=27 base, 10L=30 base
   const todayCapPerDay = {
-    '10L Cask':   (hmpsTgt0 + 40) * 2 * eff,
+    '10L Cask':   (hmpsTgt0 + 30) * 2 * eff,   // HMPS + Line A alone (30 base/shift)
     '5L Cask':    lineBTgt0 * 2 * eff,
     '2L Bottle':  52 * 2 * eff,
     '600ml 12pk': 34 * 2 * eff,
@@ -2457,9 +2462,9 @@ function renderReplan(pr, skuPlan, skuActual, completedDaysLoop) {
 
   // Planned capacity per full day (2 shifts at efficiency)
   const hmpsTgt = hmpsConfig === 'Dual' ? 80 : 40;
-  const lineBTgt = lineBSku === '5L' ? 35 : 40;
+  const lineBTgt = lineBSku === '5L' ? 27 : 30;  // per Aaron 13/06/2026: Line A alone 5L=27 base, 10L=30 base
   const capPerDay = {
-    '10L Cask':   (hmpsTgt + 40) * 2 * eff,
+    '10L Cask':   (hmpsTgt + 30) * 2 * eff,   // HMPS + Line A alone (30 base/shift)
     '5L Cask':    lineBTgt * 2 * eff,
     '2L Bottle':  52 * 2 * eff,
     '600ml 12pk': 34 * 2 * eff,
