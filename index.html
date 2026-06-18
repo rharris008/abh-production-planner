@@ -1064,7 +1064,10 @@ function planWeek(week) {
   const coverDays = {};
   SKUS.forEach(s => {
     const d = demand[s].total;
-    coverDays[s] = d > 0 ? (stockEnd[s] / d) * 7 : 99;
+    // Fall back to committed open orders when no forecast is loaded for this week.
+    // Open orders represent real dispatch commitments even without a retailer forecast file.
+    const effectiveD = d > 0 ? d : (openOrdersPal[s] || 0);
+    coverDays[s] = effectiveD > 0 ? (stockEnd[s] / effectiveD) * 7 : 99;
   });
 
   const midWeekAtRisk = new Set();
@@ -1072,7 +1075,14 @@ function planWeek(week) {
     const dt = addDays(week, d);
     SKUS.forEach(s => {
       let cumDue = 0;
-      for (let dd=0; dd<=d; dd++) { const dd2=DAILY_REQUIRED[addDays(week,dd)]||{}; cumDue += dd2[s]||0; }
+      for (let dd=0; dd<=d; dd++) {
+        const ddDate = addDays(week, dd);
+        const dd2 = DAILY_REQUIRED[ddDate] || {};
+        // When no forecast daily data exists for this SKU, use open order daily quantities
+        // as a fallback demand signal so mid-week stockout risk is still detected.
+        const oo2 = openOrdersDailyPal[ddDate] || {};
+        cumDue += (dd2[s] || oo2[s] || 0);
+      }
       if ((avail[s]||0) < cumDue) midWeekAtRisk.add(s);
     });
   }
@@ -1117,7 +1127,9 @@ function planWeek(week) {
   }
 
   const satTriggers = SKUS.filter(s => {
-    if ((coverDays[s]||0) < 3 || midWeekAtRisk.has(s)) return demand[s].total > 0;
+    // Use open orders as fallback demand signal when no forecast is loaded
+    const effectiveDemand = demand[s].total > 0 ? demand[s].total : (openOrdersPal[s] || 0);
+    if ((coverDays[s]||0) < 3 || midWeekAtRisk.has(s)) return effectiveDemand > 0;
     if (s === '5L Cask'  && (fwd5short || lineBOutageSatNeeded5L))  return true;
     if (s === '10L Cask' && lineBOutageSatNeeded10L) return true;
     return false;
@@ -1865,8 +1877,15 @@ function renderAlerts(pr) {
 
   SKUS.forEach(s=>{
     const cov=coverDays[s]||0;
-    if(cov>=0&&cov<5&&demand[s].total>0&&!(finalShortfall[s]>0.5)) {
-      alerts.push({t:cov<3?'r':'a',msg:`<strong>${s}:</strong> Projected end-of-week cover ${fmtF(Math.max(0,cov))} days. Target is 7 days.`});
+    const oo=Math.round(openOrdersPal[s]||0);
+    // Fire alert when forecast demand OR committed open orders indicate stock risk
+    const effectiveDemand=demand[s].total>0?demand[s].total:oo;
+    if(cov>=0&&cov<5&&effectiveDemand>0&&!(finalShortfall[s]>0.5)){
+      const noForecast=demand[s].total===0&&oo>0;
+      const coverNote=noForecast
+        ? ` <em style="color:var(--amber)">(No forecast loaded — cover estimated from ${oo} pal committed in open orders.)</em>`
+        : '';
+      alerts.push({t:cov<3?'r':'a',msg:`<strong>${s}:</strong> Projected end-of-week cover ${fmtF(Math.max(0,cov))} days. Target is 7 days.${coverNote}`});
     }
   });
 
@@ -2022,6 +2041,7 @@ function mapOORetailer(customer) {
 
 let openOrdersData = null;  // [{date, sku, retailer, docNum, amount, units, pallets}]
 let openOrdersPal  = {};    // {sku: totalPallets} — committed stock, updated on upload
+let openOrdersDailyPal = {};  // {date: {sku: pallets}} — per-day committed, fallback when no forecast
 
 function parseOpenOrders(xmlText, fname) {
   try {
@@ -2085,10 +2105,17 @@ function parseOpenOrders(xmlText, fname) {
 
     openOrdersData = orders;
 
-    // Build committed pallets per SKU
+    // Build committed pallets per SKU and per day (daily used as demand fallback when no forecast)
     openOrdersPal = {};
+    openOrdersDailyPal = {};
     SKUS.forEach(s => openOrdersPal[s] = 0);
-    orders.forEach(o => { openOrdersPal[o.sku] = (openOrdersPal[o.sku] || 0) + o.pallets; });
+    orders.forEach(o => {
+      openOrdersPal[o.sku] = (openOrdersPal[o.sku] || 0) + o.pallets;
+      if (o.date) {
+        if (!openOrdersDailyPal[o.date]) openOrdersDailyPal[o.date] = {};
+        openOrdersDailyPal[o.date][o.sku] = (openOrdersDailyPal[o.date][o.sku] || 0) + o.pallets;
+      }
+    });
 
     renderOpenOrders(reportDate, fname);
     onWeekChange();  // refresh all planning tabs with open orders factored in
@@ -4155,8 +4182,15 @@ function applyOpenOrdersFromSB(rows) {
 
   openOrdersData = orders;
   openOrdersPal = {};
+  openOrdersDailyPal = {};
   SKUS.forEach(s => openOrdersPal[s] = 0);
-  orders.forEach(o => { openOrdersPal[o.sku] = (openOrdersPal[o.sku] || 0) + o.pallets; });
+  orders.forEach(o => {
+    openOrdersPal[o.sku] = (openOrdersPal[o.sku] || 0) + o.pallets;
+    if (o.date) {
+      if (!openOrdersDailyPal[o.date]) openOrdersDailyPal[o.date] = {};
+      openOrdersDailyPal[o.date][o.sku] = (openOrdersDailyPal[o.date][o.sku] || 0) + o.pallets;
+    }
+  });
 
   let tsLabel = 'Supabase (live)';
   if (latestTs) {
