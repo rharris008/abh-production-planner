@@ -1100,7 +1100,7 @@ function planWeek(week) {
       stockEnd: (stockPal[sku]||0) + cap - demand[sku].total};
   }
 
-  const opDays = (week === monOf(localToday()) && localToday() >= week)
+  const opDays = week === monOf(localToday())
     ? remainingOpDaysInWeek(week)   // mid-week: only plan remaining days
     : opDaysInWeek(week);           // future weeks: full working week
 
@@ -1595,8 +1595,10 @@ function renderSkuStrips(pr) {
     html += `<div class="sku-strip ${cls}">
       <div class="sku-label"><span class="chip ${CHIP[s]}">${s}</span></div>
       <div class="ktile blue"><div class="kv">${fmt(todayStk)}</div><div class="kl">Stock (Today)</div></div>
-      <div class="ktile green"><div class="kv">${planned>0?'+'+fmt(Math.round(planned)):'—'}</div><div class="kl">Production (pal)</div></div>
-      <div class="ktile red"><div class="kv">${dem>0?'-'+fmt(dem):'—'}</div><div class="kl">Demand (pal)</div></div>
+      <div class="ktile navy"><div class="kv">${fmt(projOpen)}</div><div class="kl">Proj. Opening</div></div>
+      ${oopal>0?`<div class="ktile ${ooCls}"><div class="kv">-${fmt(oopal)}</div><div class="kl">Open Orders</div></div>`:''}
+      <div class="ktile navy"><div class="kv">${fmt(dem)}</div><div class="kl">Demand (pal)</div></div>
+      <div class="ktile navy"><div class="kv">${planned>0?fmt(Math.round(planned)):'—'}</div><div class="kl">Planned Production</div></div>
       <div class="ktile ${covCls}"><div class="kv">${cov>50?'7.0':fmtF(Math.max(0,cov))}d</div><div class="kl">Proj. Cover (end wk)</div></div>
       <div class="ktile ${clsCls}"><div class="kv">${fmt(close)}</div><div class="kl">Closing Stock</div></div>
       <div class="ktile ${stCls}"><div class="kv" style="font-size:11px">${stTxt}</div><div class="kl">Status</div></div>
@@ -3909,14 +3911,7 @@ function init() {
   ALL_WEEKS.filter(w=>w>=currentMon).slice(0,26).forEach(w=>{
     const o=document.createElement('option');o.value=w;o.textContent=fmtD(w);sel.appendChild(o);
   });
-  // Default to NEXT WEEK when today is the last working day of the current week
-  // (i.e. Friday, or any day where only 1 op day remains). NS stock already
-  // reflects today's production — the forward planning horizon is next week.
-  const remDaysInit = remainingOpDaysInWeek(currentMon);
-  const isLastOpDay = remDaysInit <= 1;
-  const dw = isLastOpDay
-    ? (ALL_WEEKS.find(w => w > currentMon) || ALL_WEEKS.find(w => w >= currentMon) || ALL_WEEKS[0])
-    : (ALL_WEEKS.find(w => w >= currentMon) || ALL_WEEKS[0]);
+  const dw=ALL_WEEKS.find(w=>w>=monOf(today))||ALL_WEEKS[0];
   sel.value=dw;currentWeek=dw;
   renderOCGrid();
   renderHoldGrid();
