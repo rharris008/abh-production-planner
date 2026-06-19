@@ -1603,7 +1603,7 @@ function renderSkuStrips(pr) {
       <div class="ktile blue"><div class="kv">${fmt(todayStk)}</div><div class="kl">Stock (Today)</div></div>
       <div class="ktile navy"><div class="kv">${fmt(projOpen)}</div><div class="kl">Proj. Opening</div></div>
       ${oopal>0?`<div class="ktile ${ooCls}"><div class="kv">-${fmt(oopal)}</div><div class="kl">Open Orders</div></div>`:''}
-      <div class="ktile navy"><div class="kv">${fmt(dem)}</div><div class="kl">Demand (pal)</div></div>
+      <div class="ktile navy"><div class="kv">${dem>0?'-':''}${fmt(dem)}</div><div class="kl">Demand (pal)</div></div>
       <div class="ktile navy"><div class="kv">${planned>0?fmt(Math.round(planned)):'—'}</div><div class="kl">Planned Production</div></div>
       <div class="ktile ${covCls}"><div class="kv">${cov>50?'7.0':fmtF(Math.max(0,cov))}d</div><div class="kl">Proj. Cover (end wk)</div></div>
       <div class="ktile ${clsCls}"><div class="kv">${fmt(close)}</div><div class="kl">Closing Stock</div></div>
