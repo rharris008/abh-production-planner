@@ -1412,6 +1412,13 @@ function planWeek(week) {
     bottleShifts: bottleResult.shifts,
     stockEnd10, stockEnd5, stockEnd2,
     avail,
+    plannedProd: {
+      '10L Cask':    prod10,
+      '5L Cask':     caskProd5,
+      '2L Bottle':   prod2L,
+      '600ml 12pk':  prod12,
+      '600ml 6pk':   prod6,
+    },
     totalGross: SKUS.reduce((a,s)=>a+demand[s].total,0),
     totalNet:   SKUS.reduce((a,s)=>a+Math.max(0,netDem[s]),0),
     atRiskOrders, prebuildAlert, midWeekAtRisk
@@ -1544,7 +1551,7 @@ function buildSchedule(week, pr) {
 
 // ══ RENDER: SKU STRIPS ════════════════════════════════════════════════════════
 function renderSkuStrips(pr) {
-  const {demand, netDem, coverDays, finalShortfall, satTriggers, satUsed, satStock} = pr;
+  const {demand, netDem, coverDays, finalShortfall, satTriggers, satUsed, satStock, plannedProd} = pr;
   const el = document.getElementById('skuStrips');
   // Closing stock per SKU — prefer satStock if Saturday run
   const closing = {
@@ -1571,7 +1578,7 @@ function renderSkuStrips(pr) {
     const todayStk = Math.round(sysStk * allocPct);   // retailer-allocated share of today's physical stock
     const sysProjOpen = pr.avail ? (pr.avail[s] ?? sysStk) : sysStk;
     const projOpen = Math.round(sysProjOpen * allocPct);  // projected opening scaled to retailer share
-    const net    = Math.max(0, activeRetailer === 'All' ? netDem[s] : dem - projOpen);
+    const planned = plannedProd ? (plannedProd[s] || 0) : Math.max(0, activeRetailer === 'All' ? netDem[s] : dem - projOpen);
     const cov    = coverDays[s] || 0;
     const close  = closing[s] ?? 0;
     const short  = finalShortfall[s] || 0;
@@ -1591,7 +1598,7 @@ function renderSkuStrips(pr) {
       <div class="ktile navy"><div class="kv">${fmt(projOpen)}</div><div class="kl">Proj. Opening</div></div>
       ${oopal>0?`<div class="ktile ${ooCls}"><div class="kv">-${fmt(oopal)}</div><div class="kl">Open Orders</div></div>`:''}
       <div class="ktile navy"><div class="kv">${fmt(dem)}</div><div class="kl">Demand (pal)</div></div>
-      <div class="ktile navy"><div class="kv">${net>0?fmt(Math.round(net)):'—'}</div><div class="kl">Net to Produce</div></div>
+      <div class="ktile navy"><div class="kv">${planned>0?fmt(Math.round(planned)):'—'}</div><div class="kl">Planned Production</div></div>
       <div class="ktile ${covCls}"><div class="kv">${cov>50?'7.0':fmtF(Math.max(0,cov))}d</div><div class="kl">Proj. Cover (end wk)</div></div>
       <div class="ktile ${clsCls}"><div class="kv">${fmt(close)}</div><div class="kl">Closing Stock</div></div>
       <div class="ktile ${stCls}"><div class="kv" style="font-size:11px">${stTxt}</div><div class="kl">Status</div></div>
