@@ -1248,11 +1248,17 @@ function planWeek(week) {
   };
   const coverDays = {};
   SKUS.forEach(s => {
-    const d = demand[s].total;
-    // Fall back to committed open orders when no forecast is loaded for this week.
-    // Open orders represent real dispatch commitments even without a retailer forecast file.
-    const effectiveD = d > 0 ? d : (openOrdersPal[s] || 0);
-    coverDays[s] = effectiveD > 0 ? (stockEnd[s] / effectiveD) * 7 : 99;
+    // Cover = closing stock / (next-week demand / 5 business days). Per Rob Harris 19/06/2026:
+    // the relevant forward view is next week's demand over 5 business days, not this week's
+    // demand divided over 7 calendar days. Minimum AMBER threshold is 3 business days.
+    const nextWk = ALL_WEEKS[weekIdx + 1];
+    const nextWkDem = nextWk ? getDemand(nextWk) : null;
+    const nextD = nextWkDem ? (nextWkDem[s].total || 0) : 0;
+    const thisD = demand[s].total;
+    // Prefer next week's demand. Fall back to this week if no next-week forecast.
+    // Last resort: committed open orders (real dispatch commitments without a forecast file).
+    const effectiveD = nextD > 0 ? nextD : (thisD > 0 ? thisD : (openOrdersPal[s] || 0));
+    coverDays[s] = effectiveD > 0 ? (stockEnd[s] / effectiveD) * 5 : 99;
   });
 
   const midWeekAtRisk = new Set();
