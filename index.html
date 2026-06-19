@@ -1242,8 +1242,58 @@ function planWeek(week) {
   return result;
 }
 
+// ══ CONFIRMED PLAN OVERRIDES ══════════════════════════════════════════════════
+// When Aaron confirms a plan that differs from the algorithm, add the week here.
+// The Shift Schedule tab will display this plan instead of the algorithm output,
+// with a "CONFIRMED PLAN" badge in the header.
+// Format: 'YYYY-MM-DD' (week Monday) → array of shift objects.
+// Each object: {day, date, shift, label, sku, pallets, target, cls, site}
+// Added: 19/06/2026 — Aaron Mattin confirmed plan for w/c 22/06/2026.
+const CONFIRMED_SCHEDULES = {
+  '2026-06-22': [
+    // Monday 22/06: HMPS 120, 5L Line A 40, 2L 70
+    {day:0,date:'2026-06-22',shift:'Day',label:'EP HMPS (Dual)',      sku:'10L Cask',   pallets:60,target:60,cls:'ep10',site:'EP'},
+    {day:0,date:'2026-06-22',shift:'Aft',label:'EP HMPS (Dual)',      sku:'10L Cask',   pallets:60,target:60,cls:'ep10',site:'EP'},
+    {day:0,date:'2026-06-22',shift:'Day',label:'EP Line A only (5L)', sku:'5L Cask',    pallets:20,target:20,cls:'ep5', site:'EP'},
+    {day:0,date:'2026-06-22',shift:'Aft',label:'EP Line A only (5L)', sku:'5L Cask',    pallets:20,target:20,cls:'ep5', site:'EP'},
+    {day:0,date:'2026-06-22',shift:'Day',label:'EP Bottle Line (2L)', sku:'2L Bottle',  pallets:35,target:39,cls:'as2', site:'EP'},
+    {day:0,date:'2026-06-22',shift:'Aft',label:'EP Bottle Line (2L)', sku:'2L Bottle',  pallets:35,target:39,cls:'as2', site:'EP'},
+    // Tuesday 23/06: HMPS 120, 5L Line A 40, 12pk 45
+    {day:1,date:'2026-06-23',shift:'Day',label:'EP HMPS (Dual)',      sku:'10L Cask',   pallets:60,target:60,cls:'ep10',site:'EP'},
+    {day:1,date:'2026-06-23',shift:'Aft',label:'EP HMPS (Dual)',      sku:'10L Cask',   pallets:60,target:60,cls:'ep10',site:'EP'},
+    {day:1,date:'2026-06-23',shift:'Day',label:'EP Line A only (5L)', sku:'5L Cask',    pallets:20,target:20,cls:'ep5', site:'EP'},
+    {day:1,date:'2026-06-23',shift:'Aft',label:'EP Line A only (5L)', sku:'5L Cask',    pallets:20,target:20,cls:'ep5', site:'EP'},
+    {day:1,date:'2026-06-23',shift:'Day',label:'EP New Line (12pk)',  sku:'600ml 12pk', pallets:22,target:25,cls:'ep12',site:'EP'},
+    {day:1,date:'2026-06-23',shift:'Aft',label:'EP New Line (12pk)',  sku:'600ml 12pk', pallets:23,target:25,cls:'ep12',site:'EP'},
+    // Wednesday 24/06: HMPS 120, 5L Lines A+B 60, 12pk 45
+    {day:2,date:'2026-06-24',shift:'Day',label:'EP HMPS (Dual)',      sku:'10L Cask',   pallets:60,target:60,cls:'ep10',site:'EP'},
+    {day:2,date:'2026-06-24',shift:'Aft',label:'EP HMPS (Dual)',      sku:'10L Cask',   pallets:60,target:60,cls:'ep10',site:'EP'},
+    {day:2,date:'2026-06-24',shift:'Day',label:'EP Line A&B (5L)',    sku:'5L Cask',    pallets:30,target:30,cls:'ep5', site:'EP'},
+    {day:2,date:'2026-06-24',shift:'Aft',label:'EP Line A&B (5L)',    sku:'5L Cask',    pallets:30,target:30,cls:'ep5', site:'EP'},
+    {day:2,date:'2026-06-24',shift:'Day',label:'EP New Line (12pk)',  sku:'600ml 12pk', pallets:22,target:25,cls:'ep12',site:'EP'},
+    {day:2,date:'2026-06-24',shift:'Aft',label:'EP New Line (12pk)',  sku:'600ml 12pk', pallets:23,target:25,cls:'ep12',site:'EP'},
+    // Thursday 25/06: HMPS 120, 5L Lines A+B 60, 12pk 45
+    {day:3,date:'2026-06-25',shift:'Day',label:'EP HMPS (Dual)',      sku:'10L Cask',   pallets:60,target:60,cls:'ep10',site:'EP'},
+    {day:3,date:'2026-06-25',shift:'Aft',label:'EP HMPS (Dual)',      sku:'10L Cask',   pallets:60,target:60,cls:'ep10',site:'EP'},
+    {day:3,date:'2026-06-25',shift:'Day',label:'EP Line A&B (5L)',    sku:'5L Cask',    pallets:30,target:30,cls:'ep5', site:'EP'},
+    {day:3,date:'2026-06-25',shift:'Aft',label:'EP Line A&B (5L)',    sku:'5L Cask',    pallets:30,target:30,cls:'ep5', site:'EP'},
+    {day:3,date:'2026-06-25',shift:'Day',label:'EP New Line (12pk)',  sku:'600ml 12pk', pallets:22,target:25,cls:'ep12',site:'EP'},
+    {day:3,date:'2026-06-25',shift:'Aft',label:'EP New Line (12pk)',  sku:'600ml 12pk', pallets:23,target:25,cls:'ep12',site:'EP'},
+    // Friday 26/06: HMPS 120, 5L Lines A+B 60, 12pk 45
+    {day:4,date:'2026-06-26',shift:'Day',label:'EP HMPS (Dual)',      sku:'10L Cask',   pallets:60,target:60,cls:'ep10',site:'EP'},
+    {day:4,date:'2026-06-26',shift:'Aft',label:'EP HMPS (Dual)',      sku:'10L Cask',   pallets:60,target:60,cls:'ep10',site:'EP'},
+    {day:4,date:'2026-06-26',shift:'Day',label:'EP Line A&B (5L)',    sku:'5L Cask',    pallets:30,target:30,cls:'ep5', site:'EP'},
+    {day:4,date:'2026-06-26',shift:'Aft',label:'EP Line A&B (5L)',    sku:'5L Cask',    pallets:30,target:30,cls:'ep5', site:'EP'},
+    {day:4,date:'2026-06-26',shift:'Day',label:'EP New Line (12pk)',  sku:'600ml 12pk', pallets:22,target:25,cls:'ep12',site:'EP'},
+    {day:4,date:'2026-06-26',shift:'Aft',label:'EP New Line (12pk)',  sku:'600ml 12pk', pallets:23,target:25,cls:'ep12',site:'EP'},
+  ]
+};
+
 // ══ BUILD FULL SHIFT SCHEDULE ═════════════════════════════════════════════════
 function buildSchedule(week, pr) {
+  // Confirmed plan override — Aaron's plan takes precedence over the algorithm
+  if (CONFIRMED_SCHEDULES[week]) return CONFIRMED_SCHEDULES[week];
+
   const eff = getEff();
   const {lines, cask, ep, satLines, satUsed} = pr;
   const schedule = [];
@@ -1643,8 +1693,19 @@ function renderProdTable(pr) {
 // ══ RENDER: DAY GRID ══════════════════════════════════════════════════════════
 function renderSchedule(week, pr) {
   const {satUsed} = pr;
+  const isConfirmed = !!CONFIRMED_SCHEDULES[week];
   const sched = buildSchedule(week, pr);
   document.getElementById('schedHdr').childNodes[0].textContent=`Shift Schedule — ${wkLabel(week)}  `;
+  // Show/hide confirmed plan badge
+  let badge = document.getElementById('confirmedBadge');
+  if (!badge) {
+    badge = document.createElement('span');
+    badge.id = 'confirmedBadge';
+    badge.style.cssText = 'background:#27AE60;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:3px;margin-left:8px;letter-spacing:.5px;vertical-align:middle';
+    document.getElementById('schedHdr').appendChild(badge);
+  }
+  badge.textContent = isConfirmed ? 'CONFIRMED PLAN' : '';
+  badge.style.display = isConfirmed ? 'inline' : 'none';
   const grid = document.getElementById('dayGrid');
 
   // Build date-indexed schedule map
