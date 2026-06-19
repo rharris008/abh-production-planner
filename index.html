@@ -212,22 +212,6 @@ tr.risk-a td{background:#FEF9F0}
             <label>EP changeover (mins)</label>
             <input type="number" min="0" max="120" value="45" onchange="epChangeoverMins=parseInt(this.value)||0;onWeekChange()">
           </div>
-          <div class="oc-cell">
-            <label>Line B out — from</label>
-            <input type="date" value="2026-06-15" onchange="lineBOutageStart=this.value;onWeekChange()">
-          </div>
-          <div class="oc-cell">
-            <label>Line B out — to</label>
-            <input type="date" value="2026-06-19" onchange="lineBOutageEnd=this.value;onWeekChange()">
-          </div>
-          <div class="oc-cell">
-            <label>Line A out — from</label>
-            <input type="date" value="2026-06-22" onchange="lineAOutageStart=this.value;onWeekChange()">
-          </div>
-          <div class="oc-cell">
-            <label>Line A out — to</label>
-            <input type="date" value="2026-06-26" onchange="lineAOutageEnd=this.value;onWeekChange()">
-          </div>
         </div>
       </div>
     </div>
@@ -528,20 +512,11 @@ let epChangeoverMins    = 45; // EP New Line changeover time loss in minutes
 // Single-line capacity is identical regardless of which line is down.
 // Week 15/06: Line B out → run Line A only
 // Week 22/06: Line A out → run Line B only
-let lineBOutageStart = '2026-06-15';
-let lineBOutageEnd   = '2026-06-19';
-let lineAOutageStart = '2026-06-22';
-let lineAOutageEnd   = '2026-06-26';
 
 // Returns {single: bool, out: 'A'|'B'|null} for a given week date string.
 // 'single' = true when only one EP cask line is running; 'out' = which line is down.
-function lineOutageForWeek(wk) {
-  const bOut = lineBOutageStart && lineBOutageEnd && wk >= lineBOutageStart && wk <= lineBOutageEnd;
-  const aOut = lineAOutageStart && lineAOutageEnd && wk >= lineAOutageStart && wk <= lineAOutageEnd;
-  if (bOut) return {single: true, out: 'B'};
-  if (aOut) return {single: true, out: 'A'};
-  return {single: false, out: null};
-}
+// Both EP Cask Lines (A & B) are running — no outage logic required.
+function lineOutageForWeek(wk) { return {single: false, out: null}; }
 
 // ══ HELPERS ══════════════════════════════════════════════════════════════════
 const fmt  = n => n==null||isNaN(n) ? '—' : Number(n).toLocaleString('en-AU');
