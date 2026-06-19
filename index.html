@@ -1568,7 +1568,6 @@ function renderSkuStrips(pr) {
     const todayStk = Math.round(sysStk * allocPct);   // retailer-allocated share of today's physical stock
     const sysProjOpen = pr.avail ? (pr.avail[s] ?? sysStk) : sysStk;
     const projOpen = Math.round(sysProjOpen * allocPct);  // projected opening scaled to retailer share
-    const cumMv    = projOpen - todayStk;              // cumulative net movement for this retailer's share
     const net    = Math.max(0, activeRetailer === 'All' ? netDem[s] : dem - projOpen);
     const cov    = coverDays[s] || 0;
     const close  = closing[s] ?? 0;
@@ -1581,14 +1580,11 @@ function renderSkuStrips(pr) {
     const stCls  = short>0.5?'red': satT&&satUsed?'amber': cov>=7?'green':'blue';
     const covCls = cov<3?'red': cov<5?'amber':'green';
     const clsCls = close < 0 ? 'red' : close < dem ? 'amber' : 'green';
-    const cumCls = cumMv > 0 ? 'green' : cumMv < 0 ? 'red' : 'grey';
-    const cumTxt = cumMv > 0 ? `+${fmt(cumMv)}` : fmt(cumMv);
     const oopal  = Math.round(openOrdersPal[s] || 0);
     const ooCls  = oopal > 0 ? 'red' : 'grey';
     html += `<div class="sku-strip ${cls}">
       <div class="sku-label"><span class="chip ${CHIP[s]}">${s}</span></div>
       <div class="ktile blue"><div class="kv">${fmt(todayStk)}</div><div class="kl">Stock (Today)</div></div>
-      <div class="ktile ${cumCls}"><div class="kv" style="font-size:14px">${cumTxt}</div><div class="kl">Cum. Movement</div></div>
       <div class="ktile navy"><div class="kv">${fmt(projOpen)}</div><div class="kl">Proj. Opening</div></div>
       ${oopal>0?`<div class="ktile ${ooCls}"><div class="kv">-${fmt(oopal)}</div><div class="kl">Open Orders</div></div>`:''}
       <div class="ktile navy"><div class="kv">${fmt(dem)}</div><div class="kl">Demand (pal)</div></div>
