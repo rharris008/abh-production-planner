@@ -707,6 +707,7 @@ function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, mi
 // excludeDates: Set of date strings (YYYY-MM-DD) on which EP New Line cannot run.
 // Used to enforce the 600ml/2L same-day constraint — 2L Bottle and 600ml share
 // production resources and cannot run on the same calendar day.
+// LEGACY — superseded by scheduleBottleLine() (19/06/2026). Retained for reference.
 function scheduleEPNewLine(weekStart, opDays, eff, openStock12, openStock6, minShifts12=0, minShifts6=0, excludeDates=new Set()) {
   const shiftMins = 450;  // standard shift runtime in minutes
   const coMins    = epChangeoverMins;
@@ -796,6 +797,186 @@ function scheduleEPNewLine(weekStart, opDays, eff, openStock12, openStock6, minS
   }
 
   return {shifts, endStock12: Math.round(s12), endStock6: Math.round(s6)};
+}
+
+// ══ BOTTLE LINE SCHEDULER — Unified 2L / 600ml 12pk / 600ml 6pk cycle ════════
+// Confirmed algorithm (Rob Harris 19/06/2026):
+//   Phase 1: Run 2L until closing cover >= 8 days (avg next 3 weeks demand)
+//   Phase 2: Swap to lower-cover 600ml SKU, run until it hits 8 days cover
+//   Phase 3: Swap to the other 600ml SKU, run until it hits 8 days cover
+//   Phase 4: Back to 2L — repeat
+//
+// Days cover = SOH ÷ avg daily demand across next 3 weeks forecast.
+// Changeover penalty between 12pk and 6pk (epChangeoverMins) applies on SKU switch.
+// 2L and 600ml CANNOT run on the same calendar day.
+// All sessions run 2 shifts per day (no single-shift reduction on bottle line).
+//
+// Returns {shifts, endStock2L, endStock12, endStock6}
+// Each shift: {day, date, shift, sku, pallets, target, cls, riskFlag, stockAfter2L, stockAfter12, stockAfter6}
+function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6, weekIdx) {
+  const shiftMins = 450;
+  const coMins    = epChangeoverMins;
+  const coFrac    = Math.max(0, 1 - coMins / shiftMins);
+  const tgt2L   = Math.floor(52 * eff);
+  const tgt12   = Math.floor(34 * eff);
+  const tgt6    = Math.floor(32 * eff);
+
+  let s2L = openStock2L;
+  let s12 = openStock12;
+  let s6  = openStock6;
+
+  const shifts = [];
+  const workDays = workingDaysInWeek(weekStart);
+  let prevSku = null;  // track for changeover penalty
+
+  // Helper: avg daily demand for a SKU across next 3 weeks from weekStart
+  function avgDailyDemand(sku) {
+    let total = 0, weeks = 0;
+    for (let i = 0; i < 3; i++) {
+      const wkI = weekIdx + i;
+      if (wkI >= ALL_WEEKS.length) break;
+      const wkDem = getDemand(ALL_WEEKS[wkI])[sku].total || 0;
+      const wkOpDays = opDaysInWeek(ALL_WEEKS[wkI]);
+      if (wkOpDays > 0) { total += wkDem / wkOpDays; weeks++; }
+    }
+    return weeks > 0 ? total / weeks : 0;
+  }
+
+  // Inner helpers: days cover and threshold check
+  function daysOver8(sku, soh) {
+    return daysOver8Threshold(sku, soh, 8);
+  }
+  function daysOver8Threshold(sku, soh, threshold) {
+    const daily = avgDailyDemand(sku);
+    return daily <= 0 ? true : (soh / daily) >= threshold;
+  }
+
+  // Initial phase: check which SKU to start on based on current cover.
+  // Start on 2L unless it already has >= 8 days cover.
+  let phase = daysOver8('2L Bottle', s2L) ? 'decide600' : '2L';
+
+  function decide600Phase() {
+    // Enter 600ml phase — pick whichever has lower cover
+    const c12 = daysOver8('600ml 12pk', s12);
+    const c6  = daysOver8('600ml 6pk',  s6);
+    // If both are already covered, fall back to 2L
+    if (c12 && c6) return '2L';
+    if (c12) return '600ml 6pk';
+    if (c6)  return '600ml 12pk';
+    // Both need production — pick by lower raw cover
+    const daily12 = avgDailyDemand('600ml 12pk');
+    const daily6  = avgDailyDemand('600ml 6pk');
+    const cov12 = daily12 > 0 ? s12 / daily12 : 99;
+    const cov6  = daily6  > 0 ? s6  / daily6  : 99;
+    return cov12 <= cov6 ? '600ml 12pk' : '600ml 6pk';
+  }
+
+  if (phase === 'decide600') {
+    phase = decide600Phase();
+  }
+
+  // Track which 600ml SKUs have been completed in the current cycle
+  let done12InCycle = false;
+  let done6InCycle  = false;
+
+  for (let d = 0; d < workDays.length; d++) {
+    const date = workDays[d];
+    const due = DAILY_REQUIRED[date] || {};
+    const due2L = due['2L Bottle']   || 0;
+    const due12 = due['600ml 12pk'] || 0;
+    const due6  = due['600ml 6pk']  || 0;
+
+    // Re-evaluate phase at the start of each day
+    if (phase === '2L') {
+      if (daysOver8('2L Bottle', s2L)) {
+        // 2L has hit cover — transition to 600ml phase
+        done12InCycle = false;
+        done6InCycle  = false;
+        const next = decide600Phase();
+        if (next !== '2L') phase = next;
+        // else both 600ml are covered too — stay on 2L
+      }
+    } else if (phase === '600ml 12pk') {
+      if (daysOver8('600ml 12pk', s12)) {
+        done12InCycle = true;
+        if (!done6InCycle && !daysOver8('600ml 6pk', s6)) {
+          phase = '600ml 6pk';
+        } else {
+          // Both 600ml done (or other also covered) — back to 2L
+          phase = '2L'; done12InCycle = false; done6InCycle = false;
+        }
+      }
+    } else if (phase === '600ml 6pk') {
+      if (daysOver8('600ml 6pk', s6)) {
+        done6InCycle = true;
+        if (!done12InCycle && !daysOver8('600ml 12pk', s12)) {
+          phase = '600ml 12pk';
+        } else {
+          // Both 600ml done (or other also covered) — back to 2L
+          phase = '2L'; done12InCycle = false; done6InCycle = false;
+        }
+      }
+    }
+
+    // Resolve current day's SKU from phase
+    let sku;
+    if (phase === '2L')         sku = '2L Bottle';
+    else if (phase === '600ml 12pk') sku = '600ml 12pk';
+    else if (phase === '600ml 6pk')  sku = '600ml 6pk';
+    else                             sku = '2L Bottle';
+
+    // Changeover penalty: applies between 12pk and 6pk only (not when switching to/from 2L)
+    const is600Current = sku === '600ml 12pk' || sku === '600ml 6pk';
+    const is600Prev    = prevSku === '600ml 12pk' || prevSku === '600ml 6pk';
+    const dayChangeover = is600Current && is600Prev && prevSku !== sku;
+
+    for (let sh = 0; sh < 2; sh++) {
+      const shiftName = sh === 0 ? 'Day' : 'Aft';
+      const hasChangeover = sh === 0 && dayChangeover;
+      let pallets, target, cls;
+
+      if (sku === '2L Bottle') {
+        pallets = tgt2L;
+        target  = tgt2L;
+        cls     = 'as2';
+        s2L += pallets;
+      } else if (sku === '600ml 12pk') {
+        pallets = hasChangeover ? Math.floor(tgt12 * coFrac) : tgt12;
+        target  = tgt12;
+        cls     = 'ep12';
+        s12 += pallets;
+      } else {
+        pallets = hasChangeover ? Math.floor(tgt6 * coFrac) : tgt6;
+        target  = tgt6;
+        cls     = 'ep6';
+        s6 += pallets;
+      }
+
+      const riskFlag = (sku === '2L Bottle'   && s2L - due2L < 0) ||
+                       (sku === '600ml 12pk'  && s12 - due12 < 0) ||
+                       (sku === '600ml 6pk'   && s6  - due6  < 0);
+
+      shifts.push({
+        day: d, date, shift: shiftName, sku, pallets, target, cls, riskFlag,
+        stockAfter2L:  Math.round(s2L),
+        stockAfter12:  Math.round(s12),
+        stockAfter6:   Math.round(s6),
+      });
+    }
+
+    prevSku = sku;
+    // Consume deliveries at end of day
+    s2L -= due2L;
+    s12 -= due12;
+    s6  -= due6;
+  }
+
+  return {
+    shifts,
+    endStock2L: Math.round(s2L),
+    endStock12: Math.round(s12),
+    endStock6:  Math.round(s6),
+  };
 }
 
 // ══ FORWARD SIMULATION ═══════════════════════════════════════════════════════
@@ -916,12 +1097,12 @@ function planWeek(week) {
 
   const s10   = avail['10L Cask'] || 0;
   const d10   = demand['10L Cask'].total;
-  // HMPS runs every available working day (2 shifts unless 10L closing cover >= 9 days → day only).
-  // 9-day threshold: enough stock to comfortably bridge the next planned run without shortfall risk.
+  // HMPS runs every available working day (2 shifts unless 10L closing cover >= 8 days → day only).
+  // 8-day threshold: enough stock to comfortably bridge the next planned run without shortfall risk.
   const hmpsFull2ShiftCap = Math.floor(hmpsTgt * 2 * opDays * eff);
   const dailyDemand10 = d10 > 0 ? d10 / opDays : 0;
   const hmpsClosingCover2sh = dailyDemand10 > 0 ? (s10 + hmpsFull2ShiftCap - d10) / dailyDemand10 : 99;
-  const hmpsShifts = hmpsClosingCover2sh >= 9 ? 1 : 2;
+  const hmpsShifts = hmpsClosingCover2sh >= 8 ? 1 : 2;
   const hmpsTgtLabel = hmpsShifts === 1 ? `EP HMPS (${hmpsConfig} – Day only)` : `EP HMPS (${hmpsConfig})`;
   const days10hmps = opDays;
   const hmps = makeLine(hmpsTgtLabel, 'EP', '10L Cask', hmpsTgt, days10hmps, hmpsShifts);
@@ -1015,51 +1196,46 @@ function planWeek(week) {
   const stockEnd10 = s10 + prod10 - d10;
   const stockEnd5  = (avail['5L Cask'] || 0) + caskProd5 - demand['5L Cask'].total;
 
-  const s2  = avail['2L Bottle'] || 0;
-  const d2  = demand['2L Bottle'].total;
-  const need2 = Math.max(0, d2 + d2 - s2);
-  const days2 = Math.min(5, need2 > 0 ? Math.ceil(need2 / (52 * 2 * eff)) : 0);
-  const as2l = makeLine('EP Bottle Line (2L)', 'EP', '2L Bottle', 52, days2);
-  const stockEnd2 = s2 + as2l.cap - d2;
+  // ── Bottle Line: unified 2L / 600ml cycle scheduler ─────────────────────────
+  // Confirmed algorithm (Rob Harris 19/06/2026): cycle between 2L → lower-cover 600ml
+  // → other 600ml → back to 2L, triggered by 8 days cover threshold.
+  const bottleResult = scheduleBottleLine(week, eff,
+    avail['2L Bottle']   || 0,
+    avail['600ml 12pk']  || 0,
+    avail['600ml 6pk']   || 0,
+    weekIdx);
 
-  // 600ml / 2L same-day constraint: 2L Bottle and 600ml share production resources —
-  // they cannot run on the same calendar day. Calculate which dates 2L is scheduled
-  // (makeLine assigns the first days2 working days) and exclude those from EP New Line.
+  // Extract 2L stats from bottle scheduler
+  const s2      = avail['2L Bottle'] || 0;
+  const d2      = demand['2L Bottle'].total;
+  const prod2L  = bottleResult.shifts.filter(s => s.sku === '2L Bottle').reduce((a,s) => a + s.pallets, 0);
+  const days2   = bottleResult.shifts.filter(s => s.sku === '2L Bottle').filter((s,i) => i % 2 === 0).length; // day shifts only
+  const stockEnd2 = bottleResult.endStock2L;
+
+  // Build a legacy as2l stub for renderProdTable compatibility
+  const as2l = { label: 'EP Bottle Line (2L — cycle)', site: 'EP', sku: '2L Bottle',
+    tgt: 52, days: days2, shifts: 2, maxDays: 5,
+    cap: prod2L, util: days2 > 0 ? days2 / 5 : 0 };
+
+  // bottle2LDates: dates where 2L ran (for display/legacy use — no longer needed to exclude from EP New Line
+  // since the unified scheduler manages the constraint internally)
   const workDaysAll = workingDaysInWeek(week);
-  const bottle2LDates = new Set(workDaysAll.slice(0, days2));
+  const bottle2LDates = new Set(
+    bottleResult.shifts.filter(s => s.sku === '2L Bottle').map(s => s.date)
+  );
 
-  // EP New Line forward scan — look 1 week ahead per SKU, enforce minimum shift floor
-  let minShifts12 = 0, minShifts6 = 0;
-  {
-    const nextWkIdx = weekIdx + 1;
-    if (nextWkIdx < ALL_WEEKS.length) {
-      const nextWk = ALL_WEEKS[nextWkIdx];
-      const nextDem = getDemand(nextWk);
-      // Project closing stock after this week at max EP capacity
-      const nextOpDays = opDaysInWeek(nextWk);
-      const maxProd12 = Math.floor(34 * eff) * 2 * nextOpDays;
-      const maxProd6  = Math.floor(32 * eff) * 2 * nextOpDays;
-      const close12 = (avail['600ml 12pk']||0) + maxProd12 - demand['600ml 12pk'].total;
-      const close6  = (avail['600ml 6pk'] ||0) + maxProd6  - demand['600ml 6pk'].total;
-      // If next week's demand exceeds projected closing stock, we need more shifts now
-      if (close6  < nextDem['600ml 6pk'].total)  minShifts6  = Math.min(10, Math.ceil((nextDem['600ml 6pk'].total  - Math.max(0, close6))  / Math.floor(32 * eff)));
-      if (close12 < nextDem['600ml 12pk'].total) minShifts12 = Math.min(10, Math.ceil((nextDem['600ml 12pk'].total - Math.max(0, close12)) / Math.floor(34 * eff)));
-    }
-  }
-
-  const epResult = scheduleEPNewLine(week, opDays, eff,
-    avail['600ml 12pk']||0, avail['600ml 6pk']||0, minShifts12, minShifts6, bottle2LDates);
-  const prod12 = epResult.shifts.filter(s=>s.sku==='600ml 12pk').reduce((a,s)=>a+s.pallets,0);
-  const prod6  = epResult.shifts.filter(s=>s.sku==='600ml 6pk' ).reduce((a,s)=>a+s.pallets,0);
-  const days12 = epResult.shifts.filter(s=>s.sku==='600ml 12pk').length / 2;
-  const days6  = epResult.shifts.filter(s=>s.sku==='600ml 6pk' ).length / 2;
+  // Extract 600ml stats from bottle scheduler
+  const prod12 = bottleResult.shifts.filter(s => s.sku === '600ml 12pk').reduce((a,s) => a + s.pallets, 0);
+  const prod6  = bottleResult.shifts.filter(s => s.sku === '600ml 6pk' ).reduce((a,s) => a + s.pallets, 0);
+  const days12 = bottleResult.shifts.filter(s => s.sku === '600ml 12pk').filter((s,i) => i % 2 === 0).length;
+  const days6  = bottleResult.shifts.filter(s => s.sku === '600ml 6pk' ).filter((s,i) => i % 2 === 0).length;
 
   const stockEnd = {
     '10L Cask':    stockEnd10,
     '5L Cask':     stockEnd5,
     '2L Bottle':   stockEnd2,
-    '600ml 12pk':  epResult.endStock12,
-    '600ml 6pk':   epResult.endStock6,
+    '600ml 12pk':  bottleResult.endStock12,
+    '600ml 6pk':   bottleResult.endStock6,
   };
   const coverDays = {};
   SKUS.forEach(s => {
@@ -1222,8 +1398,9 @@ function planWeek(week) {
     cask: {prod10: caskProd10, prod5: caskProd5, days10: caskDays10, days5: caskDays5, shifts: caskResult.shifts,
            endStock10: caskResult.endStock10, endStock5: caskResult.endStock5,
            shifts5, hmpsShifts},
-    ep: {prod12, prod6, days12, days6, shifts: epResult.shifts,
-         endStock12: epResult.endStock12, endStock6: epResult.endStock6},
+    ep: {prod12, prod6, days12, days6, shifts: bottleResult.shifts.filter(s => s.sku === '600ml 12pk' || s.sku === '600ml 6pk'),
+         endStock12: bottleResult.endStock12, endStock6: bottleResult.endStock6},
+    bottleShifts: bottleResult.shifts,
     stockEnd10, stockEnd5, stockEnd2,
     avail,
     totalGross: SKUS.reduce((a,s)=>a+demand[s].total,0),
@@ -1327,15 +1504,22 @@ function buildSchedule(week, pr) {
     stockAfter10:s.stockAfter10, stockAfter5:s.stockAfter5
   }));
 
-  // EP Bottle Line (2L)
-  addLine(lines.as2l, 'as2');
-
-  // EP New Line: use the day-level scheduler output
-  ep.shifts.forEach(s => schedule.push({
-    day:s.day, date:s.date, shift:s.shift, label: s.sku==='600ml 12pk'?'EP New Line (12pk)':'EP New Line (6pk)',
-    sku:s.sku, pallets:s.pallets, target:s.target, cls:s.cls, site:'EP',
-    riskFlag:s.riskFlag, stockAfter12:s.stockAfter12, stockAfter6:s.stockAfter6
-  }));
+  // Bottle Line: unified 2L / 600ml cycle — use bottleShifts from planner result
+  const bottleShifts = pr.bottleShifts || [];
+  bottleShifts.forEach(s => {
+    let label;
+    if (s.sku === '2L Bottle')       label = 'EP Bottle Line (2L)';
+    else if (s.sku === '600ml 12pk') label = 'EP New Line (12pk)';
+    else                             label = 'EP New Line (6pk)';
+    schedule.push({
+      day: s.day, date: s.date, shift: s.shift, label,
+      sku: s.sku, pallets: s.pallets, target: s.target, cls: s.cls, site: 'EP',
+      riskFlag: s.riskFlag,
+      stockAfter2L:  s.stockAfter2L,
+      stockAfter12:  s.stockAfter12,
+      stockAfter6:   s.stockAfter6
+    });
+  });
 
   // Saturday
   if (satUsed) {
