@@ -302,7 +302,7 @@ tr.risk-a td{background:#FEF9F0}
 
 <!-- DISPATCH CALENDAR -->
 <div id="tab-dispatch" class="tc">
-  <div class="panel"><div class="ph red">Dispatch Calendar — Next 21 Days | Sequential stock depletion | Dispatch-by dates applied</div>
+  <div class="panel"><div class="ph red">Dispatch Calendar — Next 21 Days | SOH + planned production | Dispatch-by dates applied</div>
     <div class="tscroll"><table id="dispTable"></table></div></div>
 </div>
 
@@ -2059,10 +2059,37 @@ function renderDispatch() {
   });
   all.sort((a,b)=>a.need_arrival.localeCompare(b.need_arrival));
 
-  // Sequential depletion: running stock balance per SKU
+  // Build planned production by date from shift schedules — same source the rolling stock view uses.
+  // This ensures the dispatch calendar credits production as it completes before netting off each order,
+  // making it consistent with the rolling stock projection.
+  const plannedByDate = {};
+  const weeksInWindow = new Set();
+  for (let d = 0; d <= 21; d++) weeksInWindow.add(monOf(addDays(today, d)));
+  weeksInWindow.forEach(w => {
+    const wkPr = planWeekCache[w]?._full ?? planWeek(w);
+    const sched = buildSchedule(w, wkPr);
+    sched.forEach(s => {
+      // Only future production dates — today's completed production is already in SOH via availPal()
+      if (s.date > today && s.date <= end) {
+        if (!plannedByDate[s.date]) plannedByDate[s.date] = {};
+        plannedByDate[s.date][s.sku] = (plannedByDate[s.date][s.sku] || 0) + s.pallets;
+      }
+    });
+  });
+  const prodDates = Object.keys(plannedByDate).sort();
+  let prodIdx = 0;
+
+  // Sequential depletion + production credit: running stock balance per SKU.
+  // Production is credited before each order event as dispatch dates advance.
   const runningStock = {...availPal()};
   let h=`<thead><tr><th>Retailer</th><th>SKU</th><th>Dispatch By</th><th>Need Arrival</th><th class="num">Pallets</th><th class="num">Running Stock</th><th>Status</th></tr></thead><tbody>`;
   all.forEach(o=>{
+    // Credit all planned production completed on or before this order's dispatch date
+    while (prodIdx < prodDates.length && prodDates[prodIdx] <= o.dispatchBy) {
+      const pd = plannedByDate[prodDates[prodIdx]];
+      SKUS.forEach(s => { if (pd[s]) runningStock[s] = (runningStock[s]||0) + pd[s]; });
+      prodIdx++;
+    }
     const urg=o.dispatchBy<=addDays(today,2);
     runningStock[o.sku]=(runningStock[o.sku]||0)-o.pallets;
     const covered=runningStock[o.sku]>=0;
