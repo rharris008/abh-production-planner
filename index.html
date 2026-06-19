@@ -26,7 +26,13 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .tog{display:inline-flex;border:1px solid rgba(255,255,255,.3);border-radius:4px;overflow:hidden}
 .tog button{padding:4px 9px;border:none;background:transparent;cursor:pointer;font-size:11px;font-weight:600;color:rgba(255,255,255,.6)}
 .tog button.on{background:rgba(255,255,255,.25);color:#fff}
-#nav{background:#fff;border-bottom:2px solid var(--border);display:flex;padding:0 16px;overflow-x:auto;position:sticky;top:var(--nav-top,54px);z-index:199;box-shadow:0 2px 4px rgba(0,0,0,.06)}
+#nav{background:#fff;border-bottom:2px solid var(--border);display:flex;align-items:stretch;position:sticky;top:var(--nav-top,54px);z-index:199;box-shadow:0 2px 4px rgba(0,0,0,.06)}
+#nav-tabs{display:flex;overflow-x:auto;flex:1;padding-left:16px}
+#navFreshness{display:flex;gap:5px;align-items:center;padding:0 12px;flex-shrink:0;border-left:1px solid var(--border);flex-wrap:wrap}
+.fchip{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap;border:1px solid transparent}
+.fchip-ok{background:#D4F5E1;color:#0E4D28;border-color:#27AE60}
+.fchip-warn{background:#FEF0DC;color:#6B3E00;border-color:#E67E22}
+.fchip-stale{background:#FCE4E4;color:#6B0E0E;border-color:#C0392B}
 .tab{padding:10px 15px;cursor:pointer;font-weight:600;font-size:12px;color:var(--muted);border-bottom:3px solid transparent;margin-bottom:-2px;white-space:nowrap}
 .tab:hover{color:var(--blue)}
 .tab.active{color:var(--blue);border-bottom-color:var(--blue)}
@@ -160,15 +166,18 @@ tr.risk-a td{background:#FEF9F0}
 </div>
 
 <div id="nav">
-  <div class="tab active" onclick="switchTab('demand',this)">Demand &amp; Stock</div>
-  <div class="tab" onclick="switchTab('schedule',this)">Shift Schedule</div>
-  <div class="tab" onclick="switchTab('horizon',this)">12-Week Horizon</div>
-  <div class="tab" onclick="switchTab('dispatch',this)">Dispatch Calendar</div>
-  <div class="tab" onclick="switchTab('alerts',this)">Alerts</div>
-  <div class="tab" onclick="switchTab('actuals',this)">Actuals vs Plan</div>
-  <div class="tab" onclick="switchTab('stock',this)">Stock</div>
-  <div class="tab" onclick="switchTab('openorders',this)">Open Orders</div>
-  <div class="tab" onclick="switchTab('upload',this)">Forecast Upload</div>
+  <div id="nav-tabs">
+    <div class="tab active" onclick="switchTab('demand',this)">Demand &amp; Stock</div>
+    <div class="tab" onclick="switchTab('schedule',this)">Shift Schedule</div>
+    <div class="tab" onclick="switchTab('horizon',this)">12-Week Horizon</div>
+    <div class="tab" onclick="switchTab('dispatch',this)">Dispatch Calendar</div>
+    <div class="tab" onclick="switchTab('alerts',this)">Alerts</div>
+    <div class="tab" onclick="switchTab('actuals',this)">Actuals vs Plan</div>
+    <div class="tab" onclick="switchTab('stock',this)">Stock</div>
+    <div class="tab" onclick="switchTab('openorders',this)">Open Orders</div>
+    <div class="tab" onclick="switchTab('upload',this)">Forecast Upload</div>
+  </div>
+  <div id="navFreshness" title="Data freshness — last update per source"></div>
 </div>
 
 <div id="main">
@@ -4232,6 +4241,28 @@ async function sbPull() {
             'ww_forecast': 'WW', 'coles_forecast': 'Coles',
             'metcash_forecast': 'Metcash', 'actuals': 'Actuals', 'stock': 'Stock'
           };
+          // Render freshness chips in the nav bar
+          const freshnessEl = document.getElementById('navFreshness');
+          if (freshnessEl) {
+            const now = Date.now();
+            const dsOrder = ['ww_forecast','coles_forecast','metcash_forecast','stock','actuals'];
+            const byDs = {};
+            logData.forEach(l => { if (!byDs[l.dataset] || l.uploaded_at > byDs[l.dataset].uploaded_at) byDs[l.dataset] = l; });
+            const chips = dsOrder.map(ds => {
+              const l = byDs[ds];
+              if (!l) return '';
+              const d = new Date(l.uploaded_at);
+              const ageDays = (now - d.getTime()) / 86400000;
+              const cls = ageDays <= 2 ? 'fchip-ok' : ageDays <= 7 ? 'fchip-warn' : 'fchip-stale';
+              const label = dsToLabel[ds] || ds;
+              const dateStr = d.toLocaleDateString('en-AU',{day:'2-digit',month:'2-digit'});
+              const timeStr = d.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Brisbane',hour12:false});
+              const dot = ageDays <= 2 ? '🟢' : ageDays <= 7 ? '🟡' : '🔴';
+              return `<span class="fchip ${cls}" title="${label} last updated ${dateStr} ${timeStr}">${dot} ${label} ${dateStr}</span>`;
+            }).filter(Boolean);
+            freshnessEl.innerHTML = chips.join('');
+          }
+          // Keep header audit text as compact fallback
           if (auditEl) {
             const parts = logData
               .sort((a,b) => b.uploaded_at.localeCompare(a.uploaded_at))
