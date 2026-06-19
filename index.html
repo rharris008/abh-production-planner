@@ -1548,6 +1548,14 @@ function buildSchedule(week, pr) {
 function renderSkuStrips(pr) {
   const {demand, netDem, coverDays, finalShortfall, satTriggers, satUsed, satStock, plannedProd} = pr;
   const el = document.getElementById('skuStrips');
+  // Open orders for the selected week only — future weeks are covered by retailer forecasts
+  const weekOoPal = {};
+  SKUS.forEach(s => weekOoPal[s] = 0);
+  for (let d = 0; d < 7; d++) {
+    const dt = addDays(currentWeek, d);
+    const dayOo = openOrdersDailyPal[dt] || {};
+    SKUS.forEach(s => weekOoPal[s] = (weekOoPal[s] || 0) + (dayOo[s] || 0));
+  }
   // Closing stock per SKU — prefer satStock if Saturday run
   const closing = {
     '10L Cask':   Math.round(satUsed && satStock['10L Cask']  != null ? satStock['10L Cask']  : (pr.stockEnd10 ?? 0)),
@@ -1585,7 +1593,7 @@ function renderSkuStrips(pr) {
     const stCls  = short>0.5?'red': satT&&satUsed?'amber': cov>=7?'green':'blue';
     const covCls = cov<3?'red': cov<5?'amber':'green';
     const clsCls = close < 0 ? 'red' : close < dem ? 'amber' : 'green';
-    const oopal  = Math.round(openOrdersPal[s] || 0);
+    const oopal  = Math.round(weekOoPal[s] || 0);
     const ooCls  = oopal > 0 ? 'red' : 'grey';
     html += `<div class="sku-strip ${cls}">
       <div class="sku-label"><span class="chip ${CHIP[s]}">${s}</span></div>
