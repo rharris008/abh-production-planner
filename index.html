@@ -1590,7 +1590,6 @@ function renderSkuStrips(pr) {
     html += `<div class="sku-strip ${cls}">
       <div class="sku-label"><span class="chip ${CHIP[s]}">${s}</span></div>
       <div class="ktile blue"><div class="kv">${fmt(todayStk)}</div><div class="kl">Stock (Today)</div></div>
-      <div class="ktile navy"><div class="kv">${fmt(projOpen)}</div><div class="kl">Proj. Opening</div></div>
       ${oopal>0?`<div class="ktile ${ooCls}"><div class="kv">-${fmt(oopal)}</div><div class="kl">Open Orders</div></div>`:''}
       <div class="ktile navy"><div class="kv">${dem>0?'-':''}${fmt(dem)}</div><div class="kl">Demand (pal)</div></div>
       <div class="ktile navy"><div class="kv">${planned>0?fmt(Math.round(planned)):'—'}</div><div class="kl">Planned Production</div></div>
