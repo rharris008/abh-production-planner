@@ -3909,7 +3909,14 @@ function init() {
   ALL_WEEKS.filter(w=>w>=currentMon).slice(0,26).forEach(w=>{
     const o=document.createElement('option');o.value=w;o.textContent=fmtD(w);sel.appendChild(o);
   });
-  const dw=ALL_WEEKS.find(w=>w>=monOf(today))||ALL_WEEKS[0];
+  // Default to NEXT WEEK when today is the last working day of the current week
+  // (i.e. Friday, or any day where only 1 op day remains). NS stock already
+  // reflects today's production — the forward planning horizon is next week.
+  const remDaysInit = remainingOpDaysInWeek(currentMon);
+  const isLastOpDay = remDaysInit <= 1;
+  const dw = isLastOpDay
+    ? (ALL_WEEKS.find(w => w > currentMon) || ALL_WEEKS.find(w => w >= currentMon) || ALL_WEEKS[0])
+    : (ALL_WEEKS.find(w => w >= currentMon) || ALL_WEEKS[0]);
   sel.value=dw;currentWeek=dw;
   renderOCGrid();
   renderHoldGrid();
