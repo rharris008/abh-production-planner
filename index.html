@@ -634,7 +634,9 @@ function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, mi
   let s5  = openStock5;
   const shifts = [];
   let days10 = 0, days5 = 0;
-  const workDays = workingDaysInWeek(weekStart);
+  // Only schedule remaining working days — past days are already in live NS stock.
+  // On Friday, workDays = [Friday] only. For future weeks all 5 days remain.
+  const workDays = workingDaysInWeek(weekStart).filter(dt => dt >= localToday());
 
   // ── Production priority rules (Rob Harris 13/06/2026) ──────────────────────
   // 1. If HMPS covers 10L demand → Line A&B runs 5L all week.
@@ -720,8 +722,8 @@ function scheduleEPNewLine(weekStart, opDays, eff, openStock12, openStock6, minS
   let prevDaySku = null;
   let shifts12 = 0, shifts6 = 0;  // track shifts run per SKU for min enforcement
 
-  // Use actual working day dates — skips public holidays correctly
-  const workDays = workingDaysInWeek(weekStart);
+  // Only schedule remaining working days — past days are already in live NS stock.
+  const workDays = workingDaysInWeek(weekStart).filter(dt => dt >= localToday());
 
   for (let d = 0; d < workDays.length; d++) {
     const date = workDays[d];
@@ -826,7 +828,8 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
   let s6  = openStock6;
 
   const shifts = [];
-  const workDays = workingDaysInWeek(weekStart);
+  // Only schedule remaining working days — past days are already in live NS stock.
+  const workDays = workingDaysInWeek(weekStart).filter(dt => dt >= localToday());
   let prevSku = null;  // track for changeover penalty
 
   // Helper: avg daily demand for a SKU across next 3 weeks from weekStart
