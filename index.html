@@ -1056,7 +1056,13 @@ function planWeek(week) {
     avail = {...todayStock};
     const startIdx = ALL_WEEKS.indexOf(currentMon);
     const endIdx   = ALL_WEEKS.indexOf(week);
-    for (let i = startIdx; i < endIdx && i >= 0 && i < ALL_WEEKS.length; i++) {
+    // Start the roll from startIdx+1 (week AFTER current week).
+    // todayStock is the live NS stock — it already reflects all dispatches made
+    // so far this week, so it IS the current week's closing position.
+    // Rolling through the current week via planWeek() would subtract the full
+    // week's forecast demand again, double-counting Mon–Thu dispatches already
+    // embedded in the live stock figure. (Bug fixed 19/06/2026)
+    for (let i = startIdx + 1; i < endIdx && i >= 0 && i < ALL_WEEKS.length; i++) {
       const wk = ALL_WEEKS[i];
       // Use cached result if available — populated by a prior planWeek(wk) call
       const cached = planWeekCache[wk];
