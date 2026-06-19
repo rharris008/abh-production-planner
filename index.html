@@ -4402,6 +4402,27 @@ function applyActualsFromSB(rows) {
   setStat('Actuals', `✓ Live data from Supabase (${filtered.length} runs)`, true);
 }
 
+// Update a single chip in the nav freshness strip using actual row-level timestamps
+// (overrides the upload_log date for datasets that are synced automatically, not manually dragged)
+function updateNavFreshnessChip(ds, uploadedAt) {
+  const el = document.getElementById('navFreshness');
+  if (!el || !uploadedAt) return;
+  const dsToLabel = {'ww_forecast':'WW','coles_forecast':'Coles','metcash_forecast':'Metcash','actuals':'Actuals','stock':'Stock'};
+  const label = dsToLabel[ds] || ds;
+  const d = new Date(uploadedAt);
+  const ageDays = (Date.now() - d.getTime()) / 86400000;
+  const cls  = ageDays <= 2 ? 'fchip-ok' : ageDays <= 7 ? 'fchip-warn' : 'fchip-stale';
+  const dot  = ageDays <= 2 ? '🟢' : ageDays <= 7 ? '🟡' : '🔴';
+  const dateStr = d.toLocaleDateString('en-AU',{day:'2-digit',month:'2-digit',timeZone:'Australia/Brisbane'});
+  const timeStr = d.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Brisbane',hour12:false});
+  const newChip = `<span class="fchip ${cls}" title="${label} last synced ${dateStr} ${timeStr}">${dot} ${label} ${dateStr}</span>`;
+  // Replace existing chip for this label, or append
+  const chips = [...el.querySelectorAll('.fchip')];
+  const existing = chips.find(c => c.textContent.trim().includes(label));
+  if (existing) existing.outerHTML = newChip;
+  else el.innerHTML += newChip;
+}
+
 function applyStockFromSB(rows) {
   const newStock = {}, newUnits = {};
   // Find most recent updated_at across stock rows to show as "as at" date
@@ -4443,6 +4464,8 @@ function applyStockFromSB(rows) {
 
   renderStockDetail(newStock, newUnits, tsLabel);
   renderManualStockGrid();
+  // Override the nav freshness chip with the actual stock sync time (not the manual upload_log entry)
+  if (latestTs) updateNavFreshnessChip('stock', latestTs);
 }
 
 
