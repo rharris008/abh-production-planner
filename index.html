@@ -4216,11 +4216,11 @@ async function sbPull() {
             'ww_forecast': 'WW', 'coles_forecast': 'Coles',
             'metcash_forecast': 'Metcash', 'actuals': 'Actuals', 'stock': 'Stock'
           };
-          // Render freshness chips in the nav bar
+          // Render freshness chips in the nav bar (actuals omitted — open orders chip added by applyOpenOrdersFromSB)
           const freshnessEl = document.getElementById('navFreshness');
           if (freshnessEl) {
             const now = Date.now();
-            const dsOrder = ['ww_forecast','coles_forecast','metcash_forecast','stock','actuals'];
+            const dsOrder = ['ww_forecast','coles_forecast','metcash_forecast','stock'];
             const byDs = {};
             logData.forEach(l => { if (!byDs[l.dataset] || l.uploaded_at > byDs[l.dataset].uploaded_at) byDs[l.dataset] = l; });
             const chips = dsOrder.map(ds => {
@@ -4407,7 +4407,7 @@ function applyActualsFromSB(rows) {
 function updateNavFreshnessChip(ds, uploadedAt) {
   const el = document.getElementById('navFreshness');
   if (!el || !uploadedAt) return;
-  const dsToLabel = {'ww_forecast':'WW','coles_forecast':'Coles','metcash_forecast':'Metcash','actuals':'Actuals','stock':'Stock'};
+  const dsToLabel = {'ww_forecast':'WW','coles_forecast':'Coles','metcash_forecast':'Metcash','actuals':'Actuals','stock':'Stock','open_orders':'Orders'};
   const label = dsToLabel[ds] || ds;
   const d = new Date(uploadedAt);
   const ageDays = (Date.now() - d.getTime()) / 86400000;
@@ -4527,6 +4527,7 @@ function applyOpenOrdersFromSB(rows) {
   renderOpenOrders(tsLabel, '');
   onWeekChange();
   setStat('OpenOrders', `✓ Live from Supabase — ${orders.length} lines (${tsLabel})`, true);
+  if (latestTs) updateNavFreshnessChip('open_orders', latestTs);
 
   // Mark the drop zone as loaded and hide the manual upload instructions
   const dz = document.getElementById('dzOpenOrders');
