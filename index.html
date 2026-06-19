@@ -152,8 +152,8 @@ tr.risk-a td{background:#FEF9F0}
       <div class="tog"><button id="bDual" class="on" onclick="setHMPS('Dual')">Dual (80/sh)</button>
         <button id="bSingle" onclick="setHMPS('Single')">Single (40/sh)</button></div></div>
     <div class="ctrl-grp"><span class="ctrl-lbl">SATURDAY</span>
-      <div class="tog"><button id="bSatAuto" class="on" onclick="setSat('auto')">Auto (&lt;3d)</button>
-        <button id="bSatOff" onclick="setSat('off')">Off</button>
+      <div class="tog"><button id="bSatAuto" onclick="setSat('auto')">Auto (&lt;3d)</button>
+        <button id="bSatOff" class="on" onclick="setSat('off')">Off</button>
         <button id="bSatOn" onclick="setSat('on')">Force</button></div></div>
   </div>
   
@@ -475,7 +475,7 @@ const DAYS   = ['Mon','Tue','Wed','Thu','Fri','Sat'];
 // ══ STATE ════════════════════════════════════════════════════════════════════
 let currentWeek = '';
 let hmpsConfig  = 'Dual';
-let satMode     = 'auto';
+let satMode     = 'off';
 let stockPal    = {...STOCK_PAL};
 let onHoldPal   = {'10L Cask':0,'5L Cask':0,'2L Bottle':0,'600ml 12pk':0,'600ml 6pk':0};
 let availPal    = () => Object.fromEntries(SKUS.map(s=>[s,Math.max(0,(stockPal[s]||0)-(onHoldPal[s]||0))]));
