@@ -1100,7 +1100,7 @@ function planWeek(week) {
       stockEnd: (stockPal[sku]||0) + cap - demand[sku].total};
   }
 
-  const opDays = week === monOf(localToday())
+  const opDays = (week === monOf(localToday()) && localToday() >= week)
     ? remainingOpDaysInWeek(week)   // mid-week: only plan remaining days
     : opDaysInWeek(week);           // future weeks: full working week
 
@@ -1595,7 +1595,6 @@ function renderSkuStrips(pr) {
     html += `<div class="sku-strip ${cls}">
       <div class="sku-label"><span class="chip ${CHIP[s]}">${s}</span></div>
       <div class="ktile blue"><div class="kv">${fmt(todayStk)}</div><div class="kl">Stock (Today)</div></div>
-      ${oopal>0?`<div class="ktile ${ooCls}"><div class="kv">-${fmt(oopal)}</div><div class="kl">Open Orders</div></div>`:''}
       <div class="ktile green"><div class="kv">${planned>0?'+'+fmt(Math.round(planned)):'—'}</div><div class="kl">Production (pal)</div></div>
       <div class="ktile red"><div class="kv">${dem>0?'-'+fmt(dem):'—'}</div><div class="kl">Demand (pal)</div></div>
       <div class="ktile ${covCls}"><div class="kv">${cov>50?'7.0':fmtF(Math.max(0,cov))}d</div><div class="kl">Proj. Cover (end wk)</div></div>
