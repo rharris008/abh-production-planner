@@ -1153,7 +1153,8 @@ function planWeek(week) {
   const hmpsFull2ShiftCap = Math.floor(hmpsTgt * 2 * opDays * eff);
   const dailyDemand10 = d10 > 0 ? d10 / opDays : 0;
   const hmpsClosingCover2sh = dailyDemand10 > 0 ? (s10 + hmpsFull2ShiftCap - d10) / dailyDemand10 : 99;
-  const hmpsShifts = hmpsClosingCover2sh >= 14 ? 1 : 2;
+  // Guard: only throttle when demand data exists. Zero demand → cover = 99 (no data) → must NOT throttle.
+  const hmpsShifts = (dailyDemand10 > 0 && hmpsClosingCover2sh >= 14) ? 1 : 2;
   const hmpsTgtLabel = hmpsShifts === 1 ? `EP HMPS (${hmpsConfig} – Day only)` : `EP HMPS (${hmpsConfig})`;
   const days10hmps = opDays;
   const hmps = makeLine(hmpsTgtLabel, 'EP', '10L Cask', hmpsTgt, days10hmps, hmpsShifts);
@@ -4017,8 +4018,9 @@ function forwardFillDemand() {
   const todayIdx = ALL_WEEKS.indexOf(todayMon);
   if (todayIdx < 0) return;
 
-  const FILL_HORIZON = 16;
-  const endIdx = Math.min(todayIdx + FILL_HORIZON, ALL_WEEKS.length - 1);
+  // Fill to end of ALL_WEEKS so any selectable week has demand data — not just the rolling table horizon.
+  // The 16-week window applies to the rolling table and alert scan, not the demand projection.
+  const endIdx = ALL_WEEKS.length - 1;
   const channels = ['ww', 'coles', 'metcash'];
 
   // Reset horizon tracking
