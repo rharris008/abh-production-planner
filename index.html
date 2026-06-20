@@ -2225,47 +2225,41 @@ function renderDispatch() {
 }
 
 // ══ RENDER: FRONT-PAGE STOCK ALERTS ═══════════════════════════════════════════
-// Shows RED/AMBER stock cover alerts on the Demand & Stock tab above Stock Configuration.
-// Facts only — no operational suggestions.
-function renderFrontAlerts(pr) {
+// Clones RED and AMBER alert divs from #alertsPanel (the Alerts tab) so the front page
+// shows exactly the same alerts — same metrics, same forward simulation, same thresholds.
+// renderAlerts() MUST run before this is called. No logic duplication.
+// Excludes suggestion-language items per Rob's brief (no "recommended", "consider", etc.).
+function renderFrontAlerts() {
   const el = document.getElementById('frontAlerts');
-  if (!el) return;
-  const {coverDays, finalShortfall, demand} = pr;
-  const alerts = [];
+  const src = document.getElementById('alertsPanel');
+  if (!el || !src) return;
 
-  SKUS.forEach(s => {
-    const sf = Math.round(finalShortfall[s] || 0);
-    const cov = coverDays[s] == null ? 99 : coverDays[s];
-    const effectiveDemand = demand[s].total > 0 ? demand[s].total : (openOrdersPal[s] || 0);
+  // Words that mark a suggestion rather than a factual alert — exclude these items
+  const SUGGESTION_WORDS = ['recommended', 'Consider', 'consider', 'Start pre-building', 'Produce now'];
 
-    // RED — cannot meet week demand even with all planned production
-    if (sf > 0.5) {
-      alerts.push({t:'r', msg:`<strong>${s} — shortfall: ${fmt(sf)} pallets.</strong> Planned production plus available stock cannot cover week demand.`});
-      return; // shortfall supersedes cover alert for this SKU
-    }
-
-    // Only fire cover alerts when there is actual demand or committed orders
-    if (effectiveDemand === 0) return;
-
-    if (cov < 3) {
-      alerts.push({t:'r', msg:`<strong>${s}:</strong> ${fmtF(Math.max(0,cov))} days cover at end of week.`});
-    } else if (cov < 7) {
-      alerts.push({t:'a', msg:`<strong>${s}:</strong> ${fmtF(Math.max(0,cov))} days cover at end of week.`});
-    }
+  const items = [...src.querySelectorAll('.alert-r, .alert-a')].filter(div => {
+    const txt = div.textContent || '';
+    return !SUGGESTION_WORDS.some(w => txt.includes(w));
   });
 
-  if (!alerts.length) {
+  if (!items.length) {
     el.innerHTML = '';
     el.style.padding = '0';
     return;
   }
 
   el.style.padding = '8px 0 0';
+  const clonedHtml = items.map(d => {
+    // Clone the div; tweak spacing to fit the compact front-page banner
+    const clone = d.cloneNode(true);
+    clone.style.marginBottom = '4px';
+    clone.style.borderRadius = '0';
+    return clone.outerHTML;
+  }).join('');
+
   el.innerHTML = `
     <div style="padding:4px 12px 6px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">⚠ Stock Alerts</div>
-    ${alerts.map(a => `<div class="alert alert-${a.t}" style="margin:0 0 4px;border-radius:0">
-      <div>${a.msg}</div>
-    </div>`).join('')}
+    ${clonedHtml}
     <div style="height:8px"></div>`;
 }
 
@@ -4015,8 +4009,8 @@ function onWeekChange() {
   renderSchedule(currentWeek,pr);
   renderHorizon();
   renderDispatch();
-  renderFrontAlerts(pr);
   renderAlerts(pr);
+  renderFrontAlerts();   // clones RED/AMBER from #alertsPanel — must run after renderAlerts
   // Re-filter actuals for newly selected week
   if(rawActualsData && rawActualsData.length) {
     const wkS = currentWeek;
