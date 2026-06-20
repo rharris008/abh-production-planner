@@ -600,6 +600,64 @@ function getDemand(week) {
   return r;
 }
 
+// ── Mid-week demand adjustment ───────────────────────────────────────────────
+// For future / past weeks: returns raw getDemand result unchanged.
+// For the current week only:
+//   - Scale full-week forecast by remaining working days (Mon=5/5, Tue=4/5 … Fri=1/5, Sat/Sun=0/5)
+//   - Then deduct only the open orders that are scheduled for those remaining days
+//   - Result clamped to zero
+// Used by planWeek() so the scheduler plans only what is still needed this week,
+// and the SKU strip demand tile reflects the same number.
+function getAdjustedDemand(week) {
+  const raw        = getDemand(week);
+  const today      = localToday();
+  const currentMon = monOf(today);
+
+  // Only the current week gets adjusted; past/future stay as-is
+  if (week !== currentMon) return raw;
+
+  // Day-of-week offset from Monday (0=Mon … 4=Fri, 5=Sat, 6=Sun)
+  const dayOfWeek = Math.round(
+    (new Date(today + 'T00:00:00') - new Date(week + 'T00:00:00')) / 86400000
+  );
+
+  // Weekend — all working production for this week is done
+  if (dayOfWeek >= 5) {
+    const zero = {};
+    SKUS.forEach(s => zero[s] = {ww:0, coles:0, metcash:0, other:0, total:0});
+    return zero;
+  }
+
+  // Scale: Mon=5/5, Tue=4/5, Wed=3/5, Thu=2/5, Fri=1/5
+  const remainDays = 5 - dayOfWeek;
+  const scale      = remainDays / 5;
+
+  // Remaining confirmed OO: only orders scheduled for today through Friday
+  const remOoPal = {};
+  SKUS.forEach(s => remOoPal[s] = 0);
+  for (let d = dayOfWeek; d < 5; d++) {
+    const dayOo = openOrdersDailyPal[addDays(week, d)] || {};
+    SKUS.forEach(s => remOoPal[s] += (dayOo[s] || 0));
+  }
+
+  // Adjusted total = max(0, scaled_forecast − remaining_OO)
+  // Scale each retailer component proportionally so per-retailer views remain consistent
+  const adj = {};
+  SKUS.forEach(s => {
+    const rawTotal = raw[s].total;
+    const adjTotal = Math.max(0, rawTotal * scale - remOoPal[s]);
+    const adjScale = rawTotal > 0 ? adjTotal / rawTotal : 0;
+    adj[s] = {
+      ww:      Math.max(0, raw[s].ww      * adjScale),
+      coles:   Math.max(0, raw[s].coles   * adjScale),
+      metcash: Math.max(0, raw[s].metcash * adjScale),
+      other:   Math.max(0, raw[s].other   * adjScale),
+      total:   adjTotal
+    };
+  });
+  return adj;
+}
+
 // ══ EP LINE A&B — DAY-LEVEL SCHEDULER ════════════════════════════════════════
 // Line A and Line B ALWAYS run combined as a single unit — they are never split
 // to run different SKUs simultaneously.
@@ -1078,7 +1136,7 @@ function planWeek(week) {
     }
   }
 
-  const demand   = getDemand(week);
+  const demand   = getAdjustedDemand(week);
   const TARGET   = {};
   SKUS.forEach(s => TARGET[s] = demand[s].total);
 
