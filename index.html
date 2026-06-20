@@ -2079,10 +2079,17 @@ function renderRollingTable(pr) {
     skuCols.forEach(s => {
       const d    = isFinishedWeek ? 0 : dem[s].total; // finished week: no demand adjustment
       const prod = maxProd[s] || 0;
-      const close = stock[s] + prod - d;
-      cumulative[s] += prod - d;
+      // For future weeks: use planWeek's canonical closingStock rather than recomputing
+      // stock + prod - demand. planWeek uses getAdjustedDemand() + DAILY_REQUIRED deductions;
+      // the rolling table was using getDemand() only — producing a different answer.
+      // Using planWeekCache eliminates the tiles vs rolling-table discrepancy. (Fix 21/06/2026)
+      const wkCache = planWeekCache[wk];
+      const close = (!isThisWeek && !isFinishedWeek && wkCache?.closingStock?.[s] != null)
+        ? wkCache.closingStock[s]
+        : stock[s] + prod - d;
+      cumulative[s] += prod - d;   // cumulative ± = net production vs demand (unchanged)
       const cum = Math.round(cumulative[s]);
-      stock[s] = Math.max(0, close);
+      stock[s] = Math.max(0, close);  // clamp for next row's opening stock
 
       const closeCls = close < 0 ? 'color:var(--red);font-weight:700' : close < dem[s].total ? 'color:var(--amber)' : 'color:var(--green)';
       const cumCls   = cum < 0 ? 'color:var(--red);font-weight:700' : cum > 0 ? 'color:var(--green)' : '';
