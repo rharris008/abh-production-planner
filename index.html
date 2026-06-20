@@ -851,38 +851,38 @@ function scheduleEPNewLine(weekStart, opDays, eff, openStock12, openStock6, minS
   return {shifts, endStock12: Math.round(s12), endStock6: Math.round(s6)};
 }
 
-// ══ BOTTLE LINE SCHEDULER — Unified 2L / 600ml 12pk / 600ml 6pk cycle ════════
-// Confirmed algorithm (Rob Harris 19/06/2026):
-//   Phase 1: Run 2L until closing cover >= 8 days (avg next 3 weeks demand)
-//   Phase 2: Swap to lower-cover 600ml SKU, run until it hits 8 days cover
-//   Phase 3: Swap to the other 600ml SKU, run until it hits 8 days cover
-//   Phase 4: Back to 2L — repeat
-//
-// Days cover = SOH ÷ avg daily demand across next 3 weeks forecast.
-// Changeover penalty between 12pk and 6pk (epChangeoverMins) applies on SKU switch.
-// 2L and 600ml CANNOT run on the same calendar day.
-// All sessions run 2 shifts per day (no single-shift reduction on bottle line).
-//
+// ══ BOTTLE LINE SCHEDULER — 4-day 2L / 6-day 600ml production cycle ══════════
+// Rules per Rob Harris 20/06/2026:
+// - 4 working days on 2L (target: reach 9 days stock)
+// - 6 working days on 600ml: 6pk FIRST, then 12pk
+// - Emergency override (highest priority): any SKU < 3 days cover → switch to it now
+// - No SKU ever falls below 3 days stock
+// Cycle spans 2 weeks (4+6=10 working days). Phase is inferred from opening stock each week.
 // Returns {shifts, endStock2L, endStock12, endStock6}
-// Each shift: {day, date, shift, sku, pallets, target, cls, riskFlag, stockAfter2L, stockAfter12, stockAfter6}
 function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6, weekIdx) {
+  const TARGET_2L_DAYS  = 4;   // working days on 2L per cycle
+  const TARGET_600_DAYS = 6;   // working days on 600ml per cycle
+  const TARGET_2L_COVER = 9;   // days — 2L runs until this is achieved
+  const EMERGENCY_FLOOR = 3;   // days — no SKU falls below this
+  const COV_6PK_TO_12PK = 7;   // days — switch within 600ml phase: 6pk→12pk when 6pk >= this
+
   const shiftMins = 450;
   const coMins    = epChangeoverMins;
   const coFrac    = Math.max(0, 1 - coMins / shiftMins);
-  const tgt2L   = Math.floor(52 * eff);
-  const tgt12   = Math.floor(34 * eff);
-  const tgt6    = Math.floor(32 * eff);
+  const tgt2L = Math.floor(52 * eff);
+  const tgt12 = Math.floor(34 * eff);
+  const tgt6  = Math.floor(32 * eff);
 
   let s2L = openStock2L;
   let s12 = openStock12;
   let s6  = openStock6;
 
   const shifts = [];
-  // Only schedule remaining working days — past days are already in live NS stock.
+  // Only schedule remaining working days — past days already in live NS stock.
   const workDays = workingDaysInWeek(weekStart).filter(dt => dt >= localToday());
-  let prevSku = null;  // track for changeover penalty
+  let prevSku = null;
 
-  // Helper: avg daily demand for a SKU across next 3 weeks from weekStart
+  // Avg daily demand for a SKU across next 3 weeks from weekStart
   function avgDailyDemand(sku) {
     let total = 0, weeks = 0;
     for (let i = 0; i < 3; i++) {
@@ -895,138 +895,119 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
     return weeks > 0 ? total / weeks : 0;
   }
 
-  // Inner helpers: days cover and threshold check
-  function daysOver8(sku, soh) {
-    return daysOver8Threshold(sku, soh, 8);
-  }
-  function daysOver8Threshold(sku, soh, threshold) {
-    // Negative or zero stock is NEVER adequately covered — must produce regardless of demand signal.
-    // Without this guard: daily=0 → returns true → SKU skipped even when stock is deeply negative.
-    if (soh <= 0) return false;
-    const daily = avgDailyDemand(sku);
-    // No demand data but positive stock → treat as adequately covered (no production needed).
-    return daily <= 0 ? true : (soh / daily) >= threshold;
+  // Days of cover: 0 for negative/zero stock regardless of demand
+  function cov(sku, soh) {
+    if (soh <= 0) return 0;
+    const d = avgDailyDemand(sku);
+    return d > 0 ? soh / d : 99;
   }
 
-  // Initial phase: check which SKU to start on based on current cover.
-  // Start on 2L unless it already has >= 8 days cover.
-  let phase = daysOver8('2L Bottle', s2L) ? 'decide600' : '2L';
+  // ── Initial phase decision ─────────────────────────────────────────────────
+  // Emergency: 600ml < 3 days → start there immediately.
+  // Else: 2L below 9-day target → run 2L phase.
+  // Else: 2L is fine → run 600ml phase (6pk first).
+  const c6_open  = cov('600ml 6pk',  s6);
+  const c12_open = cov('600ml 12pk', s12);
+  const c2L_open = cov('2L Bottle',  s2L);
 
-  function decide600Phase() {
-    // For the INITIAL weekly phase decision, a 600ml SKU is only skipped if it has
-    // genuinely excessive cover (>= 21 days = 3 weeks). The 8-day threshold is used
-    // for in-cycle switching (when to move away from a SKU mid-week) but is too low
-    // for initial skipping — it causes 600ml to be skipped in most projected weeks
-    // where accumulated stock looks adequate, resulting in 2L running the entire week.
-    const INITIAL_SKIP_DAYS = 21;
-    const c12 = daysOver8Threshold('600ml 12pk', s12, INITIAL_SKIP_DAYS);
-    const c6  = daysOver8Threshold('600ml 6pk',  s6,  INITIAL_SKIP_DAYS);
-    // If both have > 21 days cover, fall back to 2L
-    if (c12 && c6) return '2L';
-    if (c12) return '600ml 6pk';
-    if (c6)  return '600ml 12pk';
-    // Both need production — pick by lower raw cover
-    const daily12 = avgDailyDemand('600ml 12pk');
-    const daily6  = avgDailyDemand('600ml 6pk');
-    const cov12 = daily12 > 0 ? s12 / daily12 : 99;
-    const cov6  = daily6  > 0 ? s6  / daily6  : 99;
-    return cov12 <= cov6 ? '600ml 12pk' : '600ml 6pk';
+  let phase;
+  if (c6_open < EMERGENCY_FLOOR || c12_open < EMERGENCY_FLOOR) {
+    phase = c6_open <= c12_open ? '600ml 6pk' : '600ml 12pk';
+  } else if (c2L_open < TARGET_2L_COVER) {
+    phase = '2L Bottle';
+  } else {
+    phase = '600ml 6pk';  // 2L fine — produce 600ml, 6pk first
   }
 
-  if (phase === 'decide600') {
-    phase = decide600Phase();
-  }
-
-  // Track which 600ml SKUs have been completed in the current cycle
-  let done12InCycle = false;
-  let done6InCycle  = false;
+  // Day-count tracking within this week's run
+  let days2L  = 0;  // working days spent on 2L this week
+  let days600 = 0;  // working days spent on 600ml this week
 
   for (let d = 0; d < workDays.length; d++) {
-    const date = workDays[d];
-    const due = DAILY_REQUIRED[date] || {};
+    const date  = workDays[d];
+    const due   = DAILY_REQUIRED[date] || {};
     const due2L = due['2L Bottle']   || 0;
     const due12 = due['600ml 12pk'] || 0;
     const due6  = due['600ml 6pk']  || 0;
 
-    // Re-evaluate phase at the start of each day
-    if (phase === '2L') {
-      if (daysOver8('2L Bottle', s2L)) {
-        // 2L has hit cover — transition to 600ml phase
-        done12InCycle = false;
-        done6InCycle  = false;
-        const next = decide600Phase();
-        if (next !== '2L') phase = next;
-        // else both 600ml are covered too — stay on 2L
-      }
-    } else if (phase === '600ml 12pk') {
-      if (daysOver8('600ml 12pk', s12)) {
-        done12InCycle = true;
-        if (!done6InCycle && !daysOver8('600ml 6pk', s6)) {
-          phase = '600ml 6pk';
-        } else {
-          // Both 600ml done (or other also covered) — back to 2L
-          phase = '2L'; done12InCycle = false; done6InCycle = false;
-        }
+    // Cover at START of day (before today's production)
+    const c2  = cov('2L Bottle',  s2L);
+    const c6  = cov('600ml 6pk',  s6);
+    const c12 = cov('600ml 12pk', s12);
+
+    // ── Priority 1: Emergency — any SKU < 3 days ─────────────────────────────
+    // 600ml emergencies trump 2L (600ml cannot go OOS)
+    if (c6 < EMERGENCY_FLOOR && phase !== '600ml 6pk') {
+      phase = '600ml 6pk';
+    } else if (c12 < EMERGENCY_FLOOR && phase !== '600ml 12pk') {
+      phase = '600ml 12pk';
+    } else if (c2 < EMERGENCY_FLOOR && phase !== '2L Bottle') {
+      phase = '2L Bottle';
+
+    // ── Priority 2: Normal cycle transitions ──────────────────────────────────
+    } else if (phase === '2L Bottle') {
+      // Leave 2L when: target cover reached OR 4-day cap hit
+      if (c2 >= TARGET_2L_COVER || days2L >= TARGET_2L_DAYS) {
+        phase = '600ml 6pk';  // 600ml phase always starts with 6pk
       }
     } else if (phase === '600ml 6pk') {
-      if (daysOver8('600ml 6pk', s6)) {
-        done6InCycle = true;
-        if (!done12InCycle && !daysOver8('600ml 12pk', s12)) {
-          phase = '600ml 12pk';
-        } else {
-          // Both 600ml done (or other also covered) — back to 2L
-          phase = '2L'; done12InCycle = false; done6InCycle = false;
-        }
+      if (days600 >= TARGET_600_DAYS) {
+        phase = '2L Bottle';         // completed 600ml cycle → back to 2L
+      } else if (c6 >= COV_6PK_TO_12PK) {
+        phase = '600ml 12pk';        // 6pk sufficiently stocked → switch to 12pk
+      }
+    } else if (phase === '600ml 12pk') {
+      if (days600 >= TARGET_600_DAYS) {
+        phase = '2L Bottle';         // completed 600ml cycle → back to 2L
+      } else if (c6 < c12 && c6 < COV_6PK_TO_12PK) {
+        phase = '600ml 6pk';         // 6pk fell back below 12pk → revert priority
       }
     }
 
-    // Resolve current day's SKU from phase
-    let sku;
-    if (phase === '2L')         sku = '2L Bottle';
-    else if (phase === '600ml 12pk') sku = '600ml 12pk';
-    else if (phase === '600ml 6pk')  sku = '600ml 6pk';
-    else                             sku = '2L Bottle';
+    // Resolve SKU
+    const sku = phase === '2L Bottle'    ? '2L Bottle'
+              : phase === '600ml 12pk'   ? '600ml 12pk'
+              : '600ml 6pk';
 
-    // Changeover penalty: applies between 12pk and 6pk only (not when switching to/from 2L)
-    const is600Current = sku === '600ml 12pk' || sku === '600ml 6pk';
-    const is600Prev    = prevSku === '600ml 12pk' || prevSku === '600ml 6pk';
-    const dayChangeover = is600Current && is600Prev && prevSku !== sku;
+    // Changeover penalty: between 12pk ↔ 6pk only (not when switching to/from 2L)
+    const is600Cur  = sku !== '2L Bottle';
+    const is600Prev = prevSku && prevSku !== '2L Bottle';
+    const changeover = is600Cur && is600Prev && prevSku !== sku;
 
     for (let sh = 0; sh < 2; sh++) {
       const shiftName = sh === 0 ? 'Day' : 'Aft';
-      const hasChangeover = sh === 0 && dayChangeover;
+      const hasCO = sh === 0 && changeover;
       let pallets, target, cls;
 
       if (sku === '2L Bottle') {
-        pallets = tgt2L;
-        target  = tgt2L;
-        cls     = 'as2';
+        pallets = tgt2L; target = tgt2L; cls = 'as2';
         s2L += pallets;
       } else if (sku === '600ml 12pk') {
-        pallets = hasChangeover ? Math.floor(tgt12 * coFrac) : tgt12;
-        target  = tgt12;
-        cls     = 'ep12';
+        pallets = hasCO ? Math.floor(tgt12 * coFrac) : tgt12;
+        target  = tgt12; cls = 'ep12';
         s12 += pallets;
       } else {
-        pallets = hasChangeover ? Math.floor(tgt6 * coFrac) : tgt6;
-        target  = tgt6;
-        cls     = 'ep6';
+        pallets = hasCO ? Math.floor(tgt6 * coFrac) : tgt6;
+        target  = tgt6; cls = 'ep6';
         s6 += pallets;
       }
 
-      const riskFlag = (sku === '2L Bottle'   && s2L - due2L < 0) ||
-                       (sku === '600ml 12pk'  && s12 - due12 < 0) ||
-                       (sku === '600ml 6pk'   && s6  - due6  < 0);
+      const riskFlag = (sku === '2L Bottle'  && s2L - due2L < 0) ||
+                       (sku === '600ml 12pk' && s12 - due12 < 0) ||
+                       (sku === '600ml 6pk'  && s6  - due6  < 0);
 
       shifts.push({
         day: d, date, shift: shiftName, sku, pallets, target, cls, riskFlag,
-        stockAfter2L:  Math.round(s2L),
-        stockAfter12:  Math.round(s12),
-        stockAfter6:   Math.round(s6),
+        stockAfter2L: Math.round(s2L),
+        stockAfter12: Math.round(s12),
+        stockAfter6:  Math.round(s6),
       });
     }
 
+    // Track cycle day counts
+    if (sku === '2L Bottle') days2L++; else days600++;
     prevSku = sku;
+
     // Consume deliveries at end of day
     s2L -= due2L;
     s12 -= due12;
@@ -1152,6 +1133,153 @@ function planWeek(week) {
   const TARGET   = {};
   SKUS.forEach(s => TARGET[s] = demand[s].total);
 
+  // ══ CONFIRMED SCHEDULE BYPASS ══════════════════════════════════════════════
+  // When Aaron has agreed next week's production, it is hard-coded in CONFIRMED_SCHEDULES.
+  // The planner uses those exact pallet figures — the algorithm does not override them.
+  // Rob Harris 20/06/2026.
+  if (CONFIRMED_SCHEDULES[week]) {
+    const conf = CONFIRMED_SCHEDULES[week];
+    const confirmedProd = {};
+    SKUS.forEach(s => confirmedProd[s] = 0);
+    conf.forEach(s => { confirmedProd[s.sku] = (confirmedProd[s.sku]||0) + s.pallets; });
+
+    const stockEnd = {};
+    SKUS.forEach(s => { stockEnd[s] = (avail[s]||0) + confirmedProd[s] - demand[s].total; });
+
+    const weekIdxC = ALL_WEEKS.indexOf(week);
+    const nextWkForCoverC = ALL_WEEKS[weekIdxC + 1];
+    const nextWkOOC = {};
+    SKUS.forEach(s => nextWkOOC[s] = 0);
+    if (nextWkForCoverC) {
+      for (let d = 0; d < 5; d++) {
+        const ndo = openOrdersDailyPal[addDays(nextWkForCoverC, d)] || {};
+        SKUS.forEach(s => nextWkOOC[s] += ndo[s] || 0);
+      }
+    }
+    const thisWkOOC = {};
+    SKUS.forEach(s => thisWkOOC[s] = 0);
+    for (let d = 0; d < 5; d++) {
+      const tdo = openOrdersDailyPal[addDays(week, d)] || {};
+      SKUS.forEach(s => thisWkOOC[s] += tdo[s] || 0);
+    }
+    const displayCoverDaysC = {};
+    SKUS.forEach(s => {
+      const nextWkDemC = nextWkForCoverC ? getDemand(nextWkForCoverC) : null;
+      const nextDC = nextWkDemC ? (nextWkDemC[s].total || 0) : 0;
+      const thisDC = demand[s].total;
+      const effDC  = nextDC > 0 ? nextDC : (thisDC > 0 ? thisDC : nextWkOOC[s]);
+      displayCoverDaysC[s] = effDC > 0 ? (stockEnd[s] / effDC) * 5 : 99;
+    });
+    const finalShortfallC = {};
+    SKUS.forEach(s => { finalShortfallC[s] = stockEnd[s] < 0 ? Math.abs(stockEnd[s]) : 0; });
+
+    const midWeekAtRiskC = new Set();
+    for (let d = 0; d < 3; d++) {
+      SKUS.forEach(s => {
+        let cumDue = 0;
+        for (let dd = 0; dd <= d; dd++) {
+          const ddDate = addDays(week, dd);
+          const dd2 = DAILY_REQUIRED[ddDate] || {};
+          const oo2 = openOrdersDailyPal[ddDate] || {};
+          cumDue += (dd2[s] || oo2[s] || 0);
+        }
+        if ((avail[s]||0) < cumDue) midWeekAtRiskC.add(s);
+      });
+    }
+    const netDemC = {};
+    SKUS.forEach(s => netDemC[s] = Math.max(0, demand[s].total - (avail[s]||0)));
+
+    // Derive line stubs from confirmed schedule entries
+    const hmpsC  = conf.filter(s => s.sku === '10L Cask' && s.label && s.label.includes('HMPS'));
+    const cask5C  = conf.filter(s => s.sku === '5L Cask');
+    const cask10C = conf.filter(s => s.sku === '10L Cask' && !(s.label && s.label.includes('HMPS')));
+    const bot2LC  = conf.filter(s => s.sku === '2L Bottle');
+    const ep12C   = conf.filter(s => s.sku === '600ml 12pk');
+    const ep6C    = conf.filter(s => s.sku === '600ml 6pk');
+    const hmpsConfPal  = hmpsC.reduce((a,s)=>a+s.pallets,0);
+    const hmpsDaysC    = new Set(hmpsC.map(s=>s.date)).size;
+    const cask5Pal     = cask5C.reduce((a,s)=>a+s.pallets,0);
+    const cask5Days    = new Set(cask5C.map(s=>s.date)).size;
+    const cask10ABPal  = cask10C.reduce((a,s)=>a+s.pallets,0);
+    const cask10ABDays = new Set(cask10C.map(s=>s.date)).size;
+    const bot2LPal     = bot2LC.reduce((a,s)=>a+s.pallets,0);
+    const bot2LDays    = new Set(bot2LC.map(s=>s.date)).size;
+    const ep12Pal      = ep12C.reduce((a,s)=>a+s.pallets,0);
+    const ep6Pal       = ep6C.reduce((a,s)=>a+s.pallets,0);
+
+    const atRiskOrdersC = [];
+    if (typeof WW_ORDERS !== 'undefined') {
+      WW_ORDERS.forEach(o => {
+        if (o.need_arrival >= addDays(week,-1) && o.need_arrival <= addDays(week,6)) {
+          if ((stockPal[o.sku]||0) < o.pallets) atRiskOrdersC.push({...o, retailer:'WW'});
+        }
+      });
+    }
+
+    const closingStockC = {...stockEnd};
+    const futureDeficitsC = forwardSimulate(weekIdxC, closingStockC, eff);
+    const prebuildAlertC = [];
+    const pbBySkuC = {};
+    futureDeficitsC.forEach(d => {
+      if (!pbBySkuC[d.sku] || d.weekIdx < pbBySkuC[d.sku].weekIdx) pbBySkuC[d.sku] = d;
+    });
+    Object.values(pbBySkuC).forEach(d => {
+      const weeksAway = d.weekIdx - weekIdxC;
+      prebuildAlertC.push({ sku:d.sku, gap:d.deficit, nextWk:d.week, weeksAway, urgent:weeksAway<=2 });
+    });
+    prebuildAlertC.sort((a,b)=>a.weeksAway-b.weeksAway);
+
+    const satTriggersC = SKUS.filter(s => {
+      const effD = demand[s].total > 0 ? demand[s].total : (thisWkOOC[s]||0);
+      return (displayCoverDaysC[s]||0) < 3 && effD > 0;
+    });
+
+    const resultC = {
+      demand, netDem: netDemC, stockEnd, coverDays: displayCoverDaysC, finalShortfall: finalShortfallC,
+      satTriggers: satTriggersC, satLines: [], satStock: {...stockEnd},
+      satUsed: false, satIsHoliday: false,
+      lines: {
+        hmps: { label:`EP HMPS (${hmpsConfig})`, site:'EP', sku:'10L Cask', tgt:60, days:hmpsDaysC, shifts:2, maxDays:5, cap:hmpsConfPal, util:hmpsDaysC/5 },
+        as2l: { label:'EP Bottle Line (2L)', site:'EP', sku:'2L Bottle', tgt:52, days:bot2LDays, shifts:2, maxDays:5, cap:bot2LPal, util:bot2LDays/5 }
+      },
+      bottle2LDates: new Set(bot2LC.map(s=>s.date)),
+      cask: {
+        prod10: hmpsConfPal + cask10ABPal,
+        prod5:  cask5Pal,
+        days10: cask10ABDays,
+        days5:  cask5Days,
+        shifts: [...cask5C.map(s=>({...s,riskFlag:false})), ...cask10C.map(s=>({...s,riskFlag:false}))],
+        endStock10: stockEnd['10L Cask'],
+        endStock5:  stockEnd['5L Cask'],
+        shifts5: 2, hmpsShifts: 2
+      },
+      ep: {
+        prod12: ep12Pal, prod6: ep6Pal,
+        days12: new Set(ep12C.map(s=>s.date)).size,
+        days6:  new Set(ep6C.map(s=>s.date)).size,
+        shifts: [...ep12C, ...ep6C],
+        endStock12: stockEnd['600ml 12pk'],
+        endStock6:  stockEnd['600ml 6pk']
+      },
+      bottleShifts: [...bot2LC, ...ep12C, ...ep6C],
+      stockEnd10: stockEnd['10L Cask'],
+      stockEnd5:  stockEnd['5L Cask'],
+      stockEnd2:  stockEnd['2L Bottle'],
+      avail,
+      plannedProd: confirmedProd,
+      totalGross: SKUS.reduce((a,s)=>a+demand[s].total,0),
+      totalNet:   SKUS.reduce((a,s)=>a+Math.max(0,netDemC[s]),0),
+      atRiskOrders: atRiskOrdersC, prebuildAlert: prebuildAlertC, midWeekAtRisk: midWeekAtRiskC,
+      confirmedPlan: true,
+    };
+
+    if (!planWeekCache[week]) planWeekCache[week] = {};
+    planWeekCache[week]._full = resultC;
+    planWeekCache[week].closingStock = {...stockEnd};
+    return resultC;
+  }
+  // ══ END CONFIRMED SCHEDULE BYPASS ══════════════════════════════════════════
+
   function makeLine(label, site, sku, tgt, days, shifts=2) {
     const cap = Math.floor(tgt * shifts * days * eff);
     return {label, site, sku, tgt, days, shifts, maxDays:5, cap,
@@ -1196,8 +1324,19 @@ function planWeek(week) {
   const projCover10_HMPSonly = dailyD10 > 0
     ? projClose10_HMPSonly / dailyD10              // days of cover
     : (projClose10_HMPSonly >= 0 ? 99 : 0);       // no demand: saturated or empty
-  // < 5 days triggers switch; 5–7 days: still in recovery → stay on 10L; ≥ 7 days: run 5L
-  const lineABSku = projCover10_HMPSonly < 7 ? '10L Cask' : '5L Cask';
+  // < 5 days triggers switch to 10L support; ≥ 5 days → A&B runs 5L (default)
+  // The 7-day target is achieved by running on 10L for enough consecutive weeks until rebuilt.
+  let lineABSku = projCover10_HMPSonly < 5 ? '10L Cask' : '5L Cask';
+  // Universal 3-day floor — overarches all other rules. Rob Harris 20/06/2026:
+  // "NO SKU CAN GO UNDER 3 DAYS STOCK"
+  // 5L emergency floor: if 5L closing stock WITHOUT A&B support would drop below 3 days,
+  // force A&B to 5L immediately regardless of 10L state.
+  const projClose5L_noAB = avail5 - d5;
+  const dailyD5 = d5 > 0 ? d5 / opDays : 0;
+  const projCover5L_noAB = dailyD5 > 0
+    ? projClose5L_noAB / dailyD5
+    : (projClose5L_noAB >= 0 ? 99 : 0);
+  if (projCover5L_noAB < 3) lineABSku = '5L Cask';  // 5L emergency — must run now
   const caskResult = scheduleEPCaskLines(
     week, opDays, eff,
     avail['10L Cask'] || 0, avail5,
