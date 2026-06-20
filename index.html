@@ -600,20 +600,21 @@ function getDemand(week) {
   return r;
 }
 
-// ── Mid-week demand adjustment ───────────────────────────────────────────────
+// ── Mid-week demand scaling for production scheduler ──────────────────────────
 // For future / past weeks: returns raw getDemand result unchanged.
-// For the current week only:
-//   - Scale full-week forecast by remaining working days (Mon=5/5, Tue=4/5 … Fri=1/5, Sat/Sun=0/5)
-//   - Then deduct only the open orders that are scheduled for those remaining days
-//   - Result clamped to zero
-// Used by planWeek() so the scheduler plans only what is still needed this week,
-// and the SKU strip demand tile reflects the same number.
+// For the current week only: scale full-week forecast by remaining working days
+//   Mon=5/5, Tue=4/5, Wed=3/5, Thu=2/5, Fri=1/5, Sat/Sun=0/5
+// This prevents the scheduler double-counting demand already shipped earlier
+// in the week (live NS stock already reflects those dispatches).
+// NOTE: OO is NOT deducted here — OO is part of forecast demand and stock is
+// already reduced by dispatches. Deducting OO from scheduling demand would
+// undercount production need. OO is deducted only in the display tile.
 function getAdjustedDemand(week) {
   const raw        = getDemand(week);
   const today      = localToday();
   const currentMon = monOf(today);
 
-  // Only the current week gets adjusted; past/future stay as-is
+  // Only the current week gets scaled; past/future return raw
   if (week !== currentMon) return raw;
 
   // Day-of-week offset from Monday (0=Mon … 4=Fri, 5=Sat, 6=Sun)
@@ -629,29 +630,17 @@ function getAdjustedDemand(week) {
   }
 
   // Scale: Mon=5/5, Tue=4/5, Wed=3/5, Thu=2/5, Fri=1/5
-  const remainDays = 5 - dayOfWeek;
-  const scale      = remainDays / 5;
+  const scale = (5 - dayOfWeek) / 5;
 
-  // Remaining confirmed OO: only orders scheduled for today through Friday
-  const remOoPal = {};
-  SKUS.forEach(s => remOoPal[s] = 0);
-  for (let d = dayOfWeek; d < 5; d++) {
-    const dayOo = openOrdersDailyPal[addDays(week, d)] || {};
-    SKUS.forEach(s => remOoPal[s] += (dayOo[s] || 0));
-  }
-
-  // Adjusted total = max(0, scaled_forecast − remaining_OO)
-  // Scale each retailer component proportionally so per-retailer views remain consistent
   const adj = {};
   SKUS.forEach(s => {
     const rawTotal = raw[s].total;
-    const adjTotal = Math.max(0, rawTotal * scale - remOoPal[s]);
-    const adjScale = rawTotal > 0 ? adjTotal / rawTotal : 0;
+    const adjTotal = rawTotal * scale;
     adj[s] = {
-      ww:      Math.max(0, raw[s].ww      * adjScale),
-      coles:   Math.max(0, raw[s].coles   * adjScale),
-      metcash: Math.max(0, raw[s].metcash * adjScale),
-      other:   Math.max(0, raw[s].other   * adjScale),
+      ww:      raw[s].ww      * scale,
+      coles:   raw[s].coles   * scale,
+      metcash: raw[s].metcash * scale,
+      other:   raw[s].other   * scale,
       total:   adjTotal
     };
   });
@@ -1606,13 +1595,30 @@ function buildSchedule(week, pr) {
 function renderSkuStrips(pr) {
   const {demand, netDem, coverDays, finalShortfall, satTriggers, satUsed, satStock, plannedProd} = pr;
   const el = document.getElementById('skuStrips');
-  // Open orders for the selected week only — future weeks are covered by retailer forecasts
+  // Open orders for the selected week only (Mon–Fri) — for the OO tile display
   const weekOoPal = {};
   SKUS.forEach(s => weekOoPal[s] = 0);
-  for (let d = 0; d < 7; d++) {
-    const dt = addDays(currentWeek, d);
-    const dayOo = openOrdersDailyPal[dt] || {};
-    SKUS.forEach(s => weekOoPal[s] = (weekOoPal[s] || 0) + (dayOo[s] || 0));
+  for (let d = 0; d < 5; d++) {
+    const dayOo = openOrdersDailyPal[addDays(currentWeek, d)] || {};
+    SKUS.forEach(s => weekOoPal[s] += (dayOo[s] || 0));
+  }
+
+  // OO to deduct from the demand tile: for the current calendar week, only deduct
+  // OO from today onwards (Mon–N already dispatched and out of NS stock).
+  // For future weeks, deduct the full Mon–Fri OO.
+  const calendarMon = monOf(localToday());
+  let demOoStartDay = 0; // default: start from Monday (future weeks)
+  if (currentWeek === calendarMon) {
+    const dow = Math.round(
+      (new Date(localToday() + 'T00:00:00') - new Date(currentWeek + 'T00:00:00')) / 86400000
+    );
+    demOoStartDay = Math.min(Math.max(dow, 0), 4);
+  }
+  const demOoPal = {};
+  SKUS.forEach(s => demOoPal[s] = 0);
+  for (let d = demOoStartDay; d < 5; d++) {
+    const dayOo = openOrdersDailyPal[addDays(currentWeek, d)] || {};
+    SKUS.forEach(s => demOoPal[s] += (dayOo[s] || 0));
   }
   // Closing stock per SKU — prefer satStock if Saturday run
   const closing = {
@@ -1635,6 +1641,13 @@ function renderSkuStrips(pr) {
       allocPct = retDem / demTotal;
     }
     const dem    = activeRetailer === 'All' ? demTotal : (demand[s][activeRetailer === 'WW' ? 'ww' : activeRetailer === 'Coles' ? 'coles' : 'metcash'] || 0);
+    // Demand tile display value: forecast minus confirmed OO for the relevant days.
+    // OO is shown separately in the Open Orders tile so the demand tile shows
+    // the net additional demand beyond what is already confirmed.
+    // Only applied in "All" view — per-retailer view shows raw retailer forecast.
+    const demDisplayVal = activeRetailer === 'All'
+      ? Math.max(0, demTotal - (demOoPal[s] || 0))
+      : dem;
     const sysStk   = stockPal[s] || 0;
     const todayStk = Math.round(sysStk * allocPct);   // retailer-allocated share of today's physical stock
     const sysProjOpen = pr.avail ? (pr.avail[s] ?? sysStk) : sysStk;
@@ -1657,7 +1670,7 @@ function renderSkuStrips(pr) {
       <div class="sku-label"><span class="chip ${CHIP[s]}">${s}</span></div>
       <div class="ktile blue"><div class="kv">${fmt(todayStk)}</div><div class="kl">Stock (Today)</div></div>
       ${oopal>0?`<div class="ktile ${ooCls}"><div class="kv">-${fmt(oopal)}</div><div class="kl">Open Orders</div></div>`:''}
-      <div class="ktile navy"><div class="kv">${dem>0?'-':''}${fmt(dem)}</div><div class="kl">Demand (pal)</div></div>
+      <div class="ktile navy"><div class="kv">${demDisplayVal>0?'-':''}${fmt(demDisplayVal)}</div><div class="kl">Demand (pal)</div></div>
       <div class="ktile navy"><div class="kv">${planned>0?fmt(Math.round(planned)):'—'}</div><div class="kl">Planned Production</div></div>
       <div class="ktile ${covCls}"><div class="kv">${cov>50?'7.0':fmtF(Math.max(0,cov))}d</div><div class="kl">Proj. Cover (end wk)</div></div>
       <div class="ktile ${clsCls}"><div class="kv">${fmt(close)}</div><div class="kl">Closing Stock</div></div>
