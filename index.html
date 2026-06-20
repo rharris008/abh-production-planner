@@ -900,7 +900,11 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
     return daysOver8Threshold(sku, soh, 8);
   }
   function daysOver8Threshold(sku, soh, threshold) {
+    // Negative or zero stock is NEVER adequately covered — must produce regardless of demand signal.
+    // Without this guard: daily=0 → returns true → SKU skipped even when stock is deeply negative.
+    if (soh <= 0) return false;
     const daily = avgDailyDemand(sku);
+    // No demand data but positive stock → treat as adequately covered (no production needed).
     return daily <= 0 ? true : (soh / daily) >= threshold;
   }
 
