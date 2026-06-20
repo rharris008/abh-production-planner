@@ -1855,24 +1855,47 @@ function renderRollingTable(pr) {
     const isFinishedWeek = isThisWeek && thisWeekDone;
 
     const {single: la, out: laOut} = lineOutageForWeek(wk);
+    const wkOpDays = isThisWeek ? remainingOpDaysInWeek(wk) : opDaysInWeek(wk);
 
     // For a finished week: prod = 0, demand adjustment = 0 — closing stock = today's physical stock.
-    // For active/future weeks: use planWeek() output (matches shift cards exactly).
+    // For active/future weeks: compute production using carried-forward stock for this row.
+    // planWeek() is NOT used for future-week production because it always reads today's opening
+    // stock, causing the 8-day throttle to fire incorrectly when today's stock looks adequate
+    // but projected stock weeks out is actually low.
     let maxProd;
     if (isFinishedWeek) {
       maxProd = {'10L Cask':0,'5L Cask':0,'2L Bottle':0,'600ml 12pk':0,'600ml 6pk':0};
-    } else {
-      const wkPlan = isThisWeek ? pr0 : planWeek(wk);
+    } else if (isThisWeek) {
+      // Current week: use the actual plan (pr0 already uses today's correct opening stock)
       maxProd = {
-        '10L Cask':   (wkPlan?.cask?.prod10 ?? 0) + (wkPlan?.lines?.hmps?.cap ?? 0),
-        '5L Cask':    wkPlan?.cask?.prod5   ?? 0,
-        '2L Bottle':  wkPlan?.lines?.as2l?.cap ?? 0,
-        '600ml 12pk': wkPlan?.ep?.prod12    ?? 0,
-        '600ml 6pk':  wkPlan?.ep?.prod6     ?? 0,
+        '10L Cask':   (pr0?.cask?.prod10 ?? 0) + (pr0?.lines?.hmps?.cap ?? 0),
+        '5L Cask':    pr0?.cask?.prod5   ?? 0,
+        '2L Bottle':  pr0?.lines?.as2l?.cap ?? 0,
+        '600ml 12pk': pr0?.ep?.prod12    ?? 0,
+        '600ml 6pk':  pr0?.ep?.prod6     ?? 0,
       };
-      if (wkPlan?.satUsed && wkPlan?.satLines) {
-        wkPlan.satLines.forEach(sl => { maxProd[sl.sku] = (maxProd[sl.sku] || 0) + sl.satAlloc; });
+      if (pr0?.satUsed && pr0?.satLines) {
+        pr0.satLines.forEach(sl => { maxProd[sl.sku] = (maxProd[sl.sku] || 0) + sl.satAlloc; });
       }
+    } else {
+      // Future weeks: compute HMPS 10L using the rolling projected opening stock for this row.
+      // This correctly decides shift count (1 vs 2) based on where stock will actually be,
+      // not where it is today. Other SKUs use a direct capacity formula (EP New Line).
+      const proj10   = stock['10L Cask'];
+      const dem10    = getDemand(wk)['10L Cask'].total;
+      const cap2sh10 = Math.floor(hmpsTgt * 2 * wkOpDays * eff);
+      const daily10  = dem10 > 0 ? dem10 / Math.max(1, wkOpDays) : 0;
+      const close2sh = proj10 + cap2sh10 - dem10;
+      // Only throttle to Day-only if cover would still be >= 8 days with both shifts running
+      const hmpsShiftsRolling = (daily10 > 0 && close2sh / daily10 >= 8) ? 1 : 2;
+
+      maxProd = {
+        '10L Cask':   Math.floor(hmpsTgt * hmpsShiftsRolling * wkOpDays * eff),
+        '5L Cask':    Math.floor((la ? 27 : 50) * eff) * 2 * wkOpDays,
+        '2L Bottle':  Math.floor(52 * eff) * 2 * wkOpDays,
+        '600ml 12pk': Math.floor(34 * eff) * 2 * wkOpDays,
+        '600ml 6pk':  Math.floor(32 * eff) * 2 * wkOpDays,
+      };
     }
 
     const rowStyle = isCurrentSelected ? 'background:rgba(0,120,255,0.12);font-weight:600;outline:2px solid var(--blue)' :
