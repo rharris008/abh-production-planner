@@ -1144,12 +1144,13 @@ function planWeek(week) {
 
   const s10   = avail['10L Cask'] || 0;
   const d10   = demand['10L Cask'].total;
-  // HMPS runs every available working day (2 shifts unless 10L closing cover >= 8 days → day only).
-  // 8-day threshold: enough stock to comfortably bridge the next planned run without shortfall risk.
+  // HMPS runs every available working day (2 shifts unless 10L closing cover >= 14 days → day only).
+  // 14-day threshold: prevents marginal over-stock (8-9 days cover) from incorrectly dropping to
+  // 1 shift. Only throttle to Day-only when stock would be genuinely excessive (2+ weeks cover).
   const hmpsFull2ShiftCap = Math.floor(hmpsTgt * 2 * opDays * eff);
   const dailyDemand10 = d10 > 0 ? d10 / opDays : 0;
   const hmpsClosingCover2sh = dailyDemand10 > 0 ? (s10 + hmpsFull2ShiftCap - d10) / dailyDemand10 : 99;
-  const hmpsShifts = hmpsClosingCover2sh >= 8 ? 1 : 2;
+  const hmpsShifts = hmpsClosingCover2sh >= 14 ? 1 : 2;
   const hmpsTgtLabel = hmpsShifts === 1 ? `EP HMPS (${hmpsConfig} – Day only)` : `EP HMPS (${hmpsConfig})`;
   const days10hmps = opDays;
   const hmps = makeLine(hmpsTgtLabel, 'EP', '10L Cask', hmpsTgt, days10hmps, hmpsShifts);
@@ -1166,13 +1167,14 @@ function planWeek(week) {
   const cap10shift = Math.floor((lineAOnlyNow ? 30 : 60) * eff);
   const cap5shift  = Math.floor((lineAOnlyNow ? 27 : 50) * eff);
 
-  // 5L shift reduction: drop to day shift only when 5L closing cover with 2 shifts >= 8 days.
-  // 8-day threshold chosen to avoid over-building while giving comfortable buffer.
+  // 5L shift reduction: drop to day shift only when 5L closing cover with 2 shifts >= 14 days.
+  // Raised from 8 to 14 — same rationale as HMPS throttle: marginal over-stock should not
+  // cause incorrect throttling; only genuinely excessive stock (2+ weeks) justifies 1 shift.
   const avail5 = avail['5L Cask'] || 0;
   const d5 = demand['5L Cask'].total;
   const dailyDemand5 = d5 > 0 ? d5 / opDays : 0;
   const proj5Close2sh = avail5 + cap5shift * 2 * opDays - d5;
-  const shifts5 = dailyDemand5 > 0 && proj5Close2sh / dailyDemand5 >= 8 ? 1 : 2;
+  const shifts5 = dailyDemand5 > 0 && proj5Close2sh / dailyDemand5 >= 14 ? 1 : 2;
 
   let minDays10 = 0, minDays5 = 0;
   {
@@ -1878,24 +1880,22 @@ function renderRollingTable(pr) {
         pr0.satLines.forEach(sl => { maxProd[sl.sku] = (maxProd[sl.sku] || 0) + sl.satAlloc; });
       }
     } else {
-      // Future weeks: compute HMPS 10L using the rolling projected opening stock for this row.
-      // This correctly decides shift count (1 vs 2) based on where stock will actually be,
-      // not where it is today. Other SKUs use a direct capacity formula (EP New Line).
-      const proj10   = stock['10L Cask'];
-      const dem10    = getDemand(wk)['10L Cask'].total;
-      const cap2sh10 = Math.floor(hmpsTgt * 2 * wkOpDays * eff);
-      const daily10  = dem10 > 0 ? dem10 / Math.max(1, wkOpDays) : 0;
-      const close2sh = proj10 + cap2sh10 - dem10;
-      // Only throttle to Day-only if cover would still be >= 8 days with both shifts running
-      const hmpsShiftsRolling = (daily10 > 0 && close2sh / daily10 >= 8) ? 1 : 2;
-
+      // Future weeks: use planWeek() so the rolling table is guaranteed to match the
+      // SKU cover tiles and alerts (all of which derive from planWeek). The previous
+      // direct-capacity formula approach diverged because it didn't replicate the full
+      // scheduler logic (HMPS throttle, bottle-line cycling, Saturday triggers, etc.).
+      const pr = planWeek(wk);
       maxProd = {
-        '10L Cask':   Math.floor(hmpsTgt * hmpsShiftsRolling * wkOpDays * eff),
-        '5L Cask':    Math.floor((la ? 27 : 50) * eff) * 2 * wkOpDays,
-        '2L Bottle':  Math.floor(52 * eff) * 2 * wkOpDays,
-        '600ml 12pk': Math.floor(34 * eff) * 2 * wkOpDays,
-        '600ml 6pk':  Math.floor(32 * eff) * 2 * wkOpDays,
+        '10L Cask':   pr.plannedProd['10L Cask']   ?? 0,
+        '5L Cask':    pr.plannedProd['5L Cask']    ?? 0,
+        '2L Bottle':  pr.plannedProd['2L Bottle']  ?? 0,
+        '600ml 12pk': pr.plannedProd['600ml 12pk'] ?? 0,
+        '600ml 6pk':  pr.plannedProd['600ml 6pk']  ?? 0,
       };
+      // Include Saturday production if triggered (same as isThisWeek branch)
+      if (pr.satUsed && pr.satLines) {
+        pr.satLines.forEach(sl => { maxProd[sl.sku] = (maxProd[sl.sku] || 0) + sl.satAlloc; });
+      }
     }
 
     const rowStyle = isCurrentSelected ? 'background:rgba(0,120,255,0.12);font-weight:600;outline:2px solid var(--blue)' :
