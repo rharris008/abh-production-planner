@@ -1781,7 +1781,7 @@ function renderRollingTable(pr) {
   h += `</tr><tr>`;
   skuCols.forEach(() => {
     h += `<th class="num" style="font-size:10px">Demand</th>
-          <th class="num" style="font-size:10px">Max Prod</th>
+          <th class="num" style="font-size:10px">Planned</th>
           <th class="num" style="font-size:10px">Closing</th>
           <th class="num" style="font-size:10px">Cum ±</th>`;
   });
@@ -1849,18 +1849,21 @@ function renderRollingTable(pr) {
     const isCurrentSelected = wk === currentWeek;  // highlight selected week
     const isThisWeek = i === 0;                     // actual current week for production data
 
-    // Max production per SKU this week (capacity aware of line outages)
+    // Planned production from the schedule — same source as shift cards.
+    // Uses planWeek() which respects which lines are actually configured and running.
+    // This replaces the old theoretical-cap formula which included lines not in service.
     const {single: la, out: laOut} = lineOutageForWeek(wk);
-    const wkOp = opDaysInWeek(wk);
-    const cap10 = Math.floor((la ? 30 : 60) * eff) * 2 * wkOp + Math.floor(hmpsTgt * 2 * wkOp * eff);
-    const cap5  = Math.floor((la ? 27 : 50) * eff) * 2 * wkOp;
-    const cap2  = Math.floor(52 * eff) * 2 * wkOp;
-    const cap12 = Math.floor(34 * eff) * 2 * wkOp;
-    const cap6  = Math.floor(32 * eff) * 2 * wkOp;
+    const wkPlan = isThisWeek ? pr0 : planWeek(wk);
     const maxProd = {
-      '10L Cask': cap10, '5L Cask': cap5, '2L Bottle': cap2,
-      '600ml 12pk': cap12, '600ml 6pk': cap6
+      '10L Cask':   (wkPlan?.cask?.prod10 ?? 0) + (wkPlan?.lines?.hmps?.cap ?? 0),
+      '5L Cask':    wkPlan?.cask?.prod5   ?? 0,
+      '2L Bottle':  wkPlan?.lines?.as2l?.cap ?? 0,
+      '600ml 12pk': wkPlan?.ep?.prod12    ?? 0,
+      '600ml 6pk':  wkPlan?.ep?.prod6     ?? 0,
     };
+    if (wkPlan?.satUsed && wkPlan?.satLines) {
+      wkPlan.satLines.forEach(sl => { maxProd[sl.sku] = (maxProd[sl.sku] || 0) + sl.satAlloc; });
+    }
 
     const rowStyle = isCurrentSelected ? 'background:rgba(0,120,255,0.12);font-weight:600;outline:2px solid var(--blue)' :
       isThisWeek ? 'background:rgba(0,120,255,0.04)' :
@@ -1870,8 +1873,8 @@ function renderRollingTable(pr) {
 
     skuCols.forEach(s => {
       const d = dem[s].total;
-      // This week: use actual scheduled production; future weeks: use max capacity
-      const prod = isThisWeek ? (actualProd0[s] ?? maxProd[s]) : maxProd[s];
+      // maxProd is already plan-derived for all weeks — no further substitution needed
+      const prod = maxProd[s] || 0;
       const close = stock[s] + prod - d;
       cumulative[s] += prod - d;
       const cum = Math.round(cumulative[s]);
@@ -2267,7 +2270,10 @@ function buildAllAlerts() {
   }
 
   // ── WEEK-BY-WEEK SCAN (today through LOOKAHEAD_WEEKS) ───────────────────────
-  for (let i = 0; i <= LOOKAHEAD_WEEKS; i++) {
+  // If no production days remain this week (e.g. today is Saturday), skip to next week.
+  const startI = remainingOpDaysInWeek(todayMon) === 0 ? 1 : 0;
+
+  for (let i = startI; i <= LOOKAHEAD_WEEKS; i++) {
     const wkIdx = todayIdx + i;
     if (wkIdx >= ALL_WEEKS.length) break;
     const wk  = ALL_WEEKS[wkIdx];
