@@ -2244,154 +2244,18 @@ function renderDispatch() {
 // Forward-looking only — future weeks that need action now. Current-week status
 // is already visible on the tiles. Anchored to today regardless of week selector.
 // Updates when forecast or stock data changes, not when week selector changes.
-function renderFrontAlerts() {
-  const el = document.getElementById('frontAlerts');
-  if (!el) return;
-
+// ══ SHARED ALERT BUILDER ══════════════════════════════════════════════════════
+// Single source of truth for all alerts.
+// renderAlerts() shows all; renderFrontAlerts() filters to RED only.
+function buildAllAlerts() {
   const today    = localToday();
   const todayMon = monOf(today);
-  if (!ALL_WEEKS.includes(todayMon)) { el.innerHTML = ''; el.style.padding = '0'; return; }
-
   const todayIdx = ALL_WEEKS.indexOf(todayMon);
-  const alerts   = [];
+  if (todayIdx < 0) return [];
 
-  // ── BUILD PRODUCTION SCHEDULE (needed for order-miss simulation) ──────────
-  const prodByDate = {};
-  for (let i = 0; i <= LOOKAHEAD_WEEKS; i++) {
-    const wkIdx = todayIdx + i;
-    if (wkIdx >= ALL_WEEKS.length) break;
-    const wk = ALL_WEEKS[wkIdx];
-    const wkPr = planWeek(wk);
-    buildSchedule(wk, wkPr).forEach(shift => {
-      if (!shift.date || shift.date < today) return;
-      if (!prodByDate[shift.date]) prodByDate[shift.date] = {};
-      prodByDate[shift.date][shift.sku] = (prodByDate[shift.date][shift.sku] || 0) + shift.pallets;
-    });
-  }
-
-  // ── 0. THIS-WEEK CRITICAL ALERTS ─────────────────────────────────────────────
-  // Shortfall and mid-week stockout risk for the current week — these are immediate.
-  const thisWkPr = planWeek(todayMon);
-  Object.entries(thisWkPr.finalShortfall).filter(([,v]) => v > 0.5).forEach(([sku, rem]) => {
-    alerts.push({t:'r',
-      msg:`<strong>${sku}:</strong> Cannot meet this week's forecast — ${fmt(Math.round(rem))} pal short even at max capacity.`});
-  });
-  if (thisWkPr.midWeekAtRisk && thisWkPr.midWeekAtRisk.size > 0) {
-    alerts.push({t:'r',
-      msg:`<strong>Mid-week stockout risk this week:</strong> ${[...thisWkPr.midWeekAtRisk].join(', ')} may not cover Mon–Wed deliveries.`});
-  }
-
-  // ── 1. COVER DURATION — how long below 7 days / below 3 days ─────────────
-  // Tracks the first period below threshold and when (if) it recovers.
-  const cp = {};
-  SKUS.forEach(s => { cp[s] = {}; });
-  const shortfallWeeksBySku = {}; // weeks where shortfall > 0 — suppress cover alert for these SKUs
-
-  for (let i = 1; i <= LOOKAHEAD_WEEKS; i++) {
-    const wkIdx = todayIdx + i;
-    if (wkIdx >= ALL_WEEKS.length) break;
-    const wk    = ALL_WEEKS[wkIdx];
-    const wkPr  = planWeek(wk);
-    SKUS.forEach(s => {
-      if ((wkPr.finalShortfall[s] || 0) > 0.5) {
-        if (!shortfallWeeksBySku[s]) shortfallWeeksBySku[s] = [];
-        shortfallWeeksBySku[s].push(wk);
-      }
-      const cov    = wkPr.coverDays[s] == null ? 99 : wkPr.coverDays[s];
-      const effDem = wkPr.demand[s].total > 0 ? wkPr.demand[s].total : 0;
-      if (effDem === 0) return;
-      // Below-7
-      if (cov < 7) { if (!cp[s].b7s) cp[s].b7s = wk; }
-      else         { if (cp[s].b7s && !cp[s].b7e) cp[s].b7e = wk; }
-      // Below-3
-      if (cov < 3) { if (!cp[s].b3s) cp[s].b3s = wk; }
-      else         { if (cp[s].b3s && !cp[s].b3e) cp[s].b3e = wk; }
-    });
-  }
-
-  SKUS.forEach(s => {
-    if (shortfallWeeksBySku[s]) return; // shortfall alert (section 2) covers this SKU
-    const p = cp[s];
-    if (p.b3s) {
-      const end = p.b3e ? `— recovers w/c ${fmtD(p.b3e)}` : '— no recovery in 8-week window';
-      alerts.push({t:'r', msg:`<strong>${s}:</strong> Critical cover (<3 days) from w/c ${fmtD(p.b3s)} ${end}.`});
-    } else if (p.b7s) {
-      const end = p.b7e ? `— recovers w/c ${fmtD(p.b7e)}` : '— no recovery in 8-week window';
-      alerts.push({t:'a', msg:`<strong>${s}:</strong> Below 7 days cover from w/c ${fmtD(p.b7s)} ${end}.`});
-    }
-  });
-
-  // ── 2. FORECAST CANNOT BE MET — insufficient stock + max production ────────
-  // Groups consecutive shortfall weeks into a single "from X to Y" message per SKU.
-  Object.entries(shortfallWeeksBySku).forEach(([sku, weeks]) => {
-    const first = weeks[0], last = weeks[weeks.length - 1];
-    const range = first === last ? `w/c ${fmtD(first)}` : `w/c ${fmtD(first)} to w/c ${fmtD(last)}`;
-    const firstPr = planWeek(first);
-    const sf = Math.round(firstPr.finalShortfall[sku] || 0);
-    alerts.push({t:'r',
-      msg:`<strong>${sku}:</strong> Cannot meet forecast ${range} — ${fmt(sf)} pal short at max production capacity.`});
-  });
-
-  // ── 3. ORDER MISS — specific confirmed orders that cannot be fulfilled ──────
-  if (openOrdersData && openOrdersData.length) {
-    const runStock = {};
-    SKUS.forEach(s => { runStock[s] = Math.max(0, (stockPal[s]||0) - (onHoldPal[s]||0)); });
-
-    const futureOrders = [...openOrdersData]
-      .filter(o => o.date >= today)
-      .sort((a,b) => a.date.localeCompare(b.date) || a.docNum.localeCompare(b.docNum));
-
-    // Walk dates in order: credit production then deduct orders
-    const dateSet   = new Set([...Object.keys(prodByDate), ...futureOrders.map(o=>o.date)]);
-    const sortedDates = [...dateSet].sort();
-    const ordByDate = {};
-    futureOrders.forEach(o => { (ordByDate[o.date] = ordByDate[o.date]||[]).push(o); });
-
-    const missed = [];
-    sortedDates.forEach(d => {
-      const prod = prodByDate[d] || {};
-      SKUS.forEach(s => { runStock[s] = (runStock[s]||0) + (prod[s]||0); });
-      (ordByDate[d] || []).forEach(o => {
-        const avail = Math.max(0, runStock[o.sku] || 0);
-        if (avail < o.pallets) missed.push({...o, avail, short: Math.round(o.pallets - avail)});
-        runStock[o.sku] = (runStock[o.sku]||0) - o.pallets;
-      });
-    });
-
-    // Show each missed order (cap at 6 lines; add summary if more)
-    const show = missed.slice(0, 6);
-    show.forEach(o => {
-      const cust = (o.customer||'').replace(/\s*\(.*\)/, '').trim().split(' ').slice(0,4).join(' ');
-      alerts.push({t:'r',
-        msg:`<strong>${o.docNum} — ${cust} ${fmtD(o.date)}:</strong> ${o.sku} ${fmt(o.pallets)} pal ordered — ${fmt(o.avail)} pal available at ship date (${fmt(o.short)} pal short).`});
-    });
-    if (missed.length > 6) alerts.push({t:'r',
-      msg:`<strong>+ ${missed.length - 6} further orders at risk.</strong> See Dispatch Calendar for full list.`});
-  }
-
-  if (!alerts.length) { el.innerHTML = ''; el.style.padding = '0'; return; }
-
-  // Reds above ambers above info
-  const tOrder = {r:0, a:1, b:2, g:3};
-  alerts.sort((x,y) => (tOrder[x.t]??9) - (tOrder[y.t]??9));
-
-  el.style.padding = '8px 0 0';
-  el.innerHTML = `
-    <div style="padding:4px 12px 6px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">⚠ Forward Stock Alerts</div>
-    ${alerts.map(a=>`<div class="alert alert-${a.t}" style="margin:0 0 4px;border-radius:0"><div>${a.msg}</div></div>`).join('')}
-    <div style="height:8px"></div>`;
-}
-
-// ══ RENDER: ALERTS ════════════════════════════════════════════════════════════
-// Scans ALL upcoming weeks — shows every problem regardless of week selector.
-function renderAlerts() {
-  const todayMon = monOf(localToday());
-  const todayIdx = ALL_WEEKS.indexOf(todayMon);
-  if (todayIdx < 0) {
-    document.getElementById('alertsPanel').innerHTML = '<div class="alert alert-b">ℹ <div>No planning data for current week.</div></div>';
-    return;
-  }
-  const alerts = [];
+  const alerts      = [];
+  const prodByDate  = {}; // accumulated for order-miss simulation
+  const seenPrebuild = new Set();
 
   // ── STOCK-LEVEL (not week-specific) ─────────────────────────────────────────
   if ((stockPal['600ml 12pk'] || 0) < 5) {
@@ -2403,8 +2267,6 @@ function renderAlerts() {
   }
 
   // ── WEEK-BY-WEEK SCAN (today through LOOKAHEAD_WEEKS) ───────────────────────
-  const seenPrebuild = new Set(); // dedupe prebuild alerts across weeks
-
   for (let i = 0; i <= LOOKAHEAD_WEEKS; i++) {
     const wkIdx = todayIdx + i;
     if (wkIdx >= ALL_WEEKS.length) break;
@@ -2413,6 +2275,13 @@ function renderAlerts() {
     const {demand, coverDays, finalShortfall, satTriggers, satLines, satUsed,
            ep, bottle2LDates, midWeekAtRisk, prebuildAlert, totalGross} = pr;
     const wkLabel = i === 0 ? `this week (w/c ${fmtD(wk)})` : `w/c ${fmtD(wk)}`;
+
+    // Accumulate production for order-miss simulation
+    buildSchedule(wk, pr).forEach(shift => {
+      if (!shift.date || shift.date < today) return;
+      if (!prodByDate[shift.date]) prodByDate[shift.date] = {};
+      prodByDate[shift.date][shift.sku] = (prodByDate[shift.date][shift.sku] || 0) + shift.pallets;
+    });
 
     // Shortfall — cannot produce even at max capacity
     Object.entries(finalShortfall).filter(([,v]) => v > 0.5).forEach(([sku, rem]) => {
@@ -2428,7 +2297,7 @@ function renderAlerts() {
       alerts.push({t:'r', msg:`<strong>Mid-week stockout risk ${wkLabel}:</strong> ${[...midWeekAtRisk].join(', ')} may not cover Mon–Wed deliveries.`});
     }
 
-    // Cover < 5 days end-of-week (not already captured by shortfall)
+    // Cover < 5 days end-of-week
     SKUS.forEach(s => {
       const cov = coverDays[s] || 0;
       const oo  = Math.round(openOrdersPal[s] || 0);
@@ -2472,7 +2341,7 @@ function renderAlerts() {
       }
     }
 
-    // Prebuild / forward deficit alerts (dedupe across weeks)
+    // Prebuild / forward deficit (dedupe across weeks)
     if (prebuildAlert && prebuildAlert.length) {
       prebuildAlert.forEach(pb => {
         const key = `${pb.sku}|${pb.nextWk}`;
@@ -2486,14 +2355,79 @@ function renderAlerts() {
     }
   }
 
+  // ── ORDER MISS SIMULATION ────────────────────────────────────────────────────
+  // Walk all future orders against running stock + planned production.
+  if (openOrdersData && openOrdersData.length) {
+    const runStock = {};
+    SKUS.forEach(s => { runStock[s] = Math.max(0, (stockPal[s]||0) - (onHoldPal[s]||0)); });
+
+    const futureOrders = [...openOrdersData]
+      .filter(o => o.date >= today)
+      .sort((a,b) => a.date.localeCompare(b.date) || a.docNum.localeCompare(b.docNum));
+
+    const dateSet     = new Set([...Object.keys(prodByDate), ...futureOrders.map(o=>o.date)]);
+    const sortedDates = [...dateSet].sort();
+    const ordByDate   = {};
+    futureOrders.forEach(o => { (ordByDate[o.date] = ordByDate[o.date]||[]).push(o); });
+
+    const missed = [];
+    sortedDates.forEach(d => {
+      const prod = prodByDate[d] || {};
+      SKUS.forEach(s => { runStock[s] = (runStock[s]||0) + (prod[s]||0); });
+      (ordByDate[d] || []).forEach(o => {
+        const avail = Math.max(0, runStock[o.sku] || 0);
+        if (avail < o.pallets) missed.push({...o, avail, short: Math.round(o.pallets - avail)});
+        runStock[o.sku] = (runStock[o.sku]||0) - o.pallets;
+      });
+    });
+
+    const show = missed.slice(0, 6);
+    show.forEach(o => {
+      const cust = (o.customer||'').replace(/\s*\(.*\)/, '').trim().split(' ').slice(0,4).join(' ');
+      alerts.push({t:'r',
+        msg:`<strong>${o.docNum} — ${cust} ${fmtD(o.date)}:</strong> ${o.sku} ${fmt(o.pallets)} pal ordered — ${fmt(o.avail)} pal available at ship date (${fmt(o.short)} pal short).`});
+    });
+    if (missed.length > 6) alerts.push({t:'r',
+      msg:`<strong>+ ${missed.length - 6} further orders at risk.</strong> See Dispatch Calendar for full list.`});
+  }
+
+  return alerts;
+}
+
+// Reds above ambers above info — stable sort within each tier
+const _tOrder = {r:0, a:1, b:2, g:3};
+function sortAlerts(arr) { return arr.slice().sort((x,y) => (_tOrder[x.t]??9) - (_tOrder[y.t]??9)); }
+
+// ══ RENDER: DEMAND & STOCK TAB front-page panel ═══════════════════════════════
+// RED alerts only — every red from buildAllAlerts().
+function renderFrontAlerts() {
+  const el = document.getElementById('frontAlerts');
+  if (!el) return;
+  const todayMon = monOf(localToday());
+  if (!ALL_WEEKS.includes(todayMon)) { el.innerHTML = ''; el.style.padding = '0'; return; }
+
+  const reds = sortAlerts(buildAllAlerts().filter(a => a.t === 'r'));
+  if (!reds.length) { el.innerHTML = ''; el.style.padding = '0'; return; }
+
+  el.style.padding = '8px 0 0';
+  el.innerHTML = `
+    <div style="padding:4px 12px 6px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">⚠ Forward Stock Alerts</div>
+    ${reds.map(a=>`<div class="alert alert-${a.t}" style="margin:0 0 4px;border-radius:0"><div>${a.msg}</div></div>`).join('')}
+    <div style="height:8px"></div>`;
+}
+
+// ══ RENDER: ALERTS TAB ════════════════════════════════════════════════════════
+// All alerts across all weeks — never changes with week selector.
+function renderAlerts() {
+  const todayMon = monOf(localToday());
+  if (!ALL_WEEKS.includes(todayMon)) {
+    document.getElementById('alertsPanel').innerHTML = '<div class="alert alert-b">ℹ <div>No planning data for current week.</div></div>';
+    return;
+  }
+  const alerts = buildAllAlerts();
   if (!alerts.length) alerts.push({t:'g', msg:`All lines on plan. All deliveries scheduled. All SKUs building toward 7-day stock cover.`});
-
-  // Reds above ambers above info
-  const tOrder = {r:0, a:1, b:2, g:3};
-  alerts.sort((x,y) => (tOrder[x.t]??9) - (tOrder[y.t]??9));
-
   document.getElementById('alertsPanel').innerHTML =
-    alerts.map(a => `<div class="alert alert-${a.t}">${{r:'⚠',a:'⚠',g:'✓',b:'ℹ'}[a.t]} <div>${a.msg}</div></div>`).join('');
+    sortAlerts(alerts).map(a => `<div class="alert alert-${a.t}">${{r:'⚠',a:'⚠',g:'✓',b:'ℹ'}[a.t]} <div>${a.msg}</div></div>`).join('');
 }
 
 // ══ FILE UPLOAD PARSING ═══════════════════════════════════════════════════════
