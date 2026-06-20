@@ -1526,8 +1526,16 @@ const CONFIRMED_SCHEDULES = {
 
 // ══ BUILD FULL SHIFT SCHEDULE ═════════════════════════════════════════════════
 function buildSchedule(week, pr) {
-  // Confirmed plan override — Aaron's plan takes precedence over the algorithm
-  if (CONFIRMED_SCHEDULES[week]) return CONFIRMED_SCHEDULES[week];
+  // Confirmed plan override — Aaron's plan defines the line/SKU structure.
+  // Pallet counts are re-derived from max capacity × current efficiency so
+  // the shift card numerator updates when the user changes the efficiency selector.
+  if (CONFIRMED_SCHEDULES[week]) {
+    const eff = getEff();
+    return CONFIRMED_SCHEDULES[week].map(s => ({
+      ...s,
+      pallets: Math.floor(getMaxPal(s) * eff),
+    }));
+  }
 
   const eff = getEff();
   const {lines, cask, ep, satLines, satUsed} = pr;
@@ -4321,22 +4329,12 @@ async function sbPull() {
           const freshnessEl = document.getElementById('navFreshness');
           if (freshnessEl) {
             const now = Date.now();
-            const dsOrder = ['ww_forecast','coles_forecast','metcash_forecast','stock'];
+            // 'stock' excluded — owned by applyStockFromSB (shows actual NS sync time, not manual upload date).
+            // Per-chip updates preserve stock + orders chips already set before this upload_log fetch completes.
+            const dsOrder = ['ww_forecast','coles_forecast','metcash_forecast'];
             const byDs = {};
             logData.forEach(l => { if (!byDs[l.dataset] || l.uploaded_at > byDs[l.dataset].uploaded_at) byDs[l.dataset] = l; });
-            const chips = dsOrder.map(ds => {
-              const l = byDs[ds];
-              if (!l) return '';
-              const d = new Date(l.uploaded_at);
-              const ageDays = (now - d.getTime()) / 86400000;
-              const cls = ageDays <= 2 ? 'fchip-ok' : ageDays <= 7 ? 'fchip-warn' : 'fchip-stale';
-              const label = dsToLabel[ds] || ds;
-              const dateStr = d.toLocaleDateString('en-AU',{day:'2-digit',month:'2-digit'});
-              const timeStr = d.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Brisbane',hour12:false});
-              const dot = ageDays <= 2 ? '🟢' : ageDays <= 7 ? '🟡' : '🔴';
-              return `<span class="fchip ${cls}" title="${label} last updated ${dateStr} ${timeStr}">${dot} ${label} ${dateStr}</span>`;
-            }).filter(Boolean);
-            freshnessEl.innerHTML = chips.join('');
+            dsOrder.forEach(ds => { const l = byDs[ds]; if (l) updateNavFreshnessChip(ds, l.uploaded_at); });
           }
           // Keep header audit text as compact fallback
           if (auditEl) {
