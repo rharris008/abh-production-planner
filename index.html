@@ -2175,7 +2175,7 @@ function renderDispatch() {
 
   let h = `<thead><tr>
     <th>SO #</th><th>Customer</th><th>Ship Date</th><th>SKU</th>
-    <th class="num">Units</th><th class="num">Pallets</th>
+    <th>Carrier</th><th class="num">Units</th><th class="num">Pallets</th>
     <th class="num">Running Stock</th><th>Status</th>
   </tr></thead><tbody>`;
 
@@ -2190,12 +2190,14 @@ function renderDispatch() {
     runningStock[o.sku] = (runningStock[o.sku] || 0) - o.pallets;
     const covered  = runningStock[o.sku] >= 0;
     const shortQty = covered ? 0 : Math.abs(runningStock[o.sku]);
+    const carrierTxt = o.carrier || '<span style="color:var(--red)">⚠ None</span>';
     h += `<tr class="${!covered ? 'risk-r' : urg ? 'risk-a' : ''}">
       <td style="font-size:10px;color:var(--muted)">${o.docNum}</td>
       <td><span class="badge ${retailBadgeClass(o.retailer)}">${o.retailer}</span>
           <span style="font-size:10px;color:var(--muted);margin-left:4px">${o.customer}</span></td>
       <td class="${urg ? 'r' : ''}">${fmtD(o.date)}${urg ? ' ⚠' : ''}</td>
       <td><span class="chip ${CHIP[o.sku]}">${o.sku}</span></td>
+      <td style="font-size:11px">${carrierTxt}</td>
       <td class="num">${fmt(o.units)}</td>
       <td class="num">${fmt(o.pallets)}</td>
       <td class="num ${covered ? '' : 'r'}">${fmt(Math.round(runningStock[o.sku]))}</td>
@@ -2567,7 +2569,7 @@ function renderOpenOrders(reportDate, fname) {
 
   let dh = `<thead><tr>
     <th>Retailer</th><th>SKU</th><th>Ship Date</th>
-    <th>Order No.</th><th>DC / Customer</th>
+    <th>Order No.</th><th>DC / Customer</th><th>Carrier</th>
     <th class="num">Est. Units</th>
     <th class="num">Est. Pallets</th>
     <th class="num">Amount ($)</th>
@@ -2582,12 +2584,14 @@ function renderOpenOrders(reportDate, fname) {
       let skuPal = 0, skuAmt = 0, skuFirst = true;
       orders.sort((a,b) => a.date.localeCompare(b.date)).forEach(o => {
         const isOverdue = o.date < monOf(localToday());
+        const carrierTxt = o.carrier || '<span style="color:var(--red);font-weight:600">⚠ None</span>';
         dh += `<tr${isOverdue ? ' style="background:#FFF3CD"' : ''}>
           ${firstRow ? `<td rowspan="${retailerRows}" style="font-weight:700;vertical-align:top;padding-top:8px">${retailer}</td>` : ''}
           ${skuFirst ? `<td rowspan="${orders.length}"><span class="chip ${CHIP[sku]}">${sku}</span></td>` : ''}
           <td style="font-size:11px${isOverdue ? ';color:var(--red);font-weight:600' : ''}">${fmtD(o.date)}${isOverdue ? ' ⚠' : ''}</td>
           <td style="font-size:11px">${o.docNum}</td>
           <td style="font-size:11px">${o.customer}</td>
+          <td style="font-size:11px">${carrierTxt}</td>
           <td class="num">${fmt(o.units)}</td>
           <td class="num"><strong>${fmt(o.pallets)}</strong></td>
           <td class="num">$${fmt(Math.round(o.amount))}</td>
@@ -2600,7 +2604,7 @@ function renderOpenOrders(reportDate, fname) {
     });
 
     dh += `<tr style="background:var(--light);font-weight:700">
-      <td colspan="5" style="text-align:right;font-size:11px">${retailer} total</td>
+      <td colspan="6" style="text-align:right;font-size:11px">${retailer} total</td>
       <td class="num"></td>
       <td class="num">${fmt(retailerPal)} pal</td>
       <td class="num">$${fmt(Math.round(retailerAmt))}</td>
@@ -4595,6 +4599,7 @@ function applyOpenOrdersFromSB(rows) {
         docNum:   r.doc_num || '',
         customer: (r.customer || '').split(':').pop().trim(),
         status:   r.status || 'Pending Fulfillment',
+        carrier:  r.carrier || '',
         amount,
         units,
         pallets,
