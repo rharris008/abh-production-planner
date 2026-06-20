@@ -1891,7 +1891,14 @@ function renderRollingTable(pr) {
     const lineBLabel = la ? ` <span style="font-size:9px;color:var(--amber);font-weight:700">LINE ${laOut} OUT</span>` : '';
     const doneLabel  = isFinishedWeek ? ` <span style="font-size:9px;color:var(--muted);font-weight:600">COMPLETE</span>` : '';
     const projLabel  = isProjected ? ` <span style="font-size:9px;color:var(--blue);font-weight:600" title="Demand projected from last live forecast week — last known qty with seasonal adjustment">PROJ</span>` : '';
-    h += `<tr style="${rowStyle}"><td style="font-size:11px;white-space:nowrap">${fmtD(wk)}${lineBLabel}${doneLabel}${projLabel}</td>`;
+    // Public holiday badge — collect any PH days Mon–Fri this week
+    const phNames = [];
+    for (let pd = 0; pd < 5; pd++) {
+      const phDate = addDays(wk, pd);
+      if (publicHolidays.has(phDate)) phNames.push(publicHolidayNames[phDate] || 'Public Holiday');
+    }
+    const phLabel = phNames.length ? ` <span style="font-size:9px;color:#fff;background:var(--navy);padding:1px 4px;border-radius:3px;font-weight:700" title="${phNames.join(', ')}">PH</span>` : '';
+    h += `<tr style="${rowStyle}"><td style="font-size:11px;white-space:nowrap">${fmtD(wk)}${lineBLabel}${doneLabel}${projLabel}${phLabel}</td>`;
 
     skuCols.forEach(s => {
       const d    = isFinishedWeek ? 0 : dem[s].total; // finished week: no demand adjustment
