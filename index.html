@@ -1284,18 +1284,34 @@ function planWeek(week) {
     '600ml 12pk':  bottleResult.endStock12,
     '600ml 6pk':   bottleResult.endStock6,
   };
+  // Pre-compute week-specific open order pallets per SKU.
+  // openOrdersPal is the ALL-WEEKS total — using it as a weekly demand figure massively
+  // understates cover (e.g. 45 pal across 3 weeks treated as if all due this week).
+  // Use openOrdersDailyPal summed per week instead.
+  const nextWkForCover = ALL_WEEKS[weekIdx + 1];
+  const nextWkOO = {};  // next-week open orders per SKU (cover fallback)
+  const thisWkOO = {};  // this-week open orders per SKU (satTrigger fallback)
+  SKUS.forEach(s => { nextWkOO[s] = 0; thisWkOO[s] = 0; });
+  for (let d = 0; d < 5; d++) {
+    const thisDayOO = openOrdersDailyPal[addDays(week, d)] || {};
+    SKUS.forEach(s => { thisWkOO[s] += thisDayOO[s] || 0; });
+    if (nextWkForCover) {
+      const nextDayOO = openOrdersDailyPal[addDays(nextWkForCover, d)] || {};
+      SKUS.forEach(s => { nextWkOO[s] += nextDayOO[s] || 0; });
+    }
+  }
+
   const coverDays = {};
   SKUS.forEach(s => {
     // Cover = closing stock / (next-week demand / 5 business days). Per Rob Harris 19/06/2026:
     // the relevant forward view is next week's demand over 5 business days, not this week's
     // demand divided over 7 calendar days. Minimum AMBER threshold is 3 business days.
-    const nextWk = ALL_WEEKS[weekIdx + 1];
-    const nextWkDem = nextWk ? getDemand(nextWk) : null;
+    const nextWkDem = nextWkForCover ? getDemand(nextWkForCover) : null;
     const nextD = nextWkDem ? (nextWkDem[s].total || 0) : 0;
     const thisD = demand[s].total;
     // Prefer next week's demand. Fall back to this week if no next-week forecast.
-    // Last resort: committed open orders (real dispatch commitments without a forecast file).
-    const effectiveD = nextD > 0 ? nextD : (thisD > 0 ? thisD : (openOrdersPal[s] || 0));
+    // Last resort: next week's committed open orders (week-specific, not all-weeks total).
+    const effectiveD = nextD > 0 ? nextD : (thisD > 0 ? thisD : nextWkOO[s]);
     coverDays[s] = effectiveD > 0 ? (stockEnd[s] / effectiveD) * 5 : 99;
   });
 
@@ -1356,8 +1372,8 @@ function planWeek(week) {
   }
 
   const satTriggers = SKUS.filter(s => {
-    // Use open orders as fallback demand signal when no forecast is loaded
-    const effectiveDemand = demand[s].total > 0 ? demand[s].total : (openOrdersPal[s] || 0);
+    // Use this week's open orders as fallback demand signal when no forecast is loaded
+    const effectiveDemand = demand[s].total > 0 ? demand[s].total : (thisWkOO[s] || 0);
     if ((coverDays[s]||0) < 3 || midWeekAtRisk.has(s)) return effectiveDemand > 0;
     if (s === '5L Cask'  && (fwd5short || lineBOutageSatNeeded5L))  return true;
     if (s === '10L Cask' && lineBOutageSatNeeded10L) return true;
@@ -2225,41 +2241,64 @@ function renderDispatch() {
 }
 
 // ══ RENDER: FRONT-PAGE STOCK ALERTS ═══════════════════════════════════════════
-// Clones RED and AMBER alert divs from #alertsPanel (the Alerts tab) so the front page
-// shows exactly the same alerts — same metrics, same forward simulation, same thresholds.
-// renderAlerts() MUST run before this is called. No logic duplication.
-// Excludes suggestion-language items per Rob's brief (no "recommended", "consider", etc.).
+// ALWAYS anchored to TODAY's week — not the week-selector. Alerts represent the
+// current state of the business. Changing the selected week does NOT change these.
+// Facts only — no operational suggestions.
 function renderFrontAlerts() {
   const el = document.getElementById('frontAlerts');
-  const src = document.getElementById('alertsPanel');
-  if (!el || !src) return;
+  if (!el) return;
 
-  // Words that mark a suggestion rather than a factual alert — exclude these items
-  const SUGGESTION_WORDS = ['recommended', 'Consider', 'consider', 'Start pre-building', 'Produce now'];
+  // Always use today's week as the anchor — ignore currentWeek (week selector)
+  const todayMon = monOf(localToday());
+  if (!ALL_WEEKS.includes(todayMon)) { el.innerHTML = ''; el.style.padding = '0'; return; }
 
-  const items = [...src.querySelectorAll('.alert-r, .alert-a')].filter(div => {
-    const txt = div.textContent || '';
-    return !SUGGESTION_WORDS.some(w => txt.includes(w));
+  // planWeek is memoised; this is cheap if already computed for todayMon
+  const pr = planWeek(todayMon);
+  const {coverDays, finalShortfall, demand, prebuildAlert, midWeekAtRisk} = pr;
+  const alerts = [];
+
+  // ── Shortfalls (this week — cannot meet demand even at max capacity) ─────
+  SKUS.forEach(s => {
+    const sf = Math.round(finalShortfall[s] || 0);
+    if (sf > 0.5) alerts.push({t:'r',
+      msg:`<strong>${s} — shortfall this week:</strong> ${fmt(sf)} pallets. Production plus available stock cannot cover week demand.`});
   });
 
-  if (!items.length) {
-    el.innerHTML = '';
-    el.style.padding = '0';
-    return;
+  // ── Cover alerts (current week) ───────────────────────────────────────────
+  SKUS.forEach(s => {
+    if ((finalShortfall[s] || 0) > 0.5) return; // already flagged
+    const cov = coverDays[s] == null ? 99 : coverDays[s];
+    const effectiveDemand = demand[s].total > 0 ? demand[s].total : (openOrdersPal[s] || 0);
+    if (effectiveDemand === 0 || cov >= 7) return;
+    if (cov < 3) alerts.push({t:'r', msg:`<strong>${s}:</strong> ${fmtF(Math.max(0,cov))} days cover at end of this week.`});
+    else         alerts.push({t:'a', msg:`<strong>${s}:</strong> ${fmtF(Math.max(0,cov))} days cover at end of this week.`});
+  });
+
+  // ── Forward shortfalls (prebuildAlert — 8-week simulation baked into planWeek) ──
+  if (prebuildAlert && prebuildAlert.length) {
+    // Group by SKU — show only the earliest deficit per SKU
+    const seen = new Set(alerts.map(a => a._sku).filter(Boolean));
+    prebuildAlert.forEach(pb => {
+      if (seen.has(pb.sku)) return;
+      seen.add(pb.sku);
+      const weekLabel = pb.weeksAway === 1 ? 'next week' : `w/c ${fmtD(pb.nextWk)}`;
+      alerts.push({t: pb.urgent ? 'r' : 'a', _sku: pb.sku,
+        msg:`<strong>${pb.sku} — forward shortfall ${weekLabel}:</strong> ${fmt(pb.gap)} pallets cannot be covered at max capacity.`});
+    });
   }
 
-  el.style.padding = '8px 0 0';
-  const clonedHtml = items.map(d => {
-    // Clone the div; tweak spacing to fit the compact front-page banner
-    const clone = d.cloneNode(true);
-    clone.style.marginBottom = '4px';
-    clone.style.borderRadius = '0';
-    return clone.outerHTML;
-  }).join('');
+  // ── Mid-week stockout risk ────────────────────────────────────────────────
+  if (midWeekAtRisk && midWeekAtRisk.size > 0) {
+    alerts.push({t:'r',
+      msg:`<strong>Mid-week stockout risk:</strong> ${[...midWeekAtRisk].join(', ')} may not cover Monday–Wednesday deliveries.`});
+  }
 
+  if (!alerts.length) { el.innerHTML = ''; el.style.padding = '0'; return; }
+
+  el.style.padding = '8px 0 0';
   el.innerHTML = `
-    <div style="padding:4px 12px 6px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">⚠ Stock Alerts</div>
-    ${clonedHtml}
+    <div style="padding:4px 12px 6px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">⚠ Stock Alerts — as at today</div>
+    ${alerts.map(a => `<div class="alert alert-${a.t}" style="margin:0 0 4px;border-radius:0"><div>${a.msg}</div></div>`).join('')}
     <div style="height:8px"></div>`;
 }
 
@@ -3918,6 +3957,7 @@ function rebuildData() {
     if(Object.keys(merged).length) DAILY_REQUIRED[d]=merged;
   });
   onWeekChange();
+  renderFrontAlerts(); // always anchored to today — must run after onWeekChange so planWeek cache is warm
 }
 
 function buildEmbWW(){
@@ -4010,7 +4050,6 @@ function onWeekChange() {
   renderHorizon();
   renderDispatch();
   renderAlerts(pr);
-  renderFrontAlerts();   // clones RED/AMBER from #alertsPanel — must run after renderAlerts
   // Re-filter actuals for newly selected week
   if(rawActualsData && rawActualsData.length) {
     const wkS = currentWeek;
@@ -4607,6 +4646,7 @@ function applyStockFromSB(rows) {
   renderManualStockGrid();
   // Override the nav freshness chip with the actual stock sync time (not the manual upload_log entry)
   if (latestTs) updateNavFreshnessChip('stock', latestTs);
+  renderFrontAlerts(); // refresh today-anchored alerts when stock updates
 }
 
 
@@ -4668,6 +4708,7 @@ function applyOpenOrdersFromSB(rows) {
 
   renderOpenOrders(tsLabel, '');
   onWeekChange();
+  renderFrontAlerts(); // refresh today-anchored alerts when open orders update
   setStat('OpenOrders', `✓ Live from Supabase — ${orders.length} lines (${tsLabel})`, true);
   if (latestTs) updateNavFreshnessChip('open_orders', latestTs);
 
