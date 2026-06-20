@@ -2241,63 +2241,57 @@ function renderDispatch() {
 }
 
 // ══ RENDER: FRONT-PAGE STOCK ALERTS ═══════════════════════════════════════════
-// ALWAYS anchored to TODAY's week — not the week-selector. Alerts represent the
-// current state of the business. Changing the selected week does NOT change these.
-// Facts only — no operational suggestions.
+// Forward-looking only — future weeks that need action now. Current-week status
+// is already visible on the tiles. Anchored to today regardless of week selector.
+// Updates when forecast or stock data changes, not when week selector changes.
 function renderFrontAlerts() {
   const el = document.getElementById('frontAlerts');
   if (!el) return;
 
-  // Always use today's week as the anchor — ignore currentWeek (week selector)
   const todayMon = monOf(localToday());
   if (!ALL_WEEKS.includes(todayMon)) { el.innerHTML = ''; el.style.padding = '0'; return; }
 
-  // planWeek is memoised; this is cheap if already computed for todayMon
-  const pr = planWeek(todayMon);
-  const {coverDays, finalShortfall, demand, prebuildAlert, midWeekAtRisk} = pr;
+  const pr = planWeek(todayMon);  // memoised — cheap on repeat calls
   const alerts = [];
+  const seenSku = new Set();
 
-  // ── Shortfalls (this week — cannot meet demand even at max capacity) ─────
-  SKUS.forEach(s => {
-    const sf = Math.round(finalShortfall[s] || 0);
-    if (sf > 0.5) alerts.push({t:'r',
-      msg:`<strong>${s} — shortfall this week:</strong> ${fmt(sf)} pallets. Production plus available stock cannot cover week demand.`});
+  // ── 1. FORWARD PRODUCTION SHORTFALLS ─────────────────────────────────────
+  // prebuildAlert: earliest week per SKU where demand > max production capacity.
+  // Sorted ascending by weeksAway — show the most urgent first.
+  (pr.prebuildAlert || []).forEach(pb => {
+    seenSku.add(pb.sku);
+    const wLabel = pb.weeksAway === 1 ? 'next week' : `w/c ${fmtD(pb.nextWk)}`;
+    alerts.push({t: pb.urgent ? 'r' : 'a',
+      msg:`<strong>${pb.sku} — ${wLabel}:</strong> ${fmt(pb.gap)} pal shortfall. Demand exceeds max production capacity.`});
   });
 
-  // ── Cover alerts (current week) ───────────────────────────────────────────
-  SKUS.forEach(s => {
-    if ((finalShortfall[s] || 0) > 0.5) return; // already flagged
-    const cov = coverDays[s] == null ? 99 : coverDays[s];
-    const effectiveDemand = demand[s].total > 0 ? demand[s].total : (openOrdersPal[s] || 0);
-    if (effectiveDemand === 0 || cov >= 7) return;
-    if (cov < 3) alerts.push({t:'r', msg:`<strong>${s}:</strong> ${fmtF(Math.max(0,cov))} days cover at end of this week.`});
-    else         alerts.push({t:'a', msg:`<strong>${s}:</strong> ${fmtF(Math.max(0,cov))} days cover at end of this week.`});
-  });
-
-  // ── Forward shortfalls (prebuildAlert — 8-week simulation baked into planWeek) ──
-  if (prebuildAlert && prebuildAlert.length) {
-    // Group by SKU — show only the earliest deficit per SKU
-    const seen = new Set(alerts.map(a => a._sku).filter(Boolean));
-    prebuildAlert.forEach(pb => {
-      if (seen.has(pb.sku)) return;
-      seen.add(pb.sku);
-      const weekLabel = pb.weeksAway === 1 ? 'next week' : `w/c ${fmtD(pb.nextWk)}`;
-      alerts.push({t: pb.urgent ? 'r' : 'a', _sku: pb.sku,
-        msg:`<strong>${pb.sku} — forward shortfall ${weekLabel}:</strong> ${fmt(pb.gap)} pallets cannot be covered at max capacity.`});
+  // ── 2. FUTURE COVER DAYS (weeks 1–8 ahead, earliest breach per SKU) ──────
+  // Scans forward weeks for cover < 7 days. Skips any SKU already flagged above.
+  const todayIdx = ALL_WEEKS.indexOf(todayMon);
+  for (let i = 1; i <= LOOKAHEAD_WEEKS; i++) {
+    const wkIdx = todayIdx + i;
+    if (wkIdx >= ALL_WEEKS.length) break;
+    const wk = ALL_WEEKS[wkIdx];
+    // planWeek is lazily computed and memoised — only runs if not already cached
+    const wkPr = planWeek(wk);
+    const wLabel = i === 1 ? 'next week' : `w/c ${fmtD(wk)}`;
+    SKUS.forEach(s => {
+      if (seenSku.has(s)) return;             // already flagged by shortfall or earlier week
+      if ((wkPr.finalShortfall[s] || 0) > 0.5) return; // covered by prebuildAlert above
+      const cov = wkPr.coverDays[s] == null ? 99 : wkPr.coverDays[s];
+      const effDem = wkPr.demand[s].total > 0 ? wkPr.demand[s].total : 0;
+      if (effDem === 0 || cov >= 7) return;
+      seenSku.add(s);
+      alerts.push({t: cov < 3 ? 'r' : 'a',
+        msg:`<strong>${s} — ${wLabel}:</strong> ${fmtF(Math.max(0,cov))} days cover.`});
     });
-  }
-
-  // ── Mid-week stockout risk ────────────────────────────────────────────────
-  if (midWeekAtRisk && midWeekAtRisk.size > 0) {
-    alerts.push({t:'r',
-      msg:`<strong>Mid-week stockout risk:</strong> ${[...midWeekAtRisk].join(', ')} may not cover Monday–Wednesday deliveries.`});
   }
 
   if (!alerts.length) { el.innerHTML = ''; el.style.padding = '0'; return; }
 
   el.style.padding = '8px 0 0';
   el.innerHTML = `
-    <div style="padding:4px 12px 6px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">⚠ Stock Alerts — as at today</div>
+    <div style="padding:4px 12px 6px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">⚠ Forward Stock Alerts</div>
     ${alerts.map(a => `<div class="alert alert-${a.t}" style="margin:0 0 4px;border-radius:0"><div>${a.msg}</div></div>`).join('')}
     <div style="height:8px"></div>`;
 }
