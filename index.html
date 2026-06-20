@@ -184,6 +184,8 @@ tr.risk-a td{background:#FEF9F0}
 
 <!-- DEMAND & STOCK -->
 <div id="tab-demand" class="tc active">
+  <!-- Front-page stock alerts — RED/AMBER only, facts only. Rendered by renderFrontAlerts(). -->
+  <div id="frontAlerts" style="padding:0"></div>
   <div class="panel">
     <div class="ph navy">Stock Configuration
       <span style="font-size:10px;opacity:.7">On-hold stock excluded from planning. Dispatch offsets adjust required dispatch date vs need-arrival.</span></div>
@@ -2222,6 +2224,51 @@ function renderDispatch() {
   document.getElementById('dispTable').innerHTML = h + '</tbody>';
 }
 
+// ══ RENDER: FRONT-PAGE STOCK ALERTS ═══════════════════════════════════════════
+// Shows RED/AMBER stock cover alerts on the Demand & Stock tab above Stock Configuration.
+// Facts only — no operational suggestions.
+function renderFrontAlerts(pr) {
+  const el = document.getElementById('frontAlerts');
+  if (!el) return;
+  const {coverDays, finalShortfall, demand} = pr;
+  const alerts = [];
+
+  SKUS.forEach(s => {
+    const sf = Math.round(finalShortfall[s] || 0);
+    const cov = coverDays[s] == null ? 99 : coverDays[s];
+    const effectiveDemand = demand[s].total > 0 ? demand[s].total : (openOrdersPal[s] || 0);
+
+    // RED — cannot meet week demand even with all planned production
+    if (sf > 0.5) {
+      alerts.push({t:'r', msg:`<strong>${s} — shortfall: ${fmt(sf)} pallets.</strong> Planned production plus available stock cannot cover week demand.`});
+      return; // shortfall supersedes cover alert for this SKU
+    }
+
+    // Only fire cover alerts when there is actual demand or committed orders
+    if (effectiveDemand === 0) return;
+
+    if (cov < 3) {
+      alerts.push({t:'r', msg:`<strong>${s}:</strong> ${fmtF(Math.max(0,cov))} days cover at end of week.`});
+    } else if (cov < 7) {
+      alerts.push({t:'a', msg:`<strong>${s}:</strong> ${fmtF(Math.max(0,cov))} days cover at end of week.`});
+    }
+  });
+
+  if (!alerts.length) {
+    el.innerHTML = '';
+    el.style.padding = '0';
+    return;
+  }
+
+  el.style.padding = '8px 0 0';
+  el.innerHTML = `
+    <div style="padding:4px 12px 6px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">⚠ Stock Alerts</div>
+    ${alerts.map(a => `<div class="alert alert-${a.t}" style="margin:0 0 4px;border-radius:0">
+      <div>${a.msg}</div>
+    </div>`).join('')}
+    <div style="height:8px"></div>`;
+}
+
 // ══ RENDER: ALERTS ════════════════════════════════════════════════════════════
 function renderAlerts(pr) {
   const {demand,coverDays,finalShortfall,satTriggers,satLines,satUsed,ep,bottle2LDates} = pr;
@@ -3968,6 +4015,7 @@ function onWeekChange() {
   renderSchedule(currentWeek,pr);
   renderHorizon();
   renderDispatch();
+  renderFrontAlerts(pr);
   renderAlerts(pr);
   // Re-filter actuals for newly selected week
   if(rawActualsData && rawActualsData.length) {
