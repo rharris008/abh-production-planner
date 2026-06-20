@@ -2371,6 +2371,10 @@ function renderFrontAlerts() {
 
   if (!alerts.length) { el.innerHTML = ''; el.style.padding = '0'; return; }
 
+  // Reds above ambers above info
+  const tOrder = {r:0, a:1, b:2, g:3};
+  alerts.sort((x,y) => (tOrder[x.t]??9) - (tOrder[y.t]??9));
+
   el.style.padding = '8px 0 0';
   el.innerHTML = `
     <div style="padding:4px 12px 6px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">⚠ Forward Stock Alerts</div>
@@ -2483,6 +2487,11 @@ function renderAlerts() {
   }
 
   if (!alerts.length) alerts.push({t:'g', msg:`All lines on plan. All deliveries scheduled. All SKUs building toward 7-day stock cover.`});
+
+  // Reds above ambers above info
+  const tOrder = {r:0, a:1, b:2, g:3};
+  alerts.sort((x,y) => (tOrder[x.t]??9) - (tOrder[y.t]??9));
+
   document.getElementById('alertsPanel').innerHTML =
     alerts.map(a => `<div class="alert alert-${a.t}">${{r:'⚠',a:'⚠',g:'✓',b:'ℹ'}[a.t]} <div>${a.msg}</div></div>`).join('');
 }
