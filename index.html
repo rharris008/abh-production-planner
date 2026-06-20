@@ -2292,9 +2292,7 @@ function buildAllAlerts() {
     // Shortfall — cannot produce even at max capacity
     Object.entries(finalShortfall).filter(([,v]) => v > 0.5).forEach(([sku, rem]) => {
       const {single: la, out: laOut} = lineOutageForWeek(wk);
-      const capNote = la
-        ? ` Line ${laOut} is out — EP cannot cover both 10L and 5L on a single line.`
-        : ` Review HMPS config or efficiency.`;
+      const capNote = la ? ` Line ${laOut} is out.` : '';
       alerts.push({t:'r', msg:`<strong>SHORTFALL ${wkLabel}: ${sku}</strong> — ${fmt(Math.round(rem))} pal cannot be produced even at max capacity.${capNote}`});
     });
 
@@ -2315,13 +2313,11 @@ function buildAllAlerts() {
       }
     });
 
-    // Night shift / Saturday triggers
+    // Saturday triggers (EP only — HMPS never runs Saturday)
     if (satTriggers.length) {
-      const hmpsSkus = satTriggers.filter(s => s === '10L Cask');
-      const epSkus   = satTriggers.filter(s => s !== '10L Cask');
-      if (hmpsSkus.length) alerts.push({t:'a', msg:`<strong>Night shift recommended — HMPS ${wkLabel}:</strong> 10L Cask below cover target. Activate night shift (22:00–06:00).`});
-      if (epSkus.length && satUsed)  alerts.push({t:'a', msg:`<strong>Saturday EP lines activated ${wkLabel}:</strong> ${epSkus.join(', ')} below 3 days cover. Lines: ${satLines.map(s=>s.label).join(', ')}.`});
-      if (epSkus.length && !satUsed) alerts.push({t:'a', msg:`<strong>Night shift recommended — EP ${wkLabel}:</strong> ${epSkus.join(', ')} projected short. Consider night shift (22:00–06:00).`});
+      const epSkus = satTriggers.filter(s => s !== '10L Cask');
+      if (epSkus.length && satUsed)  alerts.push({t:'a', msg:`<strong>Saturday trigger active ${wkLabel}:</strong> ${epSkus.join(', ')} below 3 days cover. Lines: ${satLines.map(s=>s.label).join(', ')}.`});
+      if (epSkus.length && !satUsed) alerts.push({t:'a', msg:`<strong>Saturday trigger active ${wkLabel}:</strong> ${epSkus.join(', ')} below 3 days cover.`});
     }
 
     // Demand spike vs prior week (current week only)
@@ -2356,7 +2352,7 @@ function buildAllAlerts() {
         const urgentFlag = pb.urgent ? '🔴 ' : '🟡 ';
         const weeksText  = pb.weeksAway === 1 ? 'next week' : `in ${pb.weeksAway} weeks`;
         alerts.push({t: pb.urgent ? 'r' : 'a',
-          msg:`${urgentFlag}<strong>Forward deficit: ${pb.sku}</strong> — w/c ${fmtD(pb.nextWk)} (${weeksText}) projects a shortfall of <strong>${fmt(pb.gap)} pal</strong> even at max capacity.${pb.urgent ? ' <span style="color:var(--red)">Produce now — not enough time to recover.</span>' : ' Start pre-building.'}`});
+          msg:`${urgentFlag}<strong>Forward deficit: ${pb.sku}</strong> — w/c ${fmtD(pb.nextWk)} (${weeksText}) projects a shortfall of <strong>${fmt(pb.gap)} pal</strong> even at max capacity.`});
       });
     }
   }
@@ -3135,7 +3131,7 @@ function renderReplan(pr, skuPlan, skuActual, completedDaysLoop) {
   } else {
     rp.innerHTML = riskSkus.map(({s, gap, needed, expected, availStock}) => {
       const stockNote = availStock > 0 ? ` (${fmt(availStock)} pal available stock already factored in)` : '';
-      return `<div class="alert alert-r">⚠ <div><strong>${s}</strong> — expected total production ${fmt(Math.round((skuActual[s]||0)+expected))} pal + available stock ${fmt(availStock)} pal vs ${fmt(needed)} pal still needed. Short by ${fmt(gap)} pal after stock${stockNote}. Consider night shift or review dispatch commitments.</div></div>`;
+      return `<div class="alert alert-r">⚠ <div><strong>${s}</strong> — expected total production ${fmt(Math.round((skuActual[s]||0)+expected))} pal + available stock ${fmt(availStock)} pal vs ${fmt(needed)} pal still needed. Short by ${fmt(gap)} pal after stock${stockNote}.</div></div>`;
     }).join('');
   }
 }
