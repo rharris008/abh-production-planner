@@ -1183,75 +1183,28 @@ function planWeek(week) {
   const cap10shift = Math.floor((lineAOnlyNow ? 30 : 60) * eff);
   const cap5shift  = Math.floor((lineAOnlyNow ? 27 : 50) * eff);
 
-  // 5L shift reduction: drop to day shift only when 5L closing cover with 2 shifts >= 14 days.
-  // Raised from 8 to 14 — same rationale as HMPS throttle: marginal over-stock should not
-  // cause incorrect throttling; only genuinely excessive stock (2+ weeks) justifies 1 shift.
+  // EP Line A&B rules (Rob Harris 20/06/2026):
+  // - Always 2 shifts, every working day — no throttle.
+  // - Default SKU: 5L Cask.
+  // - Switch Line A&B to 10L support if HMPS-only projected 10L closing cover < 5 days.
+  // - Stay on 10L (recovery zone) until projected closing cover reaches 7 days.
+  // - Hysteresis band (5→7 days) prevents week-to-week oscillation.
   const avail5 = avail['5L Cask'] || 0;
   const d5 = demand['5L Cask'].total;
-  const dailyDemand5 = d5 > 0 ? d5 / opDays : 0;
-  const proj5Close2sh = avail5 + cap5shift * 2 * opDays - d5;
-  const shifts5 = dailyDemand5 > 0 && proj5Close2sh / dailyDemand5 >= 14 ? 1 : 2;
-
-  let minDays10 = 0, minDays5 = 0;
-  {
-    let proj10 = avail['10L Cask'] || 0;
-    let proj5  = avail['5L Cask']  || 0;
-
-    // Simulate realistic week-by-week allocation using cover-based day split
-    for (let i = 0; i <= 4; i++) {
-      const wkIdx2 = weekIdx + i;
-      if (wkIdx2 >= ALL_WEEKS.length) break;
-      const wk = ALL_WEEKS[wkIdx2];
-      const dem = i === 0 ? demand : getDemand(wk);
-      const {single: la} = lineOutageForWeek(wk);
-      const c10s = Math.floor((la ? 30 : 60) * eff);
-      const c5s  = Math.floor((la ? 27 : 50) * eff);
-      const d10  = dem['10L Cask'].total || 0;
-      const d5   = dem['5L Cask'].total  || 0;
-      const wkOpDays2 = opDaysInWeek(wk);  // respect public holidays in future weeks
-      const hmpsWeek = Math.floor(hmpsTgt * 2 * wkOpDays2 * eff);
-      // Estimate realistic EP day split: proportional to remaining need after HMPS
-      const net10 = Math.max(0, d10 - proj10 - hmpsWeek);
-      const net5  = Math.max(0, d5  - proj5);
-      const totalNeed = net10 + net5;
-      let days5est, days10est;
-      if (totalNeed > 0) {
-        days5est  = Math.round(wkOpDays2 * net5 / totalNeed);
-        days10est = wkOpDays2 - days5est;
-      } else {
-        const totalDem = (d10 + d5) || 1;
-        days10est = Math.round(wkOpDays2 * d10 / totalDem);
-        days5est  = wkOpDays2 - days10est;
-      }
-      proj10 = proj10 + c10s * 2 * days10est + hmpsWeek - d10;
-      proj5  = proj5  + c5s  * 2 * days5est  - d5;
-    }
-    // If realistic projection goes negative, enforce minimum days this week
-    // cap per day = cap per shift × 2 shifts
-    if (proj5 < 0)  minDays5  = Math.min(opDays, Math.ceil(Math.abs(proj5)  / (cap5shift  * 2)));
-    if (proj10 < 0) minDays10 = Math.min(opDays, Math.ceil(Math.abs(proj10) / (cap10shift * 2)));
-
-    // Also enforce a direct floor for the current week:
-    // if opening stock doesn't cover demand, we need enough days to make up the gap
-    const gap5  = Math.max(0, (demand['5L Cask'].total  || 0) - (avail['5L Cask']  || 0));
-    const gap10 = Math.max(0, (demand['10L Cask'].total || 0) - (avail['10L Cask'] || 0) -
-                             Math.floor(hmpsTgt * 2 * opDays * eff));
-    if (gap5  > 0) minDays5  = Math.max(minDays5,  Math.min(opDays, Math.ceil(gap5  / (cap5shift  * 2))));
-    if (gap10 > 0) minDays10 = Math.max(minDays10, Math.min(opDays, Math.ceil(gap10 / (cap10shift * 2))));
-  }
-
-    // Enforce minimum days: pass floor constraints to scheduler
-  // Tell EP Line A&B scheduler that HMPS has already covered 10L — it sees effective 10L stock
-  // as current stock + HMPS weekly output, freeing Line A to run 5L. (EP Line A&B scheduler)
-  const s10forEP = (avail['10L Cask'] || 0) + hmps.cap;
-  // If HMPS + opening stock covers this week's 10L demand, Line A&B should run 5L the whole week.
-  // The cover-ratio comparison in the day-level scheduler can flip to 10L after a few days of
-  // 5L pre-build (5L stock rises, 10L stock drawn down by deliveries), but that's wrong —
-  // HMPS is already producing 10L continuously. Flag tells the scheduler to ignore that flip.
-  const hmpsCovers10L = s10forEP >= (d10 || 0);
-  const caskResult = scheduleEPCaskLines(week, opDays, eff,
-    s10forEP, avail5,
-    minDays10, minDays5, hmpsCovers10L, shifts5);
+  const dailyD10 = d10 > 0 ? d10 / opDays : 0;
+  const projClose10_HMPSonly = s10 + hmps.cap - d10;  // 10L close if A&B runs 5L all week
+  const projCover10_HMPSonly = dailyD10 > 0
+    ? projClose10_HMPSonly / dailyD10              // days of cover
+    : (projClose10_HMPSonly >= 0 ? 99 : 0);       // no demand: saturated or empty
+  // < 5 days triggers switch; 5–7 days: still in recovery → stay on 10L; ≥ 7 days: run 5L
+  const lineABSku = projCover10_HMPSonly < 7 ? '10L Cask' : '5L Cask';
+  const caskResult = scheduleEPCaskLines(
+    week, opDays, eff,
+    avail['10L Cask'] || 0, avail5,
+    0, 0,                        // no min-day enforcement
+    lineABSku === '5L Cask',     // hmpsCovers10L: true → primarySku=5L; false → primarySku=10L
+    2                            // always 2 shifts
+  );
   const caskProd10 = caskResult.shifts.filter(s => s.sku === '10L Cask').reduce((a,s) => a + s.pallets, 0);
   const caskProd5  = caskResult.shifts.filter(s => s.sku === '5L Cask' ).reduce((a,s) => a + s.pallets, 0);
   const caskDays10 = caskResult.days10;   // physical days Line A&B ran 10L
@@ -1498,7 +1451,7 @@ function planWeek(week) {
     bottle2LDates,
     cask: {prod10: caskProd10, prod5: caskProd5, days10: caskDays10, days5: caskDays5, shifts: caskResult.shifts,
            endStock10: caskResult.endStock10, endStock5: caskResult.endStock5,
-           shifts5, hmpsShifts},
+           shifts5: 2, hmpsShifts: 2},
     ep: {prod12, prod6, days12, days6, shifts: bottleResult.shifts.filter(s => s.sku === '600ml 12pk' || s.sku === '600ml 6pk'),
          endStock12: bottleResult.endStock12, endStock6: bottleResult.endStock6},
     bottleShifts: bottleResult.shifts,
@@ -2335,6 +2288,11 @@ function buildAllAlerts() {
   const prodByDate  = {}; // accumulated for order-miss simulation
   const seenPrebuild = new Set();
 
+  // Night shift tracking (Rule: if BOTH 10L AND 5L < 5 days for 2+ consecutive weeks → alert)
+  let nightShiftConsec = 0;
+  let nightShiftFirstWk = null;
+  let nightShiftAlertFired = false;
+
   // ── STOCK-LEVEL (not week-specific) ─────────────────────────────────────────
   if ((stockPal['600ml 12pk'] || 0) < 5) {
     alerts.push({t:'r', msg:`<strong>Critical:</strong> 600ml 12pk opening stock near zero (${Math.round(stockPal['600ml 12pk']||0)} pal). Production urgent.`});
@@ -2387,6 +2345,25 @@ function buildAllAlerts() {
         alerts.push({t:cov<3?'r':'a', msg:`<strong>${s} ${wkLabel}:</strong> Projected end-of-week cover ${fmtF(Math.max(0,cov))} days. Target is 7 days.${coverNote}`});
       }
     });
+
+    // Night shift alert: both 10L AND 5L < 5 days cover for 2+ consecutive weeks
+    {
+      const cov10 = coverDays['10L Cask'] || 0;
+      const cov5  = coverDays['5L Cask']  || 0;
+      const dem10 = demand['10L Cask'].total || 0;
+      const dem5  = demand['5L Cask'].total  || 0;
+      if (cov10 < 5 && cov5 < 5 && dem10 > 0 && dem5 > 0) {
+        if (nightShiftConsec === 0) nightShiftFirstWk = wk;
+        nightShiftConsec++;
+        if (nightShiftConsec >= 2 && !nightShiftAlertFired) {
+          alerts.push({t:'r', msg:`<strong>⚠ NIGHT SHIFT REQUIRED:</strong> Both 10L Cask and 5L Cask are projected below 5 days cover for ${nightShiftConsec} consecutive weeks starting w/c ${fmtD(nightShiftFirstWk)}. Capacity cannot be met on day/afternoon shifts alone. Consider starting night shift on EP lines.`});
+          nightShiftAlertFired = true;
+        }
+      } else {
+        nightShiftConsec = 0;
+        nightShiftFirstWk = null;
+      }
+    }
 
     // Saturday triggers (EP only — HMPS never runs Saturday)
     if (satTriggers.length) {
