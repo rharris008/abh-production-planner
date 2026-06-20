@@ -2269,6 +2269,18 @@ function renderFrontAlerts() {
     });
   }
 
+  // ── 0. THIS-WEEK CRITICAL ALERTS ─────────────────────────────────────────────
+  // Shortfall and mid-week stockout risk for the current week — these are immediate.
+  const thisWkPr = planWeek(todayMon);
+  Object.entries(thisWkPr.finalShortfall).filter(([,v]) => v > 0.5).forEach(([sku, rem]) => {
+    alerts.push({t:'r',
+      msg:`<strong>${sku}:</strong> Cannot meet this week's forecast — ${fmt(Math.round(rem))} pal short even at max capacity.`});
+  });
+  if (thisWkPr.midWeekAtRisk && thisWkPr.midWeekAtRisk.size > 0) {
+    alerts.push({t:'r',
+      msg:`<strong>Mid-week stockout risk this week:</strong> ${[...thisWkPr.midWeekAtRisk].join(', ')} may not cover Mon–Wed deliveries.`});
+  }
+
   // ── 1. COVER DURATION — how long below 7 days / below 3 days ─────────────
   // Tracks the first period below threshold and when (if) it recovers.
   const cp = {};
@@ -2367,87 +2379,112 @@ function renderFrontAlerts() {
 }
 
 // ══ RENDER: ALERTS ════════════════════════════════════════════════════════════
-function renderAlerts(pr) {
-  const {demand,coverDays,finalShortfall,satTriggers,satLines,satUsed,ep,bottle2LDates} = pr;
-  const alerts=[];
+// Scans ALL upcoming weeks — shows every problem regardless of week selector.
+function renderAlerts() {
+  const todayMon = monOf(localToday());
+  const todayIdx = ALL_WEEKS.indexOf(todayMon);
+  if (todayIdx < 0) {
+    document.getElementById('alertsPanel').innerHTML = '<div class="alert alert-b">ℹ <div>No planning data for current week.</div></div>';
+    return;
+  }
+  const alerts = [];
 
-  Object.entries(finalShortfall).filter(([,v])=>v>0.5).forEach(([sku,rem])=>{
-    // Check if this is a capacity constraint (Line B out) vs a stock/efficiency issue
-    const {single: la, out: laOut} = lineOutageForWeek(currentWeek);
-    const capNote = la
-      ? ` Line ${laOut} is out — EP cannot cover both 10L and 5L demand on a single line. Pre-build ${sku} in prior weeks.`
-      : ` Review HMPS config or efficiency.`;
-    alerts.push({t:'r',msg:`<strong>SHORTFALL: ${sku}</strong> — ${fmt(Math.round(rem))} pallets cannot be produced even${satUsed?' with Saturday':''}.${capNote}`});
-  });
-
-  // Night shift recommendation — fires whenever Saturday would have been triggered.
-  // HMPS never runs Saturday (double time). Night shift (22:00-06:00) is the preferred option.
-  // Saturday is emergency-only for EP lines (5L, 2L, 600ml).
-  if(satTriggers.length) {
-    const hmpsSkus = satTriggers.filter(s => s === '10L Cask');
-    const epSkus   = satTriggers.filter(s => s !== '10L Cask');
-    const parts = [];
-    if(hmpsSkus.length) parts.push(`<strong>Night shift recommended on HMPS</strong> — 10L Cask projected below cover target. HMPS cannot run Saturday (double time). Activate a night shift (22:00–06:00) this week.`);
-    if(epSkus.length && satUsed)   parts.push(`<strong>Saturday EP lines activated</strong> — ${epSkus.join(', ')} below 3 days cover. Saturday single shift on: ${satLines.map(s=>s.label).join(', ')}.`);
-    if(epSkus.length && !satUsed)  parts.push(`<strong>Night shift recommended on EP lines</strong> — ${epSkus.join(', ')} projected short. Consider night shift (22:00–06:00) before authorising Saturday (double time).`);
-    parts.forEach(msg => alerts.push({t:'a', msg}));
+  // ── STOCK-LEVEL (not week-specific) ─────────────────────────────────────────
+  if ((stockPal['600ml 12pk'] || 0) < 5) {
+    alerts.push({t:'r', msg:`<strong>Critical:</strong> 600ml 12pk opening stock near zero (${Math.round(stockPal['600ml 12pk']||0)} pal). Production urgent.`});
+  }
+  const totalHold = SKUS.reduce((a,s) => a + (onHoldPal[s]||0), 0);
+  if (totalHold > 0) {
+    alerts.push({t:'a', msg:`<strong>${fmt(totalHold)} pallets on hold</strong> excluded from planning. Update when QA releases stock.`});
   }
 
-  // EP New Line shift mix
-  const d12=demand['600ml 12pk'].total, d6=demand['600ml 6pk'].total;
-  if(d12>0&&d6>0) {
-    alerts.push({t:'b',msg:`EP New Line scheduled ${ep.days12} shifts on 12pk and ${ep.days6} shifts on 6pk based on daily delivery sequence. Both SKUs prioritised by need-arrival date.`});
-  }
+  // ── WEEK-BY-WEEK SCAN (today through LOOKAHEAD_WEEKS) ───────────────────────
+  const seenPrebuild = new Set(); // dedupe prebuild alerts across weeks
 
-  // 600ml / 2L same-day constraint alert
-  if(bottle2LDates&&bottle2LDates.size>0) {
-    const dateList=[...bottle2LDates].map(fmtD).join(', ');
-    alerts.push({t:'b',msg:`<strong>Constraint active:</strong> 2L Bottle and 600ml cannot run on the same day. EP New Line idle on 2L production day${bottle2LDates.size>1?'s':''}: ${dateList}.`});
-  }
+  for (let i = 0; i <= LOOKAHEAD_WEEKS; i++) {
+    const wkIdx = todayIdx + i;
+    if (wkIdx >= ALL_WEEKS.length) break;
+    const wk  = ALL_WEEKS[wkIdx];
+    const pr  = planWeek(wk);
+    const {demand, coverDays, finalShortfall, satTriggers, satLines, satUsed,
+           ep, bottle2LDates, midWeekAtRisk, prebuildAlert, totalGross} = pr;
+    const wkLabel = i === 0 ? `this week (w/c ${fmtD(wk)})` : `w/c ${fmtD(wk)}`;
 
-  SKUS.forEach(s=>{
-    const cov=coverDays[s]||0;
-    const oo=Math.round(openOrdersPal[s]||0);
-    // Fire alert when forecast demand OR committed open orders indicate stock risk
-    const effectiveDemand=demand[s].total>0?demand[s].total:oo;
-    if(cov>=0&&cov<5&&effectiveDemand>0&&!(finalShortfall[s]>0.5)){
-      const noForecast=demand[s].total===0&&oo>0;
-      const coverNote=noForecast
-        ? ` <em style="color:var(--amber)">(No forecast loaded — cover estimated from ${oo} pal committed in open orders.)</em>`
-        : '';
-      alerts.push({t:cov<3?'r':'a',msg:`<strong>${s}:</strong> Projected end-of-week cover ${fmtF(Math.max(0,cov))} days. Target is 7 days.${coverNote}`});
-    }
-  });
-
-  if((stockPal['600ml 12pk']||0)<5) alerts.push({t:'r',msg:`<strong>Critical:</strong> 600ml 12pk opening stock near zero (${Math.round(stockPal['600ml 12pk']||0)} pal). Production urgent.`});
-
-  const prevIdx=ALL_WEEKS.indexOf(currentWeek);
-  if(prevIdx>0) {
-    const prev=planWeek(ALL_WEEKS[prevIdx-1]);
-    if(pr.totalGross>prev.totalGross*1.2) alerts.push({t:'a',msg:`Demand spike: ${fmt(pr.totalGross)} pal this week vs ${fmt(prev.totalGross)} prior (${((pr.totalGross/prev.totalGross-1)*100).toFixed(0)}% up).`});
-  }
-
-    // Forward simulation prebuild alerts
-  if(pr.prebuildAlert&&pr.prebuildAlert.length) {
-    pr.prebuildAlert.forEach(pb=>{
-      const urgentFlag = pb.urgent ? '🔴 ' : '🟡 ';
-      const weeksText = pb.weeksAway === 1 ? 'next week' : `in ${pb.weeksAway} weeks`;
-      const msg = `${urgentFlag}<strong>Forward deficit: ${pb.sku}</strong> — week of ${fmtD(pb.nextWk)} (${weeksText}) projects a shortfall of <strong>${fmt(pb.gap)} pal</strong> even at max capacity.${pb.urgent ? ' <span style="color:var(--red)">Produce now — not enough time to recover.</span>' : ' Start pre-building this week.'}`;
-      alerts.push({t: pb.urgent ? 'r' : 'a', msg});
+    // Shortfall — cannot produce even at max capacity
+    Object.entries(finalShortfall).filter(([,v]) => v > 0.5).forEach(([sku, rem]) => {
+      const {single: la, out: laOut} = lineOutageForWeek(wk);
+      const capNote = la
+        ? ` Line ${laOut} is out — EP cannot cover both 10L and 5L on a single line.`
+        : ` Review HMPS config or efficiency.`;
+      alerts.push({t:'r', msg:`<strong>SHORTFALL ${wkLabel}: ${sku}</strong> — ${fmt(Math.round(rem))} pal cannot be produced even at max capacity.${capNote}`});
     });
+
+    // Mid-week stockout risk
+    if (midWeekAtRisk && midWeekAtRisk.size > 0) {
+      alerts.push({t:'r', msg:`<strong>Mid-week stockout risk ${wkLabel}:</strong> ${[...midWeekAtRisk].join(', ')} may not cover Mon–Wed deliveries.`});
+    }
+
+    // Cover < 5 days end-of-week (not already captured by shortfall)
+    SKUS.forEach(s => {
+      const cov = coverDays[s] || 0;
+      const oo  = Math.round(openOrdersPal[s] || 0);
+      const effectiveDemand = demand[s].total > 0 ? demand[s].total : oo;
+      if (cov >= 0 && cov < 5 && effectiveDemand > 0 && !(finalShortfall[s] > 0.5)) {
+        const noForecast = demand[s].total === 0 && oo > 0;
+        const coverNote  = noForecast ? ` <em style="color:var(--amber)">(No forecast — estimated from open orders.)</em>` : '';
+        alerts.push({t:cov<3?'r':'a', msg:`<strong>${s} ${wkLabel}:</strong> Projected end-of-week cover ${fmtF(Math.max(0,cov))} days. Target is 7 days.${coverNote}`});
+      }
+    });
+
+    // Night shift / Saturday triggers
+    if (satTriggers.length) {
+      const hmpsSkus = satTriggers.filter(s => s === '10L Cask');
+      const epSkus   = satTriggers.filter(s => s !== '10L Cask');
+      if (hmpsSkus.length) alerts.push({t:'a', msg:`<strong>Night shift recommended — HMPS ${wkLabel}:</strong> 10L Cask below cover target. Activate night shift (22:00–06:00).`});
+      if (epSkus.length && satUsed)  alerts.push({t:'a', msg:`<strong>Saturday EP lines activated ${wkLabel}:</strong> ${epSkus.join(', ')} below 3 days cover. Lines: ${satLines.map(s=>s.label).join(', ')}.`});
+      if (epSkus.length && !satUsed) alerts.push({t:'a', msg:`<strong>Night shift recommended — EP ${wkLabel}:</strong> ${epSkus.join(', ')} projected short. Consider night shift (22:00–06:00).`});
+    }
+
+    // Demand spike vs prior week (current week only)
+    if (i === 0 && todayIdx > 0) {
+      const prev = planWeek(ALL_WEEKS[todayIdx - 1]);
+      if (totalGross > prev.totalGross * 1.2) {
+        alerts.push({t:'a', msg:`Demand spike this week: ${fmt(totalGross)} pal vs ${fmt(prev.totalGross)} pal last week (${((totalGross/prev.totalGross-1)*100).toFixed(0)}% up).`});
+      }
+    }
+
+    // EP current-week detail (informational — current week only)
+    if (i === 0) {
+      const d12 = demand['600ml 12pk'].total, d6 = demand['600ml 6pk'].total;
+      if (d12 > 0 && d6 > 0) {
+        alerts.push({t:'b', msg:`EP New Line this week: ${ep.days12} shifts on 12pk, ${ep.days6} shifts on 6pk, sequenced by delivery date.`});
+      }
+      if (bottle2LDates && bottle2LDates.size > 0) {
+        alerts.push({t:'b', msg:`<strong>Constraint active:</strong> 2L and 600ml cannot run same day. EP idle on: ${[...bottle2LDates].map(fmtD).join(', ')}.`});
+      }
+      if (epChangeoverMins > 0 && pr.ep && pr.ep.shifts) {
+        const co = pr.ep.shifts.filter((s,i,arr) => i > 0 && arr[i-1].sku !== s.sku).length;
+        if (co > 0) alerts.push({t:'b', msg:`EP New Line: ${co} changeover${co>1?'s':''} this week. Each deducts ${epChangeoverMins} mins (~${Math.round(epChangeoverMins/450*100)}% of a shift).`});
+      }
+    }
+
+    // Prebuild / forward deficit alerts (dedupe across weeks)
+    if (prebuildAlert && prebuildAlert.length) {
+      prebuildAlert.forEach(pb => {
+        const key = `${pb.sku}|${pb.nextWk}`;
+        if (seenPrebuild.has(key)) return;
+        seenPrebuild.add(key);
+        const urgentFlag = pb.urgent ? '🔴 ' : '🟡 ';
+        const weeksText  = pb.weeksAway === 1 ? 'next week' : `in ${pb.weeksAway} weeks`;
+        alerts.push({t: pb.urgent ? 'r' : 'a',
+          msg:`${urgentFlag}<strong>Forward deficit: ${pb.sku}</strong> — w/c ${fmtD(pb.nextWk)} (${weeksText}) projects a shortfall of <strong>${fmt(pb.gap)} pal</strong> even at max capacity.${pb.urgent ? ' <span style="color:var(--red)">Produce now — not enough time to recover.</span>' : ' Start pre-building.'}`});
+      });
+    }
   }
-  if(epChangeoverMins>0&&pr.ep&&pr.ep.shifts) {
-    const co=pr.ep.shifts.filter((s,i,arr)=>i>0&&arr[i-1].sku!==s.sku).length;
-    if(co>0) alerts.push({t:'b',msg:`EP New Line: ${co} changeover${co>1?'s':''} this week. Each deducts ${epChangeoverMins} mins (~${Math.round(epChangeoverMins/450*100)}% of a shift) from that shift output.`});
-  }
-  const totalHold=SKUS.reduce((a,s)=>a+(onHoldPal[s]||0),0);
-  if(totalHold>0) alerts.push({t:'a',msg:`<strong>${fmt(totalHold)} pallets on hold</strong> excluded from planning. Update when QA releases stock.`});
-  if(pr.midWeekAtRisk&&pr.midWeekAtRisk.size>0) {
-    alerts.push({t:'r',msg:`<strong>Mid-week stockout risk:</strong> ${[...pr.midWeekAtRisk].join(', ')} may not cover Mon-Wed deliveries. Consider night shift (22:00–06:00) to close the gap.`});
-  }
-  if(!alerts.length) alerts.push({t:'g',msg:`All lines on plan. All deliveries scheduled. All SKUs building toward 7-day stock cover.`});
-  document.getElementById('alertsPanel').innerHTML=
-    alerts.map(a=>`<div class="alert alert-${a.t}">${{r:'⚠',a:'⚠',g:'✓',b:'ℹ'}[a.t]} <div>${a.msg}</div></div>`).join('');
+
+  if (!alerts.length) alerts.push({t:'g', msg:`All lines on plan. All deliveries scheduled. All SKUs building toward 7-day stock cover.`});
+  document.getElementById('alertsPanel').innerHTML =
+    alerts.map(a => `<div class="alert alert-${a.t}">${{r:'⚠',a:'⚠',g:'✓',b:'ℹ'}[a.t]} <div>${a.msg}</div></div>`).join('');
 }
 
 // ══ FILE UPLOAD PARSING ═══════════════════════════════════════════════════════
@@ -4113,7 +4150,7 @@ function onWeekChange() {
   renderSchedule(currentWeek,pr);
   renderHorizon();
   renderDispatch();
-  renderAlerts(pr);
+  renderAlerts(); // anchored to today — not week-dependent
   // Re-filter actuals for newly selected week
   if(rawActualsData && rawActualsData.length) {
     const wkS = currentWeek;
