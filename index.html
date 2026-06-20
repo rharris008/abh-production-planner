@@ -1841,51 +1841,63 @@ function renderRollingTable(pr) {
   // The selected week gets a highlight but doesn't change the starting point.
   const wkIdx = ALL_WEEKS.indexOf(todayMon);
 
+  // True when the current week's production window is entirely in the past (e.g. today = Saturday).
+  // In this case opening stock IS closing stock — do not apply production or demand calculations.
+  const thisWeekDone = remainingOpDaysInWeek(todayMon) === 0;
+
   for (let i = 0; i < WEEKS_FORWARD; i++) {
     const wkI = wkIdx + i;
     if (wkI >= ALL_WEEKS.length) break;
     const wk = ALL_WEEKS[wkI];
     const dem = getDemand(wk);
-    const isCurrentSelected = wk === currentWeek;  // highlight selected week
-    const isThisWeek = i === 0;                     // actual current week for production data
+    const isCurrentSelected = wk === currentWeek;
+    const isThisWeek = i === 0;
+    const isFinishedWeek = isThisWeek && thisWeekDone;
 
-    // Planned production from the schedule — same source as shift cards.
-    // Uses planWeek() which respects which lines are actually configured and running.
-    // This replaces the old theoretical-cap formula which included lines not in service.
     const {single: la, out: laOut} = lineOutageForWeek(wk);
-    const wkPlan = isThisWeek ? pr0 : planWeek(wk);
-    const maxProd = {
-      '10L Cask':   (wkPlan?.cask?.prod10 ?? 0) + (wkPlan?.lines?.hmps?.cap ?? 0),
-      '5L Cask':    wkPlan?.cask?.prod5   ?? 0,
-      '2L Bottle':  wkPlan?.lines?.as2l?.cap ?? 0,
-      '600ml 12pk': wkPlan?.ep?.prod12    ?? 0,
-      '600ml 6pk':  wkPlan?.ep?.prod6     ?? 0,
-    };
-    if (wkPlan?.satUsed && wkPlan?.satLines) {
-      wkPlan.satLines.forEach(sl => { maxProd[sl.sku] = (maxProd[sl.sku] || 0) + sl.satAlloc; });
+
+    // For a finished week: prod = 0, demand adjustment = 0 — closing stock = today's physical stock.
+    // For active/future weeks: use planWeek() output (matches shift cards exactly).
+    let maxProd;
+    if (isFinishedWeek) {
+      maxProd = {'10L Cask':0,'5L Cask':0,'2L Bottle':0,'600ml 12pk':0,'600ml 6pk':0};
+    } else {
+      const wkPlan = isThisWeek ? pr0 : planWeek(wk);
+      maxProd = {
+        '10L Cask':   (wkPlan?.cask?.prod10 ?? 0) + (wkPlan?.lines?.hmps?.cap ?? 0),
+        '5L Cask':    wkPlan?.cask?.prod5   ?? 0,
+        '2L Bottle':  wkPlan?.lines?.as2l?.cap ?? 0,
+        '600ml 12pk': wkPlan?.ep?.prod12    ?? 0,
+        '600ml 6pk':  wkPlan?.ep?.prod6     ?? 0,
+      };
+      if (wkPlan?.satUsed && wkPlan?.satLines) {
+        wkPlan.satLines.forEach(sl => { maxProd[sl.sku] = (maxProd[sl.sku] || 0) + sl.satAlloc; });
+      }
     }
 
     const rowStyle = isCurrentSelected ? 'background:rgba(0,120,255,0.12);font-weight:600;outline:2px solid var(--blue)' :
       isThisWeek ? 'background:rgba(0,120,255,0.04)' :
       la ? 'background:rgba(255,165,0,0.06)' : '';
     const lineBLabel = la ? ` <span style="font-size:9px;color:var(--amber);font-weight:700">LINE ${laOut} OUT</span>` : '';
-    h += `<tr style="${rowStyle}"><td style="font-size:11px;white-space:nowrap">${fmtD(wk)}${lineBLabel}</td>`;
+    const doneLabel  = isFinishedWeek ? ` <span style="font-size:9px;color:var(--muted);font-weight:600">COMPLETE</span>` : '';
+    h += `<tr style="${rowStyle}"><td style="font-size:11px;white-space:nowrap">${fmtD(wk)}${lineBLabel}${doneLabel}</td>`;
 
     skuCols.forEach(s => {
-      const d = dem[s].total;
-      // maxProd is already plan-derived for all weeks — no further substitution needed
+      const d    = isFinishedWeek ? 0 : dem[s].total; // finished week: no demand adjustment
       const prod = maxProd[s] || 0;
       const close = stock[s] + prod - d;
       cumulative[s] += prod - d;
       const cum = Math.round(cumulative[s]);
-      stock[s] = Math.max(0, close);  // carry forward (floor at 0)
+      stock[s] = Math.max(0, close);
 
-      const closeCls = close < 0 ? 'color:var(--red);font-weight:700' : close < d ? 'color:var(--amber)' : 'color:var(--green)';
+      const closeCls = close < 0 ? 'color:var(--red);font-weight:700' : close < dem[s].total ? 'color:var(--amber)' : 'color:var(--green)';
       const cumCls   = cum < 0 ? 'color:var(--red);font-weight:700' : cum > 0 ? 'color:var(--green)' : '';
       const cumTxt   = cum > 0 ? `+${fmt(cum)}` : fmt(cum);
+      const demCell  = isFinishedWeek ? `<span style="color:var(--muted)">${fmt(dem[s].total)}</span>` : fmt(dem[s].total);
+      const prodCell = isFinishedWeek ? `<span style="color:var(--muted)">—</span>` : fmt(prod);
 
-      h += `<td class="num" style="border-left:2px solid var(--border)">${fmt(d)}</td>
-            <td class="num">${fmt(prod)}</td>
+      h += `<td class="num" style="border-left:2px solid var(--border)">${demCell}</td>
+            <td class="num">${prodCell}</td>
             <td class="num" style="${closeCls}">${fmt(Math.round(close))}</td>
             <td class="num" style="${cumCls}">${cumTxt}</td>`;
     });
