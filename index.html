@@ -1960,6 +1960,22 @@ function renderProdTable(pr) {
 }
 
 // ══ RENDER: DAY GRID ══════════════════════════════════════════════════════════
+// Return the base (pre-efficiency) max pallets per shift for a given schedule entry.
+// Used to display "actual / max" so the denominator shows line capacity, not the efficiency-
+// adjusted target. Works for both algorithmic shifts (which carry maxPal) and Aaron's
+// confirmed schedule entries (derived from label + sku).
+function getMaxPal(s) {
+  if (s.maxPal != null) return s.maxPal;
+  const lbl = s.label || '';
+  if (lbl.includes('HMPS')) return lbl.includes('Single') ? 40 : 80;
+  if (s.sku === '10L Cask') return lbl.includes('A&B') ? 60 : 30;  // A&B combined vs single line
+  if (s.sku === '5L Cask')  return lbl.includes('A&B') ? 50 : 27;
+  if (s.sku === '2L Bottle')   return 52;
+  if (s.sku === '600ml 12pk')  return 34;
+  if (s.sku === '600ml 6pk')   return 32;
+  return s.target; // safe fallback
+}
+
 function renderSchedule(week, pr) {
   const {satUsed} = pr;
   const isConfirmed = !!CONFIRMED_SCHEDULES[week];
@@ -2036,8 +2052,8 @@ function renderSchedule(week, pr) {
           <div class="sline-name">${s.label}${s.riskFlag ? ' ⚠' : ''}</div>
           <div class="sline-detail"><span class="chip ${CHIP[s.sku]}">${s.sku}</span></div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:3px">
-            <div class="sbar" style="flex:1;margin-right:5px"><div class="sbar-f" style="width:${Math.round(s.pallets/s.target*100)}%;background:${s.pallets>=s.target*.85?'var(--green)':s.pallets>=s.target*.6?'var(--amber)':'var(--red)'}"></div></div>
-            <span style="font-size:11px;font-weight:800">${s.pallets}<span style="font-size:9px;font-weight:400;color:var(--muted)">/${s.target}</span></span>
+            <div class="sbar" style="flex:1;margin-right:5px"><div class="sbar-f" style="width:${Math.round(s.pallets/getMaxPal(s)*100)}%;background:${s.pallets>=getMaxPal(s)*.85?'var(--green)':s.pallets>=getMaxPal(s)*.6?'var(--amber)':'var(--red)'}"></div></div>
+            <span style="font-size:11px;font-weight:800">${s.pallets}<span style="font-size:9px;font-weight:400;color:var(--muted)">/${getMaxPal(s)}</span></span>
           </div>
         </div>`).join('')}
       </div>`;
@@ -2061,10 +2077,11 @@ function renderSchedule(week, pr) {
   });
 
   // Shift detail table
-  let h = `<thead><tr><th>Day</th><th>Date</th><th>Shift</th><th>Line</th><th>SKU</th><th class="num">Pallets</th><th class="num">Target</th><th class="num">Attainment</th><th>Risk</th></tr></thead><tbody>`;
+  let h = `<thead><tr><th>Day</th><th>Date</th><th>Shift</th><th>Line</th><th>SKU</th><th class="num">Pallets</th><th class="num">Max/Shift</th><th class="num">Attainment</th><th>Risk</th></tr></thead><tbody>`;
   sched.forEach(s => {
-    const att = s.target > 0 ? (s.pallets / s.target * 100).toFixed(0) + '%' : '—';
-    const attCls = s.pallets >= s.target * .85 ? 'g' : s.pallets >= s.target * .6 ? 'a' : 'r';
+    const maxP = getMaxPal(s);
+    const att = maxP > 0 ? (s.pallets / maxP * 100).toFixed(0) + '%' : '—';
+    const attCls = s.pallets >= maxP * .85 ? 'g' : s.pallets >= maxP * .6 ? 'a' : 'r';
     const dayName = s.date ? DAYS[new Date(s.date+'T00:00:00').getDay() === 0 ? 6 : new Date(s.date+'T00:00:00').getDay() - 1] : '—';
     h += `<tr${s.day === 5 ? ' style="background:#F5F0FF"' : ''}>
       <td>${dayName}${s.day === 5 ? ' <span class="badge bsat">SAT</span>' : ''}</td>
@@ -2073,7 +2090,7 @@ function renderSchedule(week, pr) {
       <td><strong>${s.label}</strong></td>
       <td><span class="chip ${CHIP[s.sku]}">${s.sku}</span></td>
       <td class="num">${fmt(s.pallets)}</td>
-      <td class="num">${fmt(s.target)}</td>
+      <td class="num">${fmt(maxP)}</td>
       <td class="num ${attCls}">${att}</td>
       <td>${s.riskFlag ? '<span class="badge br">⚠ AT RISK</span>' : ''}</td>
     </tr>`;
