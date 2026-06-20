@@ -882,23 +882,27 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
   const workDays = workingDaysInWeek(weekStart).filter(dt => dt >= localToday());
   let prevSku = null;
 
-  // Avg daily demand for a SKU across next 3 weeks from weekStart
-  function avgDailyDemand(sku) {
-    let total = 0, weeks = 0;
-    for (let i = 0; i < 3; i++) {
-      const wkI = weekIdx + i;
-      if (wkI >= ALL_WEEKS.length) break;
-      const wkDem = getDemand(ALL_WEEKS[wkI])[sku].total || 0;
-      const wkOpDays = opDaysInWeek(ALL_WEEKS[wkI]);
-      if (wkOpDays > 0) { total += wkDem / wkOpDays; weeks++; }
+  // Daily demand using next week's figure preferentially — matches displayCoverDays denominator.
+  // Bug fixed 20/06/2026: avgDailyDemand used a 3-week rolling average, causing emergency
+  // thresholds to not fire when next week had a demand spike. Scheduler decisions and the
+  // display must use the same demand signal so they agree on when cover hits < 3 days.
+  function effectiveDailyDemand(sku) {
+    const nextWkI = weekIdx + 1;
+    if (nextWkI < ALL_WEEKS.length) {
+      const nextOpDays = opDaysInWeek(ALL_WEEKS[nextWkI]);
+      const nextDem    = getDemand(ALL_WEEKS[nextWkI])[sku].total || 0;
+      if (nextDem > 0 && nextOpDays > 0) return nextDem / nextOpDays;
     }
-    return weeks > 0 ? total / weeks : 0;
+    // Fall back to this week
+    const thisOpDays = opDaysInWeek(ALL_WEEKS[weekIdx]);
+    const thisDem    = getDemand(ALL_WEEKS[weekIdx])[sku].total || 0;
+    return thisOpDays > 0 && thisDem > 0 ? thisDem / thisOpDays : 0;
   }
 
   // Days of cover: 0 for negative/zero stock regardless of demand
   function cov(sku, soh) {
     if (soh <= 0) return 0;
-    const d = avgDailyDemand(sku);
+    const d = effectiveDailyDemand(sku);
     return d > 0 ? soh / d : 99;
   }
 
@@ -1319,22 +1323,32 @@ function planWeek(week) {
   // - Hysteresis band (5→7 days) prevents week-to-week oscillation.
   const avail5 = avail['5L Cask'] || 0;
   const d5 = demand['5L Cask'].total;
-  const dailyD10 = d10 > 0 ? d10 / opDays : 0;
-  const projClose10_HMPSonly = s10 + hmps.cap - d10;  // 10L close if A&B runs 5L all week
-  const projCover10_HMPSonly = dailyD10 > 0
-    ? projClose10_HMPSonly / dailyD10              // days of cover
-    : (projClose10_HMPSonly >= 0 ? 99 : 0);       // no demand: saturated or empty
+  // Use NEXT week's demand as the denominator for cover projections, matching displayCoverDays.
+  // Bug fixed 20/06/2026: previous code used this week's demand, causing lineABSku to select 5L
+  // when this week's 10L demand was low, even though next week's large delivery dropped display
+  // cover to 2-3 days. Scheduler decisions must use the same demand signal as the display.
+  const nextWkForAB = weekIdx + 1 < ALL_WEEKS.length ? ALL_WEEKS[weekIdx + 1] : null;
+  const nextABDem   = nextWkForAB ? getDemand(nextWkForAB) : null;
+  const nextD10AB   = nextABDem ? (nextABDem['10L Cask'].total || 0) : 0;
+  const nextD5AB    = nextABDem ? (nextABDem['5L Cask'].total  || 0) : 0;
+  // For the denominator: prefer next week; fall back to this week
+  const peakDailyD10 = (nextD10AB > 0 ? nextD10AB : d10) > 0
+    ? (nextD10AB > 0 ? nextD10AB : d10) / opDays : 0;
+  const peakDailyD5  = (nextD5AB  > 0 ? nextD5AB  : d5 ) > 0
+    ? (nextD5AB  > 0 ? nextD5AB  : d5 ) / opDays : 0;
+  const projClose10_HMPSonly = s10 + hmps.cap - d10;  // this week's stock change
+  const projCover10_HMPSonly = peakDailyD10 > 0
+    ? projClose10_HMPSonly / peakDailyD10          // days at next-week's demand rate
+    : (projClose10_HMPSonly >= 0 ? 99 : 0);
   // < 5 days triggers switch to 10L support; ≥ 5 days → A&B runs 5L (default)
-  // The 7-day target is achieved by running on 10L for enough consecutive weeks until rebuilt.
   let lineABSku = projCover10_HMPSonly < 5 ? '10L Cask' : '5L Cask';
   // Universal 3-day floor — overarches all other rules. Rob Harris 20/06/2026:
   // "NO SKU CAN GO UNDER 3 DAYS STOCK"
-  // 5L emergency floor: if 5L closing stock WITHOUT A&B support would drop below 3 days,
-  // force A&B to 5L immediately regardless of 10L state.
+  // 5L emergency floor: if 5L closing stock WITHOUT A&B would drop below 3 days at next
+  // week's demand rate, force A&B to 5L regardless of 10L state.
   const projClose5L_noAB = avail5 - d5;
-  const dailyD5 = d5 > 0 ? d5 / opDays : 0;
-  const projCover5L_noAB = dailyD5 > 0
-    ? projClose5L_noAB / dailyD5
+  const projCover5L_noAB = peakDailyD5 > 0
+    ? projClose5L_noAB / peakDailyD5
     : (projClose5L_noAB >= 0 ? 99 : 0);
   if (projCover5L_noAB < 3) lineABSku = '5L Cask';  // 5L emergency — must run now
   const caskResult = scheduleEPCaskLines(
