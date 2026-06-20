@@ -882,18 +882,27 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
   const workDays = workingDaysInWeek(weekStart).filter(dt => dt >= localToday());
   let prevSku = null;
 
-  // Daily demand using next week's figure preferentially — matches displayCoverDays denominator.
-  // Bug fixed 20/06/2026: avgDailyDemand used a 3-week rolling average, causing emergency
-  // thresholds to not fire when next week had a demand spike. Scheduler decisions and the
-  // display must use the same demand signal so they agree on when cover hits < 3 days.
+  // Daily demand: next-week forecast → next-week open orders → this-week forecast.
+  // Matches displayCoverDays denominator exactly so emergency thresholds fire
+  // at the same time the display would show < 3 days. Bug fixed 20/06/2026.
   function effectiveDailyDemand(sku) {
     const nextWkI = weekIdx + 1;
     if (nextWkI < ALL_WEEKS.length) {
-      const nextOpDays = opDaysInWeek(ALL_WEEKS[nextWkI]);
-      const nextDem    = getDemand(ALL_WEEKS[nextWkI])[sku].total || 0;
-      if (nextDem > 0 && nextOpDays > 0) return nextDem / nextOpDays;
+      const nextWk     = ALL_WEEKS[nextWkI];
+      const nextOpDays = opDaysInWeek(nextWk);
+      const nextFc     = getDemand(nextWk)[sku].total || 0;
+      if (nextFc > 0 && nextOpDays > 0) return nextFc / nextOpDays;
+      // Open orders fallback — same signal displayCoverDays uses
+      if (nextOpDays > 0) {
+        let weekOO = 0;
+        for (let od = 0; od < 5; od++) {
+          const ooD = openOrdersDailyPal[addDays(nextWk, od)] || {};
+          weekOO += ooD[sku] || 0;
+        }
+        if (weekOO > 0) return weekOO / nextOpDays;
+      }
     }
-    // Fall back to this week
+    // Fall back to this week's forecast
     const thisOpDays = opDaysInWeek(ALL_WEEKS[weekIdx]);
     const thisDem    = getDemand(ALL_WEEKS[weekIdx])[sku].total || 0;
     return thisOpDays > 0 && thisDem > 0 ? thisDem / thisOpDays : 0;
@@ -907,14 +916,16 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
   }
 
   // ── Initial phase decision ─────────────────────────────────────────────────
-  // Emergency: 600ml < 3 days → start there immediately.
-  // Else: 2L below 9-day target → run 2L phase.
-  // Else: 2L is fine → run 600ml phase (6pk first).
   const c6_open  = cov('600ml 6pk',  s6);
   const c12_open = cov('600ml 12pk', s12);
   const c2L_open = cov('2L Bottle',  s2L);
 
   let phase;
+  // Track whether this week opened with a 6pk emergency.
+  // When true, we allow an earlier pivot to 2L once 6pk is out of emergency
+  // so 2L doesn't go an entire week without production.
+  let weekOpenedWith6pkEmergency = c6_open < EMERGENCY_FLOOR;
+
   if (c6_open < EMERGENCY_FLOOR || c12_open < EMERGENCY_FLOOR) {
     phase = c6_open <= c12_open ? '600ml 6pk' : '600ml 12pk';
   } else if (c2L_open < TARGET_2L_COVER) {
@@ -959,6 +970,14 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
         phase = '2L Bottle';         // completed 600ml cycle → back to 2L
       } else if (c6 >= COV_6PK_TO_12PK) {
         phase = '600ml 12pk';        // 6pk sufficiently stocked → switch to 12pk
+        weekOpenedWith6pkEmergency = false;
+      } else if (weekOpenedWith6pkEmergency && c6 >= EMERGENCY_FLOOR && c2 < TARGET_2L_COVER) {
+        // 6pk recovered from opening emergency — pivot to 2L now.
+        // Don't insist on reaching 7 days (COV_6PK_TO_12PK) before letting 2L run.
+        // Without this, 6pk monopolises the line all week and 2L goes unproduced.
+        // Rob Harris 20/06/2026: NO SKU under 3 days; 4 days on 2L is part of the cycle.
+        phase = '2L Bottle';
+        weekOpenedWith6pkEmergency = false;  // clear flag — pivot happened
       }
     } else if (phase === '600ml 12pk') {
       if (days600 >= TARGET_600_DAYS) {
@@ -1308,9 +1327,25 @@ function planWeek(week) {
   // which SKU needs extra pre-build this week. Inflate the "virtual need" for that SKU
   // so the day-level scheduler naturally prioritises it.
   const weekIdx = ALL_WEEKS.indexOf(week);
+
+  // ── Pre-compute next-week open orders FIRST so all scheduling decisions use the
+  // same demand signal as displayCoverDays (forecast → OO fallback).
+  // Root bug fixed 20/06/2026: nextWkOO was computed after the A&B and bottle blocks,
+  // so neither could use it as a fallback. Moved here.
+  const nextWkForCover = ALL_WEEKS[weekIdx + 1];
+  const nextWkOO  = {};   // next-week open orders per SKU (cover fallback)
+  const thisWkOO  = {};   // this-week open orders per SKU (satTrigger fallback)
+  SKUS.forEach(s => { nextWkOO[s] = 0; thisWkOO[s] = 0; });
+  for (let d = 0; d < 5; d++) {
+    const thisDayOO = openOrdersDailyPal[addDays(week, d)] || {};
+    SKUS.forEach(s => { thisWkOO[s] += thisDayOO[s] || 0; });
+    if (nextWkForCover) {
+      const nextDayOO = openOrdersDailyPal[addDays(nextWkForCover, d)] || {};
+      SKUS.forEach(s => { nextWkOO[s] += nextDayOO[s] || 0; });
+    }
+  }
+
   // ── Pre-build scan: calculate minimum days needed per SKU on EP Line A&B
-  // Look ahead up to 4 weeks. If a SKU will go short, calculate how many
-  // extra pallets need to be built THIS week and enforce a minimum day count.
   const {single: lineAOnlyNow, out: lineOutNow} = lineOutageForWeek(week);
   const cap10shift = Math.floor((lineAOnlyNow ? 30 : 60) * eff);
   const cap5shift  = Math.floor((lineAOnlyNow ? 27 : 50) * eff);
@@ -1327,11 +1362,14 @@ function planWeek(week) {
   // Bug fixed 20/06/2026: previous code used this week's demand, causing lineABSku to select 5L
   // when this week's 10L demand was low, even though next week's large delivery dropped display
   // cover to 2-3 days. Scheduler decisions must use the same demand signal as the display.
-  const nextWkForAB = weekIdx + 1 < ALL_WEEKS.length ? ALL_WEEKS[weekIdx + 1] : null;
-  const nextABDem   = nextWkForAB ? getDemand(nextWkForAB) : null;
-  const nextD10AB   = nextABDem ? (nextABDem['10L Cask'].total || 0) : 0;
-  const nextD5AB    = nextABDem ? (nextABDem['5L Cask'].total  || 0) : 0;
-  // For the denominator: prefer next week; fall back to this week
+  // Effective demand for scheduling decisions: forecast → open orders → this week's forecast.
+  // Must match displayCoverDays denominator exactly (nextD → nextWkOO → thisD).
+  const nextABDem   = nextWkForCover ? getDemand(nextWkForCover) : null;
+  const nextD10fc   = nextABDem ? (nextABDem['10L Cask'].total || 0) : 0;
+  const nextD5fc    = nextABDem ? (nextABDem['5L Cask'].total  || 0) : 0;
+  // Priority: forecast > OO > this-week fallback
+  const nextD10AB   = nextD10fc > 0 ? nextD10fc : nextWkOO['10L Cask'];
+  const nextD5AB    = nextD5fc  > 0 ? nextD5fc  : nextWkOO['5L Cask'];
   const peakDailyD10 = (nextD10AB > 0 ? nextD10AB : d10) > 0
     ? (nextD10AB > 0 ? nextD10AB : d10) / opDays : 0;
   const peakDailyD5  = (nextD5AB  > 0 ? nextD5AB  : d5 ) > 0
@@ -1408,22 +1446,7 @@ function planWeek(week) {
     '600ml 12pk':  bottleResult.endStock12,
     '600ml 6pk':   bottleResult.endStock6,
   };
-  // Pre-compute week-specific open order pallets per SKU.
-  // openOrdersPal is the ALL-WEEKS total — using it as a weekly demand figure massively
-  // understates cover (e.g. 45 pal across 3 weeks treated as if all due this week).
-  // Use openOrdersDailyPal summed per week instead.
-  const nextWkForCover = ALL_WEEKS[weekIdx + 1];
-  const nextWkOO = {};  // next-week open orders per SKU (cover fallback)
-  const thisWkOO = {};  // this-week open orders per SKU (satTrigger fallback)
-  SKUS.forEach(s => { nextWkOO[s] = 0; thisWkOO[s] = 0; });
-  for (let d = 0; d < 5; d++) {
-    const thisDayOO = openOrdersDailyPal[addDays(week, d)] || {};
-    SKUS.forEach(s => { thisWkOO[s] += thisDayOO[s] || 0; });
-    if (nextWkForCover) {
-      const nextDayOO = openOrdersDailyPal[addDays(nextWkForCover, d)] || {};
-      SKUS.forEach(s => { nextWkOO[s] += nextDayOO[s] || 0; });
-    }
-  }
+  // nextWkForCover, nextWkOO and thisWkOO were pre-computed earlier (before A&B block).
 
   const coverDays = {};
   SKUS.forEach(s => {
