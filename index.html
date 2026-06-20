@@ -172,6 +172,7 @@ tr.risk-a td{background:#FEF9F0}
     <div class="tab" onclick="switchTab('horizon',this)">12-Week Horizon</div>
     <div class="tab" onclick="switchTab('dispatch',this)">Dispatch Calendar</div>
     <div class="tab" onclick="switchTab('alerts',this)">Alerts</div>
+    <div class="tab" onclick="switchTab('audit',this)">Data Audit</div>
     <div class="tab" onclick="switchTab('actuals',this)">Actuals vs Plan</div>
     <div class="tab" onclick="switchTab('stock',this)">Stock</div>
     <div class="tab" onclick="switchTab('openorders',this)">Open Orders</div>
@@ -273,6 +274,14 @@ tr.risk-a td{background:#FEF9F0}
 <div id="tab-alerts" class="tc">
   <div class="panel"><div class="ph red">Alerts — Selected Week</div>
     <div style="padding:12px" id="alertsPanel"></div></div>
+</div>
+
+<!-- DATA AUDIT -->
+<div id="tab-audit" class="tc">
+  <div class="panel">
+    <div class="ph navy">Data Audit — Demand Quality, Consistency Check, Production Coverage</div>
+    <div style="padding:12px" id="auditPanel"><p style="color:var(--muted)">Loading…</p></div>
+  </div>
 </div>
 
 <!-- ACTUALS VS PLAN -->
@@ -900,10 +909,15 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
   let phase = daysOver8('2L Bottle', s2L) ? 'decide600' : '2L';
 
   function decide600Phase() {
-    // Enter 600ml phase — pick whichever has lower cover
-    const c12 = daysOver8('600ml 12pk', s12);
-    const c6  = daysOver8('600ml 6pk',  s6);
-    // If both are already covered, fall back to 2L
+    // For the INITIAL weekly phase decision, a 600ml SKU is only skipped if it has
+    // genuinely excessive cover (>= 21 days = 3 weeks). The 8-day threshold is used
+    // for in-cycle switching (when to move away from a SKU mid-week) but is too low
+    // for initial skipping — it causes 600ml to be skipped in most projected weeks
+    // where accumulated stock looks adequate, resulting in 2L running the entire week.
+    const INITIAL_SKIP_DAYS = 21;
+    const c12 = daysOver8Threshold('600ml 12pk', s12, INITIAL_SKIP_DAYS);
+    const c6  = daysOver8Threshold('600ml 6pk',  s6,  INITIAL_SKIP_DAYS);
+    // If both have > 21 days cover, fall back to 2L
     if (c12 && c6) return '2L';
     if (c12) return '600ml 6pk';
     if (c6)  return '600ml 12pk';
@@ -2456,6 +2470,180 @@ function renderFrontAlerts() {
     <div style="padding:4px 12px 6px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">⚠ Forward Stock Alerts</div>
     ${reds.map(a=>`<div class="alert alert-${a.t}" style="margin:0 0 4px;border-radius:0"><div>${a.msg}</div></div>`).join('')}
     <div style="height:8px"></div>`;
+}
+
+// ══ RENDER: DATA AUDIT TAB ═══════════════════════════════════════════════════
+// Cross-references every week × every SKU: demand quality, rolling vs planWeek
+// closing stock consistency, production coverage, and forecast horizon summary.
+function renderAudit() {
+  const el = document.getElementById('auditPanel');
+  if (!el) return;
+  const todayMon = monOf(localToday());
+  const todayIdx = ALL_WEEKS.indexOf(todayMon);
+  if (todayIdx < 0) { el.innerHTML = '<p>No current week in schedule.</p>'; return; }
+
+  const AUDIT_WEEKS = 16;
+  const minHorizon = Object.values(forecastHorizonWeek).filter(Boolean).sort()[0] ?? null;
+  const todayIsFinished = remainingOpDaysInWeek(todayMon) === 0;
+  const pr0c = planWeekCache[todayMon]?._full ?? planWeek(todayMon);
+
+  const th = (t, bg='#1B2A4A', colspan=1) =>
+    `<th colspan="${colspan}" style="padding:3px 6px;background:${bg};color:white;white-space:nowrap">${t}</th>`;
+  const td = (v, style='') => `<td style="padding:3px 6px;${style}">${v}</td>`;
+  const badge = (t, col) => `<span style="background:${col};color:white;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700">${t}</span>`;
+
+  let h = '';
+
+  // ── Section 1: Demand Data Quality ──────────────────────────────────────────
+  h += `<div class="ph navy" style="margin-bottom:6px">§1 — Demand Data Quality (${AUDIT_WEEKS} weeks × ${SKUS.length} SKUs)</div>`;
+  h += `<p style="font-size:10px;color:var(--muted);margin:0 0 6px">
+    ${badge('LIVE','#27AE60')} Live retailer forecast &nbsp;
+    ${badge('PROJ','#0E7CCE')} Projected from last known week &nbsp;
+    ${badge('ZERO','#C0392B')} No data — not produced</p>`;
+
+  h += `<div class="tscroll"><table style="border-collapse:collapse;font-size:10px;width:100%">`;
+  h += `<thead><tr>${th('Week')}`;
+  SKUS.forEach(s => { h += th(s,'#1B2A4A',2); });
+  h += `</tr><tr>${th('')}`;
+  SKUS.forEach(() => { h += th('Demand','#243566') + th('Src','#243566'); });
+  h += `</tr></thead><tbody>`;
+
+  for (let i = 0; i < AUDIT_WEEKS; i++) {
+    const wkI = todayIdx + i;
+    if (wkI >= ALL_WEEKS.length) break;
+    const wk = ALL_WEEKS[wkI];
+    const dem = getDemand(wk);
+    const isProj = minHorizon && wk > minHorizon;
+    const bg = i % 2 === 0 ? '' : 'background:#f9f9f9';
+    h += `<tr style="${bg}">${td(fmtD(wk)+(isProj?` ${badge('PROJ','#0E7CCE')}`:''), `font-weight:${i===0?700:400};white-space:nowrap`)}`;
+    SKUS.forEach(s => {
+      const total = dem[s].total;
+      const ww = COMBINED[wk]?.[s]?.ww || 0;
+      const co = COMBINED[wk]?.[s]?.coles || 0;
+      const mc = COMBINED[wk]?.[s]?.metcash || 0;
+      const oth = otherDemand[s] || 0;
+      let src, col;
+      if (total === 0)    { src = 'ZERO'; col = '#C0392B'; }
+      else if (isProj)    { src = 'PROJ'; col = '#0E7CCE'; }
+      else {
+        const p = [];
+        if (ww>0) p.push('WW'); if (co>0) p.push('Co'); if (mc>0) p.push('Mc'); if (oth>0) p.push('Oth');
+        src = p.join('+') || 'ZERO'; col = p.length ? '#27AE60' : '#C0392B';
+      }
+      h += td(total===0?'—':fmt(total), `text-align:right;color:${total===0?'#C0392B':'inherit'};font-weight:${total===0?700:400}`) +
+           td(badge(src, col));
+    });
+    h += `</tr>`;
+  }
+  h += `</tbody></table></div>`;
+
+  // ── Section 2: Rolling vs planWeek Consistency ───────────────────────────────
+  h += `<div class="ph navy" style="margin:14px 0 6px">§2 — Closing Stock: Rolling Table vs planWeek</div>`;
+  h += `<p style="font-size:10px;color:var(--muted);margin:0 0 6px">Roll = rolling carry-forward; Plan = planWeek() output. Should match within 1 pal.</p>`;
+
+  h += `<div class="tscroll"><table style="border-collapse:collapse;font-size:10px;width:100%">`;
+  h += `<thead><tr>${th('Week')}`;
+  SKUS.forEach(s => h += th(s,'#1B2A4A',3));
+  h += `</tr><tr>${th('')}`;
+  SKUS.forEach(() => h += th('Roll','#243566')+th('Plan','#243566')+th('✓','#243566'));
+  h += `</tr></thead><tbody>`;
+
+  let rollStock = {...availPal()};
+  let anyMismatch = false;
+  for (let i = 0; i < AUDIT_WEEKS; i++) {
+    const wkI = todayIdx + i;
+    if (wkI >= ALL_WEEKS.length) break;
+    const wk = ALL_WEEKS[wkI];
+    const isThisWeek = i === 0;
+    const isFinished = isThisWeek && todayIsFinished;
+    const dem = getDemand(wk);
+    const pr = planWeek(wk);
+
+    let prod = {};
+    if (isFinished) {
+      SKUS.forEach(s => prod[s] = 0);
+    } else if (isThisWeek) {
+      prod = {
+        '10L Cask':   (pr0c?.cask?.prod10??0)+(pr0c?.lines?.hmps?.cap??0),
+        '5L Cask':    pr0c?.cask?.prod5??0,
+        '2L Bottle':  pr0c?.lines?.as2l?.cap??0,
+        '600ml 12pk': pr0c?.ep?.prod12??0,
+        '600ml 6pk':  pr0c?.ep?.prod6??0,
+      };
+      if (pr0c?.satUsed && pr0c?.satLines) pr0c.satLines.forEach(sl => { prod[sl.sku]=(prod[sl.sku]||0)+sl.satAlloc; });
+    } else {
+      SKUS.forEach(s => { prod[s] = pr.plannedProd?.[s] ?? 0; });
+      if (pr.satUsed && pr.satLines) pr.satLines.forEach(sl => { prod[sl.sku]=(prod[sl.sku]||0)+sl.satAlloc; });
+    }
+
+    const bg = i%2===0?'':'background:#f9f9f9';
+    h += `<tr style="${bg}">${td(fmtD(wk),`font-weight:${i===0?700:400};white-space:nowrap`)}`;
+    SKUS.forEach(s => {
+      const d = isFinished ? 0 : dem[s].total;
+      const rollClose = Math.round(rollStock[s] + prod[s] - d);
+      const planClose = Math.round(pr.closingStock?.[s] ?? 0);
+      const ok = Math.abs(rollClose - planClose) <= 1;
+      if (!ok) anyMismatch = true;
+      h += td(fmt(rollClose),'text-align:right') +
+           td(fmt(planClose),'text-align:right') +
+           td(ok?'✓':'✗', `text-align:center;color:${ok?'#27AE60':'#C0392B'};font-weight:700`);
+      rollStock[s] = Math.max(0, rollClose);
+    });
+    h += `</tr>`;
+  }
+  h += `</tbody></table></div>`;
+  if (!anyMismatch) h += `<p style="color:#27AE60;font-weight:700;margin:6px 0">✓ All closing stocks match across all weeks and SKUs.</p>`;
+
+  // ── Section 3: Production Coverage ─────────────────────────────────────────
+  h += `<div class="ph navy" style="margin:14px 0 6px">§3 — Production Coverage (demand with zero planned production)</div>`;
+  const gaps = [];
+  for (let i = 0; i < AUDIT_WEEKS; i++) {
+    const wkI = todayIdx + i;
+    if (wkI >= ALL_WEEKS.length) break;
+    const wk = ALL_WEEKS[wkI];
+    if (i===0 && todayIsFinished) continue;
+    const dem = getDemand(wk);
+    const pr = planWeek(wk);
+    SKUS.forEach(s => {
+      const d = dem[s].total, p = pr.plannedProd?.[s]??0;
+      if (d > 0.5 && p < 0.5) gaps.push({wk, s, d:Math.round(d), p:Math.round(p)});
+    });
+  }
+  if (!gaps.length) {
+    h += `<p style="color:#27AE60;font-weight:700">✓ Every week with demand has planned production.</p>`;
+  } else {
+    h += `<table style="border-collapse:collapse;font-size:10px">
+      <thead><tr>${th('Week','#C0392B')}${th('SKU','#C0392B')}${th('Demand (pal)','#C0392B')}${th('Planned','#C0392B')}</tr></thead><tbody>`;
+    gaps.forEach((g,i) => {
+      h += `<tr style="${i%2===0?'':'background:#fef5f5'}">
+        ${td(fmtD(g.wk),'white-space:nowrap')}${td(`<span class="chip ${CHIP[g.s]}">${g.s}</span>`)}
+        ${td(fmt(g.d),'text-align:right;color:#C0392B;font-weight:700')}${td('0','text-align:right')}
+      </tr>`;
+    });
+    h += `</tbody></table>`;
+  }
+
+  // ── Section 4: Forecast Horizon ─────────────────────────────────────────────
+  h += `<div class="ph navy" style="margin:14px 0 6px">§4 — Forecast Horizon by Retailer</div>`;
+  h += `<table style="border-collapse:collapse;font-size:10px">
+    <thead><tr>${th('Retailer')}${th('SKUs they supply')}${th('Last Live Week')}${th('Status')}</tr></thead><tbody>`;
+  const retailerInfo = [
+    {ch:'ww',  label:'Woolworths', skus:'10L, 5L, 2L, 12pk (no 6pk)'},
+    {ch:'coles',label:'Coles',     skus:'10L, 5L, 2L, 6pk (no 12pk)'},
+    {ch:'metcash',label:'Metcash', skus:'All SKUs'},
+  ];
+  retailerInfo.forEach((r,i) => {
+    const hw = forecastHorizonWeek[r.ch];
+    const status = hw ? `Live to ${fmtD(hw)} — projected beyond` : 'No live data loaded';
+    const col = hw ? '#27AE60' : '#C0392B';
+    h += `<tr style="${i%2===0?'':'background:#f9f9f9'}">
+      ${td(`<strong>${r.label}</strong>`)}${td(r.skus,'color:var(--muted)')}
+      ${td(hw?fmtD(hw):'—')}${td(`<span style="color:${col};font-weight:700">${status}</span>`)}
+    </tr>`;
+  });
+  h += `</tbody></table>`;
+
+  el.innerHTML = h;
 }
 
 // ══ RENDER: ALERTS TAB ════════════════════════════════════════════════════════
@@ -4102,6 +4290,7 @@ function rebuildData() {
   forwardFillDemand(); // project demand forward 16 weeks beyond live forecast horizon
   onWeekChange();
   renderFrontAlerts(); // always anchored to today — must run after onWeekChange so planWeek cache is warm
+  renderAudit();       // cross-reference audit — refreshes whenever data changes
 }
 
 function buildEmbWW(){
@@ -4194,6 +4383,7 @@ function onWeekChange() {
   renderHorizon();
   renderDispatch();
   renderAlerts(); // anchored to today — not week-dependent
+  renderAudit();  // cross-reference audit — anchored to today
   // Re-filter actuals for newly selected week
   if(rawActualsData && rawActualsData.length) {
     const wkS = currentWeek;
