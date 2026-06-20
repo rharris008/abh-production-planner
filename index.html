@@ -2130,48 +2130,32 @@ function renderHorizon() {
 //      We apply colesDispatchOffset days: default 1 (dispatch day before arrival).
 // FIX: Other customer orders appear as dispatch events with required dates.
 function renderDispatch() {
-  const today=localToday();
-  const end=addDays(today,21);  // extended to 3 weeks for better forward view
-  const all=[];
-  // WW: use need_arrival as-is (already ABH's arrival date; WW manages lead time)
-  WW_ORDERS.forEach(o=>{if(o.need_arrival>=today&&o.need_arrival<=end&&o.pallets>0)
-    all.push({retailer:'WW',...o, dispatchBy:addDays(o.need_arrival,-wwDispatchOffset)});});
-  // Coles: order_date IS the required DC arrival date. ABH must dispatch earlier.
-  COLES_ORDERS.forEach(o=>{if(o.order_date>=today&&o.order_date<=end&&o.pallets>0)
-    all.push({retailer:'Coles',need_arrival:o.order_date,delivery_date:o.order_date,order_date:o.order_date,sku:o.sku,units:o.units,pallets:o.pallets,
-      dispatchBy:addDays(o.order_date,-colesDispatchOffset)});});
-  // Metcash dispatch events
-  const mcOrders = metcashOvr ? metcashOvr.orders : METCASH_ORDERS;
-  mcOrders.forEach(o=>{
-    if(!o.pallets||!o.dispatch_by)return;
-    if(o.dispatch_by>=today&&o.dispatch_by<=end)
-      all.push({retailer:'Metcash',sku:o.sku,need_arrival:o.need_arrival,
-        delivery_date:o.need_arrival,order_date:o.dispatch_by,
-        units:o.units,pallets:o.pallets,dispatchBy:o.dispatch_by});
-  });
-  // Other customer dispatch events
-  SKUS.forEach(s=>{
-    const palWk=otherDemand[s]||0; if(!palWk) return;
-    // Spread across the next 3 weeks — one event per week
-    [0,7,14].forEach(offset=>{
-      const dt=addDays(today,offset+2); // proxy: dispatch mid-week
-      if(dt<=end) all.push({retailer:'Other',sku:s,need_arrival:dt,delivery_date:dt,
-        order_date:dt,units:Math.round(palWk*(UPP[s]||1)),pallets:palWk,dispatchBy:dt});
-    });
-  });
-  all.sort((a,b)=>a.need_arrival.localeCompare(b.need_arrival));
+  const today = localToday();
 
-  // Build planned production by date from shift schedules — same source the rolling stock view uses.
-  // This ensures the dispatch calendar credits production as it completes before netting off each order,
-  // making it consistent with the rolling stock projection.
+  // Source: confirmed NS open orders only — not forecast-derived entries.
+  // openOrdersData is populated by applyOpenOrdersFromSB() from the open_order_lines
+  // Supabase table, which is synced hourly from NetSuite.
+  if (!openOrdersData || !openOrdersData.length) {
+    document.getElementById('dispTable').innerHTML =
+      `<thead><tr><th>SO #</th><th>Customer</th><th>Ship Date</th><th>SKU</th><th class="num">Units</th><th class="num">Pallets</th><th class="num">Running Stock</th><th>Status</th></tr></thead>` +
+      `<tbody><tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">No confirmed orders loaded — data syncs hourly from NetSuite</td></tr></tbody>`;
+    return;
+  }
+
+  // Sort by ship date, then SO number
+  const orders = [...openOrdersData]
+    .filter(o => o.date >= today)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.docNum.localeCompare(b.docNum));
+
+  // Build planned production credits (future production not yet in NS stock)
+  const end = orders.length ? orders[orders.length - 1].date : addDays(today, 21);
   const plannedByDate = {};
   const weeksInWindow = new Set();
-  for (let d = 0; d <= 21; d++) weeksInWindow.add(monOf(addDays(today, d)));
+  for (let d = 0; d <= 35; d++) weeksInWindow.add(monOf(addDays(today, d)));
   weeksInWindow.forEach(w => {
     const wkPr = planWeekCache[w]?._full ?? planWeek(w);
     const sched = buildSchedule(w, wkPr);
     sched.forEach(s => {
-      // Only future production dates — today's completed production is already in SOH via availPal()
       if (s.date > today && s.date <= end) {
         if (!plannedByDate[s.date]) plannedByDate[s.date] = {};
         plannedByDate[s.date][s.sku] = (plannedByDate[s.date][s.sku] || 0) + s.pallets;
@@ -2181,33 +2165,51 @@ function renderDispatch() {
   const prodDates = Object.keys(plannedByDate).sort();
   let prodIdx = 0;
 
-  // Sequential depletion + production credit: running stock balance per SKU.
-  // Production is credited before each order event as dispatch dates advance.
+  // Running stock: start from today's physical stock, credit future production as dates advance
   const runningStock = {...availPal()};
-  let h=`<thead><tr><th>Retailer</th><th>SKU</th><th>Dispatch By</th><th>Need Arrival</th><th class="num">Pallets</th><th class="num">Running Stock</th><th>Status</th></tr></thead><tbody>`;
-  all.forEach(o=>{
-    // Credit all planned production completed on or before this order's dispatch date
-    while (prodIdx < prodDates.length && prodDates[prodIdx] <= o.dispatchBy) {
+
+  const retailBadgeClass = r =>
+    r.includes('Woolworths') ? 'bb' :
+    r.includes('Coles')      ? 'bg' :
+    r.includes('Metcash')    ? 'ba' : 'bn';
+
+  let h = `<thead><tr>
+    <th>SO #</th><th>Customer</th><th>Ship Date</th><th>SKU</th>
+    <th class="num">Units</th><th class="num">Pallets</th>
+    <th class="num">Running Stock</th><th>Status</th>
+  </tr></thead><tbody>`;
+
+  orders.forEach(o => {
+    // Credit planned production completed on or before this order's ship date
+    while (prodIdx < prodDates.length && prodDates[prodIdx] <= o.date) {
       const pd = plannedByDate[prodDates[prodIdx]];
-      SKUS.forEach(s => { if (pd[s]) runningStock[s] = (runningStock[s]||0) + pd[s]; });
+      SKUS.forEach(s => { if (pd[s]) runningStock[s] = (runningStock[s] || 0) + pd[s]; });
       prodIdx++;
     }
-    const urg=o.dispatchBy<=addDays(today,2);
-    runningStock[o.sku]=(runningStock[o.sku]||0)-o.pallets;
-    const covered=runningStock[o.sku]>=0;
-    const shortQty=covered?0:Math.abs(runningStock[o.sku]);
-    const retailBadge=o.retailer==='WW'?'bb':o.retailer==='Coles'?'bg':o.retailer==='Metcash'?'ba':'bn';
-    h+=`<tr class="${!covered?'risk-r':urg?'risk-a':''}">
-      <td><span class="badge ${retailBadge}">${o.retailer}</span></td>
+    const urg = o.date <= addDays(today, 2);
+    runningStock[o.sku] = (runningStock[o.sku] || 0) - o.pallets;
+    const covered  = runningStock[o.sku] >= 0;
+    const shortQty = covered ? 0 : Math.abs(runningStock[o.sku]);
+    h += `<tr class="${!covered ? 'risk-r' : urg ? 'risk-a' : ''}">
+      <td style="font-size:10px;color:var(--muted)">${o.docNum}</td>
+      <td><span class="badge ${retailBadgeClass(o.retailer)}">${o.retailer}</span>
+          <span style="font-size:10px;color:var(--muted);margin-left:4px">${o.customer}</span></td>
+      <td class="${urg ? 'r' : ''}">${fmtD(o.date)}${urg ? ' ⚠' : ''}</td>
       <td><span class="chip ${CHIP[o.sku]}">${o.sku}</span></td>
-      <td class="${urg?'r':''}">${fmtD(o.dispatchBy)}${urg?' ⚠':''}</td>
-      <td>${fmtD(o.need_arrival)}</td>
+      <td class="num">${fmt(o.units)}</td>
       <td class="num">${fmt(o.pallets)}</td>
-      <td class="num ${covered?'':'r'}">${fmt(Math.round(runningStock[o.sku]))}</td>
-      <td>${covered?'<span class="badge bg">COVERED</span>':`<span class="badge br">SHORT ${fmt(Math.round(shortQty))} pal</span>`}</td>
+      <td class="num ${covered ? '' : 'r'}">${fmt(Math.round(runningStock[o.sku]))}</td>
+      <td>${covered
+        ? '<span class="badge bg">COVERED</span>'
+        : `<span class="badge br">SHORT ${fmt(Math.round(shortQty))} pal</span>`}</td>
     </tr>`;
   });
-  document.getElementById('dispTable').innerHTML=h+'</tbody>';
+
+  if (!orders.length) {
+    h += `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">No open orders scheduled from today onwards</td></tr>`;
+  }
+
+  document.getElementById('dispTable').innerHTML = h + '</tbody>';
 }
 
 // ══ RENDER: ALERTS ════════════════════════════════════════════════════════════
@@ -2406,8 +2408,8 @@ function mapOOItem(raw) {
 function mapOORetailer(customer) {
   const u = customer.toUpperCase();
   if (u.includes('WOOLWORTHS')) return 'Woolworths';
-  if (u.includes('COLES')) return 'Coles';
-  if (u.includes('METCASH') || u.includes('IGA') || u.includes('MET')) return 'Metcash/IGA';
+  if (u.includes('COLES') || u.includes('GHPL')) return 'Coles';
+  if (u.includes('METCASH') || u.includes('IGA') || u.includes('MET') || u.includes('STATEWIDE')) return 'Metcash/IGA';
   if (u.includes('ALDI')) return 'Aldi';
   if (u.includes('COSTCO')) return 'Costco';
   return customer.split(' ')[0] || 'Other';
