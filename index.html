@@ -488,6 +488,9 @@ const lineBSku = '5L';            // used for actuals label normalisation only �
 let colesOvr    = null;
 let metcashOvr  = null;
 let activeRetailer = 'All';  // retailer filter for SKU strip — 'All', 'WW', 'Coles', 'Metcash'
+// Tracks the last week with live retailer data per channel (set by forwardFillDemand).
+// Weeks beyond this are forward-filled projections, not live forecast rows.
+let forecastHorizonWeek = { ww: null, coles: null, metcash: null };
 let actualsData    = null;  // parsed NetSuite runs filtered to current week
 let rawActualsData = null;  // all runs from uploaded file (unfiltered)
 
@@ -1763,7 +1766,7 @@ function renderRollingTable(pr) {
   if (!el) return;
   const eff = getEff();
   const hmpsTgt = hmpsConfig === 'Dual' ? 80 : 40;
-  const WEEKS_FORWARD = 13;  // current week + 12 ahead
+  const WEEKS_FORWARD = 16;  // current week + 15 ahead (16-week demand horizon)
 
   // Build headers: Week | then per-SKU groups
   const skuCols = SKUS.filter(s => {
@@ -1859,11 +1862,11 @@ function renderRollingTable(pr) {
     const {single: la, out: laOut} = lineOutageForWeek(wk);
     const wkOpDays = isThisWeek ? remainingOpDaysInWeek(wk) : opDaysInWeek(wk);
 
-    // For a finished week: prod = 0, demand adjustment = 0 — closing stock = today's physical stock.
-    // For active/future weeks: compute production using carried-forward stock for this row.
-    // planWeek() is NOT used for future-week production because it always reads today's opening
-    // stock, causing the 8-day throttle to fire incorrectly when today's stock looks adequate
-    // but projected stock weeks out is actually low.
+    // Projected row: week is beyond at least one retailer's live forecast horizon.
+    // Demand has been forward-filled by forwardFillDemand() using last known qty + seasonal factor.
+    const minHorizon = Object.values(forecastHorizonWeek).filter(Boolean).sort()[0] ?? null;
+    const isProjected = !isFinishedWeek && !isThisWeek && minHorizon && wk > minHorizon;
+
     let maxProd;
     if (isFinishedWeek) {
       maxProd = {'10L Cask':0,'5L Cask':0,'2L Bottle':0,'600ml 12pk':0,'600ml 6pk':0};
@@ -1903,7 +1906,8 @@ function renderRollingTable(pr) {
       la ? 'background:rgba(255,165,0,0.06)' : '';
     const lineBLabel = la ? ` <span style="font-size:9px;color:var(--amber);font-weight:700">LINE ${laOut} OUT</span>` : '';
     const doneLabel  = isFinishedWeek ? ` <span style="font-size:9px;color:var(--muted);font-weight:600">COMPLETE</span>` : '';
-    h += `<tr style="${rowStyle}"><td style="font-size:11px;white-space:nowrap">${fmtD(wk)}${lineBLabel}${doneLabel}</td>`;
+    const projLabel  = isProjected ? ` <span style="font-size:9px;color:var(--blue);font-weight:600" title="Demand projected from last live forecast week — last known qty with seasonal adjustment">PROJ</span>` : '';
+    h += `<tr style="${rowStyle}"><td style="font-size:11px;white-space:nowrap">${fmtD(wk)}${lineBLabel}${doneLabel}${projLabel}</td>`;
 
     skuCols.forEach(s => {
       const d    = isFinishedWeek ? 0 : dem[s].total; // finished week: no demand adjustment
@@ -3996,6 +4000,62 @@ function parseColes(wb,fname) {
   }
 }
 
+// Returns the seasonal demand multiplier for a given week Monday (YYYY-MM-DD).
+// October through February (peak summer demand): +5%.
+// March through September: hold constant.
+function seasonalFactor(weekDate) {
+  const month = parseInt(weekDate.substring(5, 7));
+  return (month >= 10 || month <= 2) ? 1.05 : 1.00;
+}
+
+// Forward-fills COMBINED demand for weeks beyond each retailer's live forecast horizon.
+// Uses the last known week's demand per retailer/SKU, adjusted for seasonality.
+// Horizon: 16 weeks from today's Monday.
+// Called after rebuildData() has merged live sources into COMBINED.
+function forwardFillDemand() {
+  const todayMon = monOf(localToday());
+  const todayIdx = ALL_WEEKS.indexOf(todayMon);
+  if (todayIdx < 0) return;
+
+  const FILL_HORIZON = 16;
+  const endIdx = Math.min(todayIdx + FILL_HORIZON, ALL_WEEKS.length - 1);
+  const channels = ['ww', 'coles', 'metcash'];
+
+  // Reset horizon tracking
+  forecastHorizonWeek = { ww: null, coles: null, metcash: null };
+
+  channels.forEach(ch => {
+    // Find the last week within the fill horizon that has non-zero data for this channel (any SKU)
+    let lastLiveIdx = -1;
+    for (let i = todayIdx; i <= endIdx; i++) {
+      const wk = ALL_WEEKS[i];
+      if (SKUS.some(s => (COMBINED[wk]?.[s]?.[ch] || 0) > 0)) lastLiveIdx = i;
+    }
+    if (lastLiveIdx < 0) return; // no live data for this channel — nothing to project from
+
+    forecastHorizonWeek[ch] = ALL_WEEKS[lastLiveIdx];
+
+    // Capture last known value per SKU for this channel
+    const lastVals = {};
+    SKUS.forEach(s => { lastVals[s] = COMBINED[ALL_WEEKS[lastLiveIdx]]?.[s]?.[ch] || 0; });
+
+    // Forward-fill from the week after last live data through to the horizon
+    for (let i = lastLiveIdx + 1; i <= endIdx; i++) {
+      const wk = ALL_WEEKS[i];
+      const factor = seasonalFactor(wk);
+      if (!COMBINED[wk]) COMBINED[wk] = {};
+      SKUS.forEach(s => {
+        if (!COMBINED[wk][s]) COMBINED[wk][s] = { ww: 0, coles: 0, metcash: 0, total: 0 };
+        COMBINED[wk][s][ch] = Math.round(lastVals[s] * factor);
+        // Recompute combined total
+        COMBINED[wk][s].total = (COMBINED[wk][s].ww || 0) +
+                                (COMBINED[wk][s].coles || 0) +
+                                (COMBINED[wk][s].metcash || 0);
+      });
+    }
+  });
+}
+
 function rebuildData() {
   // Rebuild COMBINED from all three sources independently.
   // Each retailer uses live data if available, embedded otherwise.
@@ -4037,6 +4097,7 @@ function rebuildData() {
     });
     if(Object.keys(merged).length) DAILY_REQUIRED[d]=merged;
   });
+  forwardFillDemand(); // project demand forward 16 weeks beyond live forecast horizon
   onWeekChange();
   renderFrontAlerts(); // always anchored to today — must run after onWeekChange so planWeek cache is warm
 }
