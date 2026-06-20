@@ -1165,15 +1165,9 @@ function planWeek(week) {
 
   const s10   = avail['10L Cask'] || 0;
   const d10   = demand['10L Cask'].total;
-  // HMPS runs every available working day (2 shifts unless 10L closing cover >= 14 days → day only).
-  // 14-day threshold: prevents marginal over-stock (8-9 days cover) from incorrectly dropping to
-  // 1 shift. Only throttle to Day-only when stock would be genuinely excessive (2+ weeks cover).
-  const hmpsFull2ShiftCap = Math.floor(hmpsTgt * 2 * opDays * eff);
-  const dailyDemand10 = d10 > 0 ? d10 / opDays : 0;
-  const hmpsClosingCover2sh = dailyDemand10 > 0 ? (s10 + hmpsFull2ShiftCap - d10) / dailyDemand10 : 99;
-  // Guard: only throttle when demand data exists. Zero demand → cover = 99 (no data) → must NOT throttle.
-  const hmpsShifts = (dailyDemand10 > 0 && hmpsClosingCover2sh >= 14) ? 1 : 2;
-  const hmpsTgtLabel = hmpsShifts === 1 ? `EP HMPS (${hmpsConfig} – Day only)` : `EP HMPS (${hmpsConfig})`;
+  // HMPS always runs 2 shifts every available working day. No throttle. (Rule per Rob Harris 20/06/2026)
+  const hmpsShifts = 2;
+  const hmpsTgtLabel = `EP HMPS (${hmpsConfig})`;
   const days10hmps = opDays;
   const hmps = makeLine(hmpsTgtLabel, 'EP', '10L Cask', hmpsTgt, days10hmps, hmpsShifts);
 
