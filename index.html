@@ -1435,6 +1435,20 @@ function planWeek(week) {
     });
   }
 
+  // Recompute coverDays for DISPLAY using final closing stock (satStock when Saturday triggered,
+  // stockEnd otherwise). The original coverDays computed above used stockEnd only as the
+  // satTrigger signal — do not change that. These display values replace coverDays in result.
+  const satActive = needSat && !satIsHoliday;
+  const displayCoverDays = {};
+  SKUS.forEach(s => {
+    const closingForCover = satActive ? satStock[s] : stockEnd[s];
+    const nextWkDem2 = nextWkForCover ? getDemand(nextWkForCover) : null;
+    const nextD2 = nextWkDem2 ? (nextWkDem2[s].total || 0) : 0;
+    const thisD2 = demand[s].total;
+    const effD2 = nextD2 > 0 ? nextD2 : (thisD2 > 0 ? thisD2 : nextWkOO[s]);
+    displayCoverDays[s] = effD2 > 0 ? (closingForCover / effD2) * 5 : 99;
+  });
+
   const finalShortfall = {};
   SKUS.forEach(s => {
     const end = needSat ? satStock[s] : stockEnd[s];
@@ -1478,7 +1492,7 @@ function planWeek(week) {
   prebuildAlert.sort((a,b) => a.weeksAway - b.weeksAway);
 
   const result = {
-    demand, netDem, stockEnd, coverDays, finalShortfall,
+    demand, netDem, stockEnd, coverDays: displayCoverDays, finalShortfall,
     satTriggers, satLines, satStock,
     satUsed: needSat && !satIsHoliday && satLines.length > 0,
     satIsHoliday,
@@ -1505,12 +1519,16 @@ function planWeek(week) {
   };
   if (!planWeekCache[week]) planWeekCache[week] = {};
   planWeekCache[week]._full = result;
+  // Use satStock as closing position when Saturday ran — this is what the next week starts from.
+  // Using stockEnd here (pre-Saturday) would understate opening stock for all downstream weeks.
+  const cs = result.satStock;
+  const sat = result.satUsed;
   planWeekCache[week].closingStock = {
-    '10L Cask':   result.stockEnd10 ?? 0,
-    '5L Cask':    result.stockEnd5  ?? 0,
-    '2L Bottle':  result.stockEnd2  ?? 0,
-    '600ml 12pk': result.ep?.endStock12 ?? 0,
-    '600ml 6pk':  result.ep?.endStock6  ?? 0,
+    '10L Cask':   sat ? (cs?.['10L Cask']   ?? result.stockEnd10 ?? 0) : (result.stockEnd10 ?? 0),
+    '5L Cask':    sat ? (cs?.['5L Cask']    ?? result.stockEnd5  ?? 0) : (result.stockEnd5  ?? 0),
+    '2L Bottle':  sat ? (cs?.['2L Bottle']  ?? result.stockEnd2  ?? 0) : (result.stockEnd2  ?? 0),
+    '600ml 12pk': sat ? (cs?.['600ml 12pk'] ?? result.ep?.endStock12 ?? 0) : (result.ep?.endStock12 ?? 0),
+    '600ml 6pk':  sat ? (cs?.['600ml 6pk']  ?? result.ep?.endStock6  ?? 0) : (result.ep?.endStock6  ?? 0),
   };
   return result;
 }
@@ -1952,7 +1970,10 @@ function renderRollingTable(pr) {
 
 // ══ RENDER: PRODUCTION PLAN TABLE ════════════════════════════════════════════
 function renderProdTable(pr) {
-  const {lines,cask,ep,coverDays,finalShortfall,satLines,satUsed,demand,stockEnd} = pr;
+  const {lines,cask,ep,coverDays,finalShortfall,satLines,satUsed,satStock,demand,stockEnd} = pr;
+  // When Saturday ran, use satStock (final closing position) for End Stock and Days Cover display.
+  // stockEnd is the pre-Saturday weekday close — not the right number to show here.
+  const effEnd = s => satUsed ? (satStock?.[s] ?? stockEnd[s]) : stockEnd[s];
   const opDays = opDaysInWeek(currentWeek);
   let h=`<thead><tr><th>SKU</th><th>Line</th><th class="num">Days Run</th><th class="num">Produced (pal)</th><th class="num">Demand (pal)</th><th class="num">End Stock (pal)</th><th class="num">Days Cover</th><th>Line Use</th></tr></thead><tbody>`;
 
@@ -1994,27 +2015,29 @@ function renderProdTable(pr) {
       <td>${ub}</td></tr>`;
   }
 
-  h+=lr(lines.hmps, stockEnd['10L Cask'], coverDays['10L Cask']);
-  h+=caskRow('10L Cask', cask.prod10, cask.days10, stockEnd['10L Cask'], coverDays['10L Cask'], 2);
-  h+=caskRow('5L Cask',  cask.prod5,  cask.days5,  pr.stockEnd5, coverDays['5L Cask'], cask.shifts5 ?? 2);
-  h+=lr(lines.as2l, pr.stockEnd2, coverDays['2L Bottle']);
+  h+=lr(lines.hmps, effEnd('10L Cask'), coverDays['10L Cask']);
+  h+=caskRow('10L Cask', cask.prod10, cask.days10, effEnd('10L Cask'), coverDays['10L Cask'], 2);
+  h+=caskRow('5L Cask',  cask.prod5,  cask.days5,  effEnd('5L Cask'), coverDays['5L Cask'], cask.shifts5 ?? 2);
+  h+=lr(lines.as2l, effEnd('2L Bottle'), coverDays['2L Bottle']);
 
   // EP New Line — summarise from day-level schedule
   const cov12=coverDays['600ml 12pk'], cov6=coverDays['600ml 6pk'];
-  const ec12=ep.endStock12<0?'r':'g', ec6=ep.endStock6<0?'r':'g';
+  const endStock12 = effEnd('600ml 12pk');
+  const endStock6  = effEnd('600ml 6pk');
+  const ec12=endStock12<0?'r':'g', ec6=endStock6<0?'r':'g';
   const cc12=cov12<3?'r':cov12<5?'a':'g', cc6=cov6<3?'r':cov6<5?'a':'g';
   h+=`<tr><td><span class="chip c12pk">600ml 12pk</span></td>
     <td><strong>EP New Line</strong> <span style="font-size:10px;color:var(--muted)">(day-level scheduled)</span></td>
     <td class="num">${ep.days12} shifts / ${opDays*2}</td><td class="num"><strong>${fmt(ep.prod12)}</strong></td>
     <td class="num">${fmt(demand['600ml 12pk']?.total||0)}</td>
-    <td class="num ${ec12}">${fmt(ep.endStock12)}</td>
+    <td class="num ${ec12}">${fmt(endStock12)}</td>
     <td class="num ${cc12}">${cov12>50?'7.0':cov12<0?'<0':fmtF(Math.max(0,cov12))}d</td>
     <td><span class="badge ba">SCHEDULED</span></td></tr>`;
   h+=`<tr><td><span class="chip c6pk">600ml 6pk</span></td>
     <td><strong>EP New Line</strong> <span style="font-size:10px;color:var(--muted)">(day-level scheduled)</span></td>
     <td class="num">${ep.days6} shifts / ${opDays*2}</td><td class="num"><strong>${fmt(ep.prod6)}</strong></td>
     <td class="num">${fmt(demand['600ml 6pk']?.total||0)}</td>
-    <td class="num ${ec6}">${fmt(ep.endStock6)}</td>
+    <td class="num ${ec6}">${fmt(endStock6)}</td>
     <td class="num ${cc6}">${cov6>50?'7.0':cov6<0?'<0':fmtF(Math.max(0,cov6))}d</td>
     <td><span class="badge ba">SCHEDULED</span></td></tr>`;
 
