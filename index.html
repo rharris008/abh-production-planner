@@ -908,6 +908,26 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
   const workDays = workingDaysInWeek(weekStart).filter(dt => dt >= localToday());
   let prevSku = null;
 
+  // Far-future weeks (typically 4+ weeks out) have no confirmed DAILY_REQUIRED delivery entries.
+  // Without entries, s2L/s6/s12 never deplete, cover stays infinite, and the scheduler never
+  // produces those SKUs. Fix: if the ENTIRE week has zero DAILY_REQUIRED for a SKU, spread the
+  // getDemand() weekly total evenly across working days as the daily consumption fallback.
+  // If ANY DAILY_REQUIRED entry exists for the week, use actual deliveries only (avoids double-counting).
+  const weeklyDR = {'2L Bottle': 0, '600ml 6pk': 0, '600ml 12pk': 0};
+  workDays.forEach(dt => {
+    const dr = DAILY_REQUIRED[dt] || {};
+    weeklyDR['2L Bottle']  += dr['2L Bottle']  || 0;
+    weeklyDR['600ml 6pk']  += dr['600ml 6pk']  || 0;
+    weeklyDR['600ml 12pk'] += dr['600ml 12pk'] || 0;
+  });
+  const wdLen = workDays.length || 1;
+  const wkDem = getDemand(weekStart);
+  const fcDep = {  // daily forecast depletion rate (0 when DAILY_REQUIRED is present for that SKU)
+    '2L Bottle':  weeklyDR['2L Bottle']  === 0 ? wkDem['2L Bottle'].total   / wdLen : 0,
+    '600ml 6pk':  weeklyDR['600ml 6pk']  === 0 ? wkDem['600ml 6pk'].total   / wdLen : 0,
+    '600ml 12pk': weeklyDR['600ml 12pk'] === 0 ? wkDem['600ml 12pk'].total  / wdLen : 0,
+  };
+
   // Tracks the current day index within the loop so effectiveDailyDemand can
   // compute remaining weekly deliveries. Updated at start of each iteration.
   let _currentDay = 0;
@@ -1087,10 +1107,12 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
     if (sku === '2L Bottle') days2L++; else days600++;
     prevSku = sku;
 
-    // Consume deliveries at end of day
-    s2L -= due2L;
-    s12 -= due12;
-    s6  -= due6;
+    // Consume deliveries at end of day.
+    // fcDep is non-zero only when the whole week has no DAILY_REQUIRED entries (far-future weeks).
+    // This prevents stock from appearing frozen when no confirmed delivery data exists yet.
+    s2L -= due2L + fcDep['2L Bottle'];
+    s12 -= due12 + fcDep['600ml 12pk'];
+    s6  -= due6  + fcDep['600ml 6pk'];
   }
 
   return {
