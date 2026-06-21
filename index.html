@@ -481,11 +481,12 @@ const SKUS   = ['10L Cask','5L Cask','2L Bottle','600ml 12pk','600ml 6pk'];
 const CHIP   = {'10L Cask':'c10L','5L Cask':'c5L','2L Bottle':'c2L','600ml 12pk':'c12pk','600ml 6pk':'c6pk'};
 const DAYS   = ['Mon','Tue','Wed','Thu','Fri','Sat'];
 
-// 12pk line closure: w/c 13/07/2026 is the last production week.
-// No 12pk demand or production from 20/07/2026. Bottle line reverts to 2L + 6pk only.
-// Note: w/c 20/07 has no 12pk sales, so treating it as closure start avoids producing
-// into zero demand. Source: Rob Harris 21/06/2026.
-const LAST_12PK_PROD_WEEK = '2026-07-13';
+// 12pk line closure: last PRODUCTION week is w/c 13/07/2026.
+// Last SALES week is w/c 20/07/2026 — demand present but no new production; existing stock depletes.
+// No 12pk demand or production from 27/07/2026. Bottle line reverts to 2L + 6pk only.
+// LAST_12PK_PROD_WEEK marks the closure boundary: production uses strict < (stops from 20/07),
+// demand uses strict > (zeroed from 27/07). Source: Rob Harris 21/06/2026.
+const LAST_12PK_PROD_WEEK = '2026-07-20';
 
 // ══ STATE ════════════════════════════════════════════════════════════════════
 let currentWeek = '';
@@ -876,10 +877,11 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
   const EMERGENCY_FLOOR = 3;   // days — no SKU falls below this
   const COV_6PK_TO_12PK = 7;   // days — switch within 600ml phase: 6pk→12pk when 6pk >= this
 
-  // After w/c 20/07, 12pk line is permanently closed. No production or emergency scheduling.
-  // Demand is already zeroed in getDemand() for post-closure weeks (so cov() returns 99).
+  // 12pk production stops BEFORE the closure week (strict <).
+  // w/c 20/07 has real demand but no production — existing stock depletes to zero.
+  // From 27/07: demand also zeroed in getDemand(). Closing stock at 27/07 = 0.
   // Guards below prevent any phase/sku selection for 12pk when inactive.
-  const is12pkActive = weekStart <= LAST_12PK_PROD_WEEK;
+  const is12pkActive = weekStart < LAST_12PK_PROD_WEEK;
 
   const shiftMins = 450;
   const coMins    = epChangeoverMins;
