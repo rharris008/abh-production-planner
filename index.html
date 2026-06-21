@@ -481,6 +481,11 @@ const SKUS   = ['10L Cask','5L Cask','2L Bottle','600ml 12pk','600ml 6pk'];
 const CHIP   = {'10L Cask':'c10L','5L Cask':'c5L','2L Bottle':'c2L','600ml 12pk':'c12pk','600ml 6pk':'c6pk'};
 const DAYS   = ['Mon','Tue','Wed','Thu','Fri','Sat'];
 
+// 12pk line closure: w/c 20/07/2026 is the last production week.
+// No 12pk demand or production from 27/07/2026. Bottle line reverts to 2L + 6pk only.
+// Source: Rob Harris 21/06/2026.
+const LAST_12PK_PROD_WEEK = '2026-07-20';
+
 // ══ STATE ════════════════════════════════════════════════════════════════════
 let currentWeek = '';
 let hmpsConfig  = 'Dual';
@@ -611,6 +616,10 @@ function getDemand(week) {
     const other   = otherDemand[s]       || 0;
     r[s] = {ww, coles, metcash, other, total: ww + coles + metcash + other};
   });
+  // 12pk close-out: clear all demand from 27/07/2026 so scheduler never sees a reason to produce.
+  if (week > LAST_12PK_PROD_WEEK) {
+    r['600ml 12pk'] = {ww:0, coles:0, metcash:0, other:0, total:0};
+  }
   return r;
 }
 
@@ -866,6 +875,11 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
   const EMERGENCY_FLOOR = 3;   // days — no SKU falls below this
   const COV_6PK_TO_12PK = 7;   // days — switch within 600ml phase: 6pk→12pk when 6pk >= this
 
+  // After w/c 20/07, 12pk line is permanently closed. No production or emergency scheduling.
+  // Demand is already zeroed in getDemand() for post-closure weeks (so cov() returns 99).
+  // Guards below prevent any phase/sku selection for 12pk when inactive.
+  const is12pkActive = weekStart <= LAST_12PK_PROD_WEEK;
+
   const shiftMins = 450;
   const coMins    = epChangeoverMins;
   const coFrac    = Math.max(0, 1 - coMins / shiftMins);
@@ -952,8 +966,9 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
   // so 2L doesn't go an entire week without production.
   let weekOpenedWith6pkEmergency = c6_open < EMERGENCY_FLOOR;
 
-  if (c6_open < EMERGENCY_FLOOR || c12_open < EMERGENCY_FLOOR) {
-    phase = c6_open <= c12_open ? '600ml 6pk' : '600ml 12pk';
+  if (c6_open < EMERGENCY_FLOOR || (is12pkActive && c12_open < EMERGENCY_FLOOR)) {
+    // 12pk emergency only fires when 12pk line is still active
+    phase = (is12pkActive && c12_open < c6_open) ? '600ml 12pk' : '600ml 6pk';
   } else if (c2L_open < TARGET_2L_COVER) {
     phase = '2L Bottle';
   } else {
@@ -981,7 +996,7 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
     // 600ml emergencies trump 2L (600ml cannot go OOS)
     if (c6 < EMERGENCY_FLOOR && phase !== '600ml 6pk') {
       phase = '600ml 6pk';
-    } else if (c12 < EMERGENCY_FLOOR && phase !== '600ml 12pk') {
+    } else if (is12pkActive && c12 < EMERGENCY_FLOOR && phase !== '600ml 12pk') {
       phase = '600ml 12pk';
     } else if (c2 < EMERGENCY_FLOOR && phase !== '2L Bottle') {
       phase = '2L Bottle';
@@ -995,7 +1010,7 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
     } else if (phase === '600ml 6pk') {
       if (days600 >= TARGET_600_DAYS) {
         phase = '2L Bottle';         // completed 600ml cycle → back to 2L
-      } else if (c6 >= COV_6PK_TO_12PK) {
+      } else if (is12pkActive && c6 >= COV_6PK_TO_12PK) {
         phase = '600ml 12pk';        // 6pk sufficiently stocked → switch to 12pk
         weekOpenedWith6pkEmergency = false;
       } else if (weekOpenedWith6pkEmergency && c6 >= EMERGENCY_FLOOR && c2 < TARGET_2L_COVER) {
@@ -1014,9 +1029,9 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
       }
     }
 
-    // Resolve SKU
-    const sku = phase === '2L Bottle'    ? '2L Bottle'
-              : phase === '600ml 12pk'   ? '600ml 12pk'
+    // Resolve SKU — 12pk only when line is still active (closes after w/c 20/07)
+    const sku = phase === '2L Bottle'                      ? '2L Bottle'
+              : (phase === '600ml 12pk' && is12pkActive)   ? '600ml 12pk'
               : '600ml 6pk';
 
     // Changeover penalty: between 12pk ↔ 6pk only (not when switching to/from 2L)
