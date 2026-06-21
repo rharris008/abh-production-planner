@@ -882,30 +882,56 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
   const workDays = workingDaysInWeek(weekStart).filter(dt => dt >= localToday());
   let prevSku = null;
 
-  // Daily demand: next-week forecast → next-week open orders → this-week forecast.
-  // Matches displayCoverDays denominator exactly so emergency thresholds fire
-  // at the same time the display would show < 3 days. Bug fixed 20/06/2026.
+  // Tracks the current day index within the loop so effectiveDailyDemand can
+  // compute remaining weekly deliveries. Updated at start of each iteration.
+  let _currentDay = 0;
+
+  // Daily demand: next-week forecast → this-week forecast → next-week open orders.
+  // Fallback chain matches coverDays (nextD → thisD → nextWkOO) so emergency thresholds
+  // fire at the same time the display would show < 3 days. Bug fixed 20/06/2026.
+  // Also floors against remaining DAILY_REQUIRED delivery rate so that the emergency
+  // fires even when there is no forecast/OO but deliveries are actively draining stock.
+  // Bug fixed 21/06/2026.
   function effectiveDailyDemand(sku) {
     const nextWkI = weekIdx + 1;
+    let forecastRate = 0;
     if (nextWkI < ALL_WEEKS.length) {
       const nextWk     = ALL_WEEKS[nextWkI];
       const nextOpDays = opDaysInWeek(nextWk);
       const nextFc     = getDemand(nextWk)[sku].total || 0;
-      if (nextFc > 0 && nextOpDays > 0) return nextFc / nextOpDays;
-      // Open orders fallback — same signal displayCoverDays uses
-      if (nextOpDays > 0) {
-        let weekOO = 0;
-        for (let od = 0; od < 5; od++) {
-          const ooD = openOrdersDailyPal[addDays(nextWk, od)] || {};
-          weekOO += ooD[sku] || 0;
-        }
-        if (weekOO > 0) return weekOO / nextOpDays;
+      if (nextFc > 0 && nextOpDays > 0) {
+        forecastRate = nextFc / nextOpDays;
       }
     }
-    // Fall back to this week's forecast
-    const thisOpDays = opDaysInWeek(ALL_WEEKS[weekIdx]);
-    const thisDem    = getDemand(ALL_WEEKS[weekIdx])[sku].total || 0;
-    return thisOpDays > 0 && thisDem > 0 ? thisDem / thisOpDays : 0;
+    // Fallback to this week's forecast (matches coverDays priority chain: nextD → thisD)
+    if (forecastRate === 0) {
+      const thisOpDays = opDaysInWeek(ALL_WEEKS[weekIdx]);
+      const thisDem    = getDemand(ALL_WEEKS[weekIdx])[sku].total || 0;
+      if (thisOpDays > 0 && thisDem > 0) forecastRate = thisDem / thisOpDays;
+    }
+    // Fallback to next-week open orders (last resort, same as coverDays)
+    if (forecastRate === 0 && nextWkI < ALL_WEEKS.length) {
+      const nextWk  = ALL_WEEKS[nextWkI];
+      const nextOps = opDaysInWeek(nextWk);
+      let weekOO = 0;
+      for (let od = 0; od < 5; od++) {
+        const ooD = openOrdersDailyPal[addDays(nextWk, od)] || {};
+        weekOO += ooD[sku] || 0;
+      }
+      if (weekOO > 0 && nextOps > 0) forecastRate = weekOO / nextOps;
+    }
+    // Floor: remaining DAILY_REQUIRED deliveries this week / remaining days.
+    // Prevents infinite-cover illusion when forecast=0 but deliveries are draining stock.
+    const remainingDays = workDays.length - _currentDay;
+    if (remainingDays > 0) {
+      let remainingDue = 0;
+      for (let rd = _currentDay; rd < workDays.length; rd++) {
+        remainingDue += (DAILY_REQUIRED[workDays[rd]] || {})[sku] || 0;
+      }
+      const dueRate = remainingDue / remainingDays;
+      if (dueRate > forecastRate) forecastRate = dueRate;
+    }
+    return forecastRate;
   }
 
   // Days of cover: 0 for negative/zero stock regardless of demand
@@ -939,6 +965,7 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
   let days600 = 0;  // working days spent on 600ml this week
 
   for (let d = 0; d < workDays.length; d++) {
+    _currentDay = d;  // expose current day to effectiveDailyDemand closure
     const date  = workDays[d];
     const due   = DAILY_REQUIRED[date] || {};
     const due2L = due['2L Bottle']   || 0;
@@ -1367,13 +1394,15 @@ function planWeek(week) {
   const nextABDem   = nextWkForCover ? getDemand(nextWkForCover) : null;
   const nextD10fc   = nextABDem ? (nextABDem['10L Cask'].total || 0) : 0;
   const nextD5fc    = nextABDem ? (nextABDem['5L Cask'].total  || 0) : 0;
-  // Priority: forecast > OO > this-week fallback
-  const nextD10AB   = nextD10fc > 0 ? nextD10fc : nextWkOO['10L Cask'];
-  const nextD5AB    = nextD5fc  > 0 ? nextD5fc  : nextWkOO['5L Cask'];
-  const peakDailyD10 = (nextD10AB > 0 ? nextD10AB : d10) > 0
-    ? (nextD10AB > 0 ? nextD10AB : d10) / opDays : 0;
-  const peakDailyD5  = (nextD5AB  > 0 ? nextD5AB  : d5 ) > 0
-    ? (nextD5AB  > 0 ? nextD5AB  : d5 ) / opDays : 0;
+  // Priority: nextWkForecast → thisWkForecast → nextWkOO — matches coverDays fallback exactly.
+  // Bug fixed 21/06/2026: previous chain was nextWkFc → nextWkOO → d10.
+  // When nextWkFc=0, nextWkOO was used as 2nd priority. But coverDays uses d10 as 2nd priority.
+  // If nextWkOO < d10, peakDailyD10 was too small → projCover10 looked safe → A&B stayed on
+  // 5L even when the display (using d10 as denominator) showed 10L below 3 days cover.
+  const nextD10AB   = nextD10fc > 0 ? nextD10fc : (d10 > 0 ? d10 : nextWkOO['10L Cask']);
+  const nextD5AB    = nextD5fc  > 0 ? nextD5fc  : (d5  > 0 ? d5  : nextWkOO['5L Cask']);
+  const peakDailyD10 = nextD10AB > 0 ? nextD10AB / opDays : 0;
+  const peakDailyD5  = nextD5AB  > 0 ? nextD5AB  / opDays : 0;
   const projClose10_HMPSonly = s10 + hmps.cap - d10;  // this week's stock change
   const projCover10_HMPSonly = peakDailyD10 > 0
     ? projClose10_HMPSonly / peakDailyD10          // days at next-week's demand rate
@@ -1382,13 +1411,22 @@ function planWeek(week) {
   let lineABSku = projCover10_HMPSonly < 5 ? '10L Cask' : '5L Cask';
   // Universal 3-day floor — overarches all other rules. Rob Harris 20/06/2026:
   // "NO SKU CAN GO UNDER 3 DAYS STOCK"
-  // 5L emergency floor: if 5L closing stock WITHOUT A&B would drop below 3 days at next
-  // week's demand rate, force A&B to 5L regardless of 10L state.
+  // If either cask SKU would breach 3 days, force A&B to the more urgent one.
+  // When only one is below 3 days: run that SKU.
+  // When both are below 3 days: run whichever has lower cover (more urgent).
   const projClose5L_noAB = avail5 - d5;
   const projCover5L_noAB = peakDailyD5 > 0
     ? projClose5L_noAB / peakDailyD5
     : (projClose5L_noAB >= 0 ? 99 : 0);
-  if (projCover5L_noAB < 3) lineABSku = '5L Cask';  // 5L emergency — must run now
+  const both3DayBreached = projCover10_HMPSonly < 3 && projCover5L_noAB < 3;
+  if (both3DayBreached) {
+    // Both below floor — run the one with lower cover (more urgent)
+    lineABSku = projCover10_HMPSonly <= projCover5L_noAB ? '10L Cask' : '5L Cask';
+  } else if (projCover10_HMPSonly < 3) {
+    lineABSku = '10L Cask';  // 10L emergency — must run now
+  } else if (projCover5L_noAB < 3) {
+    lineABSku = '5L Cask';   // 5L emergency — must run now
+  }
   const caskResult = scheduleEPCaskLines(
     week, opDays, eff,
     avail['10L Cask'] || 0, avail5,
