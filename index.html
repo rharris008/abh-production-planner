@@ -883,6 +883,15 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
   // Guards below prevent any phase/sku selection for 12pk when inactive.
   const is12pkActive = weekStart < LAST_12PK_PROD_WEEK;
 
+  // In the LAST production week (13/07), cap 12pk production at the closure-week demand.
+  // Without this cap the normal cycle would produce full shifts of 12pk (e.g. 6 days × 2 shifts × 34 pal)
+  // vastly exceeding the 20/07 demand, creating unsellable stock.
+  // addDays subtracts 7 days from the boundary to identify the last production Monday.
+  const isLastProdWk  = is12pkActive && weekStart >= addDays(LAST_12PK_PROD_WEEK, -7);
+  const finalDem12    = isLastProdWk
+    ? (getDemand(LAST_12PK_PROD_WEEK)['600ml 12pk']?.total || 0)
+    : Infinity;
+
   const shiftMins = 450;
   const coMins    = epChangeoverMins;
   const coFrac    = Math.max(0, 1 - coMins / shiftMins);
@@ -969,9 +978,9 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
   // so 2L doesn't go an entire week without production.
   let weekOpenedWith6pkEmergency = c6_open < EMERGENCY_FLOOR;
 
-  if (c6_open < EMERGENCY_FLOOR || (is12pkActive && c12_open < EMERGENCY_FLOOR)) {
-    // 12pk emergency only fires when 12pk line is still active
-    phase = (is12pkActive && c12_open < c6_open) ? '600ml 12pk' : '600ml 6pk';
+  if (c6_open < EMERGENCY_FLOOR || (is12pkActive && c12_open < EMERGENCY_FLOOR && s12 < finalDem12)) {
+    // 12pk emergency only fires when active AND stock is below the cap for the final prod week
+    phase = (is12pkActive && c12_open < c6_open && s12 < finalDem12) ? '600ml 12pk' : '600ml 6pk';
   } else if (c2L_open < TARGET_2L_COVER) {
     phase = '2L Bottle';
   } else {
@@ -999,7 +1008,7 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
     // 600ml emergencies trump 2L (600ml cannot go OOS)
     if (c6 < EMERGENCY_FLOOR && phase !== '600ml 6pk') {
       phase = '600ml 6pk';
-    } else if (is12pkActive && c12 < EMERGENCY_FLOOR && phase !== '600ml 12pk') {
+    } else if (is12pkActive && c12 < EMERGENCY_FLOOR && phase !== '600ml 12pk' && s12 < finalDem12) {
       phase = '600ml 12pk';
     } else if (c2 < EMERGENCY_FLOOR && phase !== '2L Bottle') {
       phase = '2L Bottle';
@@ -1013,8 +1022,8 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
     } else if (phase === '600ml 6pk') {
       if (days600 >= TARGET_600_DAYS) {
         phase = '2L Bottle';         // completed 600ml cycle → back to 2L
-      } else if (is12pkActive && c6 >= COV_6PK_TO_12PK) {
-        phase = '600ml 12pk';        // 6pk sufficiently stocked → switch to 12pk
+      } else if (is12pkActive && c6 >= COV_6PK_TO_12PK && (!isLastProdWk || s12 < finalDem12)) {
+        phase = '600ml 12pk';        // 6pk sufficiently stocked → switch to 12pk (capped in last prod wk)
         weekOpenedWith6pkEmergency = false;
       } else if (weekOpenedWith6pkEmergency && c6 >= EMERGENCY_FLOOR && c2 < TARGET_2L_COVER) {
         // 6pk recovered from opening emergency — pivot to 2L now.
@@ -1029,6 +1038,8 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
         phase = '2L Bottle';         // completed 600ml cycle → back to 2L
       } else if (c6 < c12 && c6 < COV_6PK_TO_12PK) {
         phase = '600ml 6pk';         // 6pk fell back below 12pk → revert priority
+      } else if (isLastProdWk && s12 >= finalDem12) {
+        phase = '600ml 6pk';         // final prod week: stock already covers closure demand — stop producing
       }
     }
 
