@@ -1407,35 +1407,21 @@ function planWeek(week) {
   const projCover10_HMPSonly = peakDailyD10 > 0
     ? projClose10_HMPSonly / peakDailyD10          // days at next-week's demand rate
     : (projClose10_HMPSonly >= 0 ? 99 : 0);
-  // < 5 days triggers switch to 10L support; ≥ 5 days → A&B runs 5L (default)
-  let lineABSku = projCover10_HMPSonly < 5 ? '10L Cask' : '5L Cask';
-  // DEBUG — remove after diagnosis (21/06/2026)
-  if (week === '2026-06-29') {
-    console.log('[AB-DEBUG 29/06]', {
-      s10, d10, hmpsCap: hmps.cap, opDays,
-      nextD10fc, nextD10AB, peakDailyD10,
-      projClose10_HMPSonly, projCover10_HMPSonly,
-      lineABSku_preFloor: lineABSku,
-    });
-  }
-  // Universal 3-day floor — overarches all other rules. Rob Harris 20/06/2026:
-  // "NO SKU CAN GO UNDER 3 DAYS STOCK"
-  // If either cask SKU would breach 3 days, force A&B to the more urgent one.
-  // When only one is below 3 days: run that SKU.
-  // When both are below 3 days: run whichever has lower cover (more urgent).
+  // A&B SKU decision — Rob Harris 21/06/2026:
+  // "10L takes priority over 5L. At worst they should be the same.
+  //  10L should not be less than 5L. Hard stop: both no less than 3 days."
+  //
+  // Rule: run A&B on whichever cask SKU has LOWER projected cover.
+  // 10L breaks ties (priority). This guarantees cover_10L >= cover_5L after A&B runs.
+  // No separate 5-day threshold needed — the comparison is the threshold.
   const projClose5L_noAB = avail5 - d5;
   const projCover5L_noAB = peakDailyD5 > 0
     ? projClose5L_noAB / peakDailyD5
     : (projClose5L_noAB >= 0 ? 99 : 0);
-  const both3DayBreached = projCover10_HMPSonly < 3 && projCover5L_noAB < 3;
-  if (both3DayBreached) {
-    // Both below floor — run the one with lower cover (more urgent)
-    lineABSku = projCover10_HMPSonly <= projCover5L_noAB ? '10L Cask' : '5L Cask';
-  } else if (projCover10_HMPSonly < 3) {
-    lineABSku = '10L Cask';  // 10L emergency — must run now
-  } else if (projCover5L_noAB < 3) {
-    lineABSku = '5L Cask';   // 5L emergency — must run now
-  }
+  // projCover10_HMPSonly = 10L cover if A&B runs 5L (HMPS only for 10L)
+  // projCover5L_noAB    = 5L cover if A&B runs 10L (no A&B for 5L)
+  // Run A&B on whichever is lower. 10L wins ties.
+  let lineABSku = projCover10_HMPSonly <= projCover5L_noAB ? '10L Cask' : '5L Cask';
   const caskResult = scheduleEPCaskLines(
     week, opDays, eff,
     avail['10L Cask'] || 0, avail5,
