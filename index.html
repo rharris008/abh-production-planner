@@ -1506,6 +1506,12 @@ function planWeek(week) {
     '600ml 12pk':  bottleResult.endStock12,
     '600ml 6pk':   bottleResult.endStock6,
   };
+  // 12pk closure week: DAILY_REQUIRED has no confirmed delivery entries 4+ weeks out so the
+  // bottle scheduler leaves s12 unchanged (due12=0 every day). Deduct the full week's forecast
+  // demand explicitly so downstream weeks open with the correct stock position.
+  if (week === LAST_12PK_PROD_WEEK) {
+    stockEnd['600ml 12pk'] = Math.max(0, (avail['600ml 12pk'] || 0) - demand['600ml 12pk'].total);
+  }
   // nextWkForCover, nextWkOO and thisWkOO were pre-computed earlier (before A&B block).
 
   const coverDays = {};
@@ -1714,7 +1720,7 @@ function planWeek(week) {
     '10L Cask':   sat ? (cs?.['10L Cask']   ?? result.stockEnd10 ?? 0) : (result.stockEnd10 ?? 0),
     '5L Cask':    sat ? (cs?.['5L Cask']    ?? result.stockEnd5  ?? 0) : (result.stockEnd5  ?? 0),
     '2L Bottle':  sat ? (cs?.['2L Bottle']  ?? result.stockEnd2  ?? 0) : (result.stockEnd2  ?? 0),
-    '600ml 12pk': sat ? (cs?.['600ml 12pk'] ?? result.ep?.endStock12 ?? 0) : (result.ep?.endStock12 ?? 0),
+    '600ml 12pk': sat ? (cs?.['600ml 12pk'] ?? stockEnd['600ml 12pk'] ?? 0) : (stockEnd['600ml 12pk'] ?? 0),
     '600ml 6pk':  sat ? (cs?.['600ml 6pk']  ?? result.ep?.endStock6  ?? 0) : (result.ep?.endStock6  ?? 0),
   };
   return result;
