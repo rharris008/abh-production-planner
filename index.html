@@ -1418,10 +1418,19 @@ function planWeek(week) {
   const projCover5L_noAB = peakDailyD5 > 0
     ? projClose5L_noAB / peakDailyD5
     : (projClose5L_noAB >= 0 ? 99 : 0);
-  // projCover10_HMPSonly = 10L cover if A&B runs 5L (HMPS only for 10L)
-  // projCover5L_noAB    = 5L cover if A&B runs 10L (no A&B for 5L)
-  // Run A&B on whichever is lower. 10L wins ties.
-  let lineABSku = projCover10_HMPSonly <= projCover5L_noAB ? '10L Cask' : '5L Cask';
+  // A&B SKU decision — "10L takes priority over 5L" (Rob Harris 21/06/2026).
+  // Default: A&B runs 10L.
+  // 5L emergency override: ONLY switch to 5L when:
+  //   (a) 5L would breach the 3-day hard floor without A&B (projCover5L < 3), AND
+  //   (b) 5L is more urgently depleted than 10L (projCover5L < projCover10_HMPSonly).
+  // All other cases run 10L — including when both are above 3 days and 5L is slightly lower.
+  // When both are below 3 days and 10L is more critical: run 10L (priority).
+  // Note: if both breach 3 days simultaneously and 5L is more urgent, 5L runs but 10L
+  // cannot be rescued — this is a constraint the planner cannot resolve with A&B alone
+  // (requires pre-build in a prior week). The planner flags this via alert.
+  const lineABSku = (projCover5L_noAB < 3 && projCover5L_noAB < projCover10_HMPSonly)
+    ? '5L Cask'    // 5L emergency — below floor AND more urgent than 10L
+    : '10L Cask';  // 10L default (takes priority)
   const caskResult = scheduleEPCaskLines(
     week, opDays, eff,
     avail['10L Cask'] || 0, avail5,
