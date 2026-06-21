@@ -1409,6 +1409,15 @@ function planWeek(week) {
     : (projClose10_HMPSonly >= 0 ? 99 : 0);
   // < 5 days triggers switch to 10L support; ≥ 5 days → A&B runs 5L (default)
   let lineABSku = projCover10_HMPSonly < 5 ? '10L Cask' : '5L Cask';
+  // DEBUG — remove after diagnosis (21/06/2026)
+  if (week === '2026-06-29') {
+    console.log('[AB-DEBUG 29/06]', {
+      s10, d10, hmpsCap: hmps.cap, opDays,
+      nextD10fc, nextD10AB, peakDailyD10,
+      projClose10_HMPSonly, projCover10_HMPSonly,
+      lineABSku_preFloor: lineABSku,
+    });
+  }
   // Universal 3-day floor — overarches all other rules. Rob Harris 20/06/2026:
   // "NO SKU CAN GO UNDER 3 DAYS STOCK"
   // If either cask SKU would breach 3 days, force A&B to the more urgent one.
