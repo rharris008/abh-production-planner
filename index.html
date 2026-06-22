@@ -2099,11 +2099,11 @@ function renderRollingTable(pr) {
   const todayMon = monOf(localToday());
   const pr0 = planWeekCache[todayMon]?._full ?? planWeek(todayMon);
   const actualProd0 = {
-    '10L Cask':   (pr0?.cask?.prod10 ?? 0) + (pr0?.lines?.hmps?.cap ?? 0),
-    '5L Cask':    pr0?.cask?.prod5   ?? 0,
-    '2L Bottle':  pr0?.lines?.as2l?.cap ?? 0,
-    '600ml 12pk': pr0?.ep?.prod12    ?? 0,
-    '600ml 6pk':  pr0?.ep?.prod6     ?? 0,
+    '10L Cask':   pr0?.plannedProd?.['10L Cask']   ?? 0,
+    '5L Cask':    pr0?.plannedProd?.['5L Cask']    ?? 0,
+    '2L Bottle':  pr0?.plannedProd?.['2L Bottle']  ?? 0,
+    '600ml 12pk': pr0?.plannedProd?.['600ml 12pk'] ?? 0,
+    '600ml 6pk':  pr0?.plannedProd?.['600ml 6pk']  ?? 0,
   };
   if (pr0?.satUsed && pr0?.satLines) {
     pr0.satLines.forEach(sl => { actualProd0[sl.sku] = (actualProd0[sl.sku] || 0) + sl.satAlloc; });
@@ -2140,13 +2140,15 @@ function renderRollingTable(pr) {
     if (isFinishedWeek) {
       maxProd = {'10L Cask':0,'5L Cask':0,'2L Bottle':0,'600ml 12pk':0,'600ml 6pk':0};
     } else if (isThisWeek) {
-      // Current week: use the actual plan (pr0 already uses today's correct opening stock)
+      // Current week: use plannedProd — consistent across confirmed and non-confirmed schedule paths.
+      // cask.prod10 + lines.hmps.cap would double-count HMPS in confirmed-schedule weeks because
+      // cask.prod10 already includes HMPS in that path.
       maxProd = {
-        '10L Cask':   (pr0?.cask?.prod10 ?? 0) + (pr0?.lines?.hmps?.cap ?? 0),
-        '5L Cask':    pr0?.cask?.prod5   ?? 0,
-        '2L Bottle':  pr0?.lines?.as2l?.cap ?? 0,
-        '600ml 12pk': pr0?.ep?.prod12    ?? 0,
-        '600ml 6pk':  pr0?.ep?.prod6     ?? 0,
+        '10L Cask':   pr0?.plannedProd?.['10L Cask']   ?? 0,
+        '5L Cask':    pr0?.plannedProd?.['5L Cask']    ?? 0,
+        '2L Bottle':  pr0?.plannedProd?.['2L Bottle']  ?? 0,
+        '600ml 12pk': pr0?.plannedProd?.['600ml 12pk'] ?? 0,
+        '600ml 6pk':  pr0?.plannedProd?.['600ml 6pk']  ?? 0,
       };
       if (pr0?.satUsed && pr0?.satLines) {
         pr0.satLines.forEach(sl => { maxProd[sl.sku] = (maxProd[sl.sku] || 0) + sl.satAlloc; });
