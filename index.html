@@ -155,8 +155,8 @@ tr.risk-a td{background:#FEF9F0}
         <option value="0.75">75%</option><option value="0.8">80%</option>
         <option value="0.85">85%</option><option value="0.9">90%</option></select></div>
     <div class="ctrl-grp"><span class="ctrl-lbl">HMPS</span>
-      <div class="tog"><button id="bDual" class="on" onclick="setHMPS('Dual')">Dual (80/sh)</button>
-        <button id="bSingle" onclick="setHMPS('Single')">Single (40/sh)</button></div></div>
+      <div class="tog"><button id="bDual" class="on" onclick="setHMPS('Dual')">Dual (90/sh)</button>
+        <button id="bSingle" onclick="setHMPS('Single')">Single (45/sh)</button></div></div>
     <div class="ctrl-grp"><span class="ctrl-lbl">SATURDAY</span>
       <div class="tog"><button id="bSatAuto" onclick="setSat('auto')">Auto (&lt;3d)</button>
         <button id="bSatOff" class="on" onclick="setSat('off')">Off</button>
@@ -515,8 +515,8 @@ const PLAN_TARGETS = {
   'Line A':        {'10L Cask': 40},
   'Line B':        {'5L Cask': 44, '10L Cask': 40},  // combined Line A&B 5L output = 44 pal/shift (updated 05/06/2026)
   'SM Bottle line':{'2L Bottle': 52},
-  'HMPS - Dual':   {'10L Cask': 80},
-  'HMPS - Single': {'10L Cask': 40},
+  'HMPS - Dual':   {'10L Cask': 90},
+  'HMPS - Single': {'10L Cask': 45},
   'EP new line':   {'600ml 12pk': 34, '600ml 6pk': 32},
 };
 const SKU_MAP_NS = {
@@ -1144,7 +1144,7 @@ function forwardSimulate(fromWeekIdx, openStock, eff) {
     const {single: lineAOnly} = lineOutageForWeek(wk);
     const cap10perShift = Math.floor((lineAOnly ? 30 : 60) * eff);
     const cap5perShift  = Math.floor((lineAOnly ? 27 : 50) * eff);
-    const hmpsTgt = hmpsConfig === 'Dual' ? 80 : 40;
+    const hmpsTgt = hmpsConfig === 'Dual' ? 90 : 45;
     const fwdOpDays = opDaysInWeek(wk);
     const capHMPS = Math.floor(hmpsTgt * 2 * fwdOpDays * eff);  // working days × 2 shifts
 
@@ -1187,7 +1187,7 @@ function planWeek(week) {
   if (planWeekCache[week] && planWeekCache[week]._full) return planWeekCache[week]._full;
 
   const eff      = getEff();
-  const hmpsTgt  = hmpsConfig === 'Dual' ? 80 : 40;
+  const hmpsTgt  = hmpsConfig === 'Dual' ? 90 : 45;
 
   // Roll stock forward from today to the selected week using actual scheduler output.
   // Memoised per-run to avoid recursion: planWeekCache is reset at onWeekChange start.
@@ -2024,7 +2024,7 @@ function renderRollingTable(pr) {
   const el = document.getElementById('rollingTable');
   if (!el) return;
   const eff = getEff();
-  const hmpsTgt = hmpsConfig === 'Dual' ? 80 : 40;
+  const hmpsTgt = hmpsConfig === 'Dual' ? 90 : 45;
   const WEEKS_FORWARD = 16;  // current week + 15 ahead (16-week demand horizon)
 
   // Build headers: Week | then per-SKU groups
@@ -2313,7 +2313,7 @@ function renderProdTable(pr) {
 function getMaxPal(s) {
   if (s.maxPal != null) return s.maxPal;
   const lbl = s.label || '';
-  if (lbl.includes('HMPS')) return lbl.includes('Single') ? 40 : 80;
+  if (lbl.includes('HMPS')) return lbl.includes('Single') ? 45 : 90;
   if (s.sku === '10L Cask') return lbl.includes('A&B') ? 60 : 30;  // A&B combined vs single line
   if (s.sku === '5L Cask')  return lbl.includes('A&B') ? 50 : 27;
   if (s.sku === '2L Bottle')   return 52;
@@ -3058,9 +3058,9 @@ function mapOOItem(raw) {
 
 function mapOORetailer(customer) {
   const u = customer.toUpperCase();
-  if (u.includes('WOOLWORTHS')) return 'Woolworths';
+  if (u.includes('WOOLWORTHS') || u.includes('STATEWIDE')) return 'Woolworths';
   if (u.includes('COLES') || u.includes('GHPL')) return 'Coles';
-  if (u.includes('METCASH') || u.includes('IGA') || u.includes('MET') || u.includes('STATEWIDE')) return 'Metcash/IGA';
+  if (u.includes('METCASH') || u.includes('IGA') || u.includes('MET')) return 'Metcash/IGA';
   if (u.includes('ALDI')) return 'Aldi';
   if (u.includes('COSTCO')) return 'Costco';
   return customer.split(' ')[0] || 'Other';
@@ -3507,7 +3507,7 @@ function renderReplan(pr, skuPlan, skuActual, completedDaysLoop) {
   // WTD average is unreliable if line config changed mid-week (e.g. HMPS Single → Dual)
   // Planned capacity reflects current line settings selected in the header
   const todayEst = {};
-  const hmpsTgt0 = hmpsConfig === 'Dual' ? 80 : 40;
+  const hmpsTgt0 = hmpsConfig === 'Dual' ? 90 : 45;
   const lineBTgt0 = lineBSku === '5L' ? 27 : 30;  // per Aaron 13/06/2026: Line A alone 5L=27 base, 10L=30 base
   const todayCapPerDay = {
     '10L Cask':   (hmpsTgt0 + 30) * 2 * eff,   // HMPS + Line A alone (30 base/shift)
@@ -3548,7 +3548,7 @@ function renderReplan(pr, skuPlan, skuActual, completedDaysLoop) {
   });
 
   // Planned capacity per full day (2 shifts at efficiency)
-  const hmpsTgt = hmpsConfig === 'Dual' ? 80 : 40;
+  const hmpsTgt = hmpsConfig === 'Dual' ? 90 : 45;
   const lineBTgt = lineBSku === '5L' ? 27 : 30;  // per Aaron 13/06/2026: Line A alone 5L=27 base, 10L=30 base
   const capPerDay = {
     '10L Cask':   (hmpsTgt + 30) * 2 * eff,   // HMPS + Line A alone (30 base/shift)
@@ -5359,14 +5359,14 @@ function loadFallbackHolidays() {
     ['2026-04-05','Easter Sunday'],['2026-04-06','Easter Monday'],
     ['2026-04-25','Anzac Day'],['2026-04-27','Anzac Day (Monday substitute)'],
     ['2026-06-08','Queen\'s Birthday'],
-    ['2026-08-03','Bank Holiday'],['2026-10-05','Labour Day'],
+    ['2026-10-05','Labour Day'],
     ['2026-12-25','Christmas Day'],['2026-12-26','Boxing Day'],
     ['2026-12-28','Boxing Day (substitute)'],
     ['2027-01-01','New Year\'s Day'],['2027-01-26','Australia Day'],
     ['2027-03-26','Good Friday'],['2027-03-27','Easter Saturday'],
     ['2027-03-28','Easter Sunday'],['2027-03-29','Easter Monday'],
     ['2027-04-25','Anzac Day'],['2027-06-14','Queen\'s Birthday'],
-    ['2027-08-02','Bank Holiday'],['2027-10-04','Labour Day'],
+    ['2027-10-04','Labour Day'],
     ['2027-12-27','Christmas Day (substitute)'],['2027-12-28','Boxing Day (substitute)'],
   ];
   nsw.forEach(([date, name]) => {
