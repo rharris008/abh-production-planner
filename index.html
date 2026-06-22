@@ -4546,7 +4546,10 @@ function forwardFillDemand() {
     const chOvr   = ch === 'ww' ? wwOverride : ch === 'coles' ? colesOvr : metcashOvr;
     const chDaily = chOvr?.daily || {};
     const chHasDaily = Object.keys(chDaily).length > 0;
-    if (chHasDaily) {
+    // Skip partial-week scaling when daily data is weekly-grain (all keys are Mondays = week-start dates).
+    // Coles stores order_date = week_date (Monday), not actual delivery days — scaling would give 5x error.
+    const chIsWeeklyGrain = chHasDaily && Object.keys(chDaily).every(d => monOf(d) === d);
+    if (chHasDaily && !chIsWeeklyGrain) {
       const deliveryDays = [0,1,2,3,4].filter(d => {
         const dt = addDays(lastLiveWk, d);
         return SKUS.some(s => (chDaily[dt]?.[s] || 0) > 0);
@@ -4782,7 +4785,10 @@ function renderBudget() {
     return hz && wk > hz;
   }
 
-  let thead = '<tr><th style="text-align:left;min-width:70px">SKU</th><th style="text-align:left;min-width:80px">Retailer</th>';
+  const stickyL1 = 'position:sticky;left:0;z-index:2;background:#1a2535;';
+  const stickyL2 = 'position:sticky;left:72px;z-index:2;background:#1a2535;';
+  const stickyL2Alt = 'position:sticky;left:72px;z-index:2;background:#111927;';
+  let thead = `<tr><th style="text-align:left;min-width:70px;${stickyL1}">SKU</th><th style="text-align:left;min-width:80px;${stickyL2}">Retailer</th>`;
   upcoming4.forEach(wk => {
     const shortWk = fmtD(wk).slice(0,5);
     thead += `<th class="num" colspan="3" style="background:#1B2A4A;color:#fff;padding:4px 8px">Wk ${shortWk}</th>`;
@@ -4808,9 +4814,10 @@ function renderBudget() {
       const isFirst = ci === 0;
       tbody += `<tr>`;
       if (isFirst) {
-        tbody += `<td rowspan="${CHANNELS.length + 1}" style="${rowBg}font-weight:700;color:var(--text);padding:5px 8px;vertical-align:top;border-top:1px solid var(--border)">${SKU_LBL[sku]}</td>`;
+        tbody += `<td rowspan="${CHANNELS.length + 1}" style="${rowBg}${stickyL1}font-weight:700;color:var(--text);padding:5px 8px;vertical-align:top;border-top:1px solid var(--border)">${SKU_LBL[sku]}</td>`;
       }
-      tbody += `<td style="${rowBg}color:var(--muted);padding:4px 8px">${CH_LBL[ch]}</td>`;
+      const altBg = rowBg ? stickyL2Alt : stickyL2;
+      tbody += `<td style="${rowBg}${altBg}color:var(--muted);padding:4px 8px">${CH_LBL[ch]}</td>`;
       let chTotF = 0, chTotB = 0;
       upcoming4.forEach(wk => {
         const f = fcstPal(wk, sku, ch);
@@ -4834,7 +4841,7 @@ function renderBudget() {
     });
     // SKU total row
     tbody += `<tr style="border-bottom:2px solid var(--border)">`;
-    tbody += `<td style="${rowBg}font-weight:700;color:var(--text);padding:4px 8px">Total</td>`;
+    tbody += `<td style="${rowBg}${stickyL2}font-weight:700;color:var(--text);padding:4px 8px">Total</td>`;
     let skuTotF = 0, skuTotB = 0;
     upcoming4.forEach(wk => {
       let tf = 0, tb = 0;
@@ -4856,7 +4863,8 @@ function renderBudget() {
 
   // Grand total row
   tbody += `<tr style="background:#1B2A4A">`;
-  tbody += `<td colspan="2" style="font-weight:700;color:#fff;padding:6px 8px">Grand Total</td>`;
+  tbody += `<td style="${stickyL1}background:#1B2A4A;font-weight:700;color:#fff;padding:6px 8px">Grand Total</td>`;
+  tbody += `<td style="${stickyL2}background:#1B2A4A;padding:6px 8px"></td>`;
   let gtotF = 0, gtotB = 0;
   upcoming4.forEach(wk => {
     let tf = 0, tb = 0;
