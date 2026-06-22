@@ -505,6 +505,10 @@ const plannedShutdowns = new Map([
   ['2026-06-29', 'Year-End Stocktake'],
   ['2026-06-30', 'Year-End Stocktake'],
 ]);
+// Week SKU overrides: force Line A&B to a specific SKU for a given week (Mon date → '10L Cask' | '5L Cask')
+const weekSkuOverride = new Map([
+  ['2026-06-29', '10L Cask'],
+]);
 const lineBSku = '5L';            // used for actuals label normalisation only — Line A and Line B always run combined
 let colesOvr    = null;
 let metcashOvr  = null;
@@ -710,7 +714,7 @@ function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, mi
   // 2. If HMPS cannot cover 10L demand → Line A&B runs 10L all week.
   // 3. Maximum ONE SKU change per week (reduces machine adjustments).
   // 4. 10L always runs 2 shifts; 5L runs shifts5 (drops to 1 if closing cover ≥ 8 days).
-  const primarySku = hmpsCovers10L ? '5L Cask' : '10L Cask';
+  const primarySku = weekSkuOverride.has(weekStart) ? weekSkuOverride.get(weekStart) : (hmpsCovers10L ? '5L Cask' : '10L Cask');
   let currentSku = primarySku;
   let skuChangesUsed = 0;
 
