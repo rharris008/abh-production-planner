@@ -4706,190 +4706,152 @@ function renderBudget() {
   const BDG_SKUS    = ['10L Cask','5L Cask','2L Bottle','600ml 6pk'];
   const SKU_LBL     = {'10L Cask':'10L Cask','5L Cask':'5L Cask','2L Bottle':'2L','600ml 6pk':'600ml 6pk'};
 
-  // FY27 weeks >= current Monday (forecast weeks)
-  const fy27Weeks   = ALL_WEEKS.filter(w => w >= FY27_START);
-  const upcoming4   = fy27Weeks.filter(w => w >= currentMon).slice(0, 4);
-  // YTD: FY27 weeks completed before this Monday
-  const ytdWeeks    = fy27Weeks.filter(w => w < currentMon);
+  const fy27Weeks = ALL_WEEKS.filter(w => w >= FY27_START);
+  const upcoming  = fy27Weeks.filter(w => w >= currentMon).slice(0, 12);
+  const ytdWeeks  = fy27Weeks.filter(w => w < currentMon);
 
-  // Helper: get forecast pallets from COMBINED (already in pallets)
-  function fcstPal(wk, sku, ch) {
-    return COMBINED[wk]?.[sku]?.[ch] || 0;
-  }
-  // Helper: get budget pallets
-  function bgtPal(wk, sku, ch) {
-    return BUDGET_DATA[wk]?.[sku]?.[ch] || 0;
-  }
-  // Variance colour
-  function varCls(fcst, bgt) {
-    if (bgt <= 0) return '';
-    const pct = fcst / bgt;
-    if (pct >= 0.90) return 'color:#27AE60;font-weight:700';
-    if (pct >= 0.75) return 'color:#E67E22;font-weight:700';
+  function fcstPal(wk, sku, ch) { return COMBINED[wk]?.[sku]?.[ch] || 0; }
+  function bgtPal(wk, sku, ch)  { return BUDGET_DATA[wk]?.[sku]?.[ch] || 0; }
+  function varCls(f, b) {
+    if (b <= 0) return '';
+    const r = f / b;
+    if (r >= 0.90) return 'color:#27AE60;font-weight:700';
+    if (r >= 0.75) return 'color:#E67E22;font-weight:700';
     return 'color:#C0392B;font-weight:700';
   }
   function fmt1(n) { return n > 0 ? n.toFixed(1) : '—'; }
   function fmtVar(v) { return v >= 0 ? '+' + v.toFixed(1) : v.toFixed(1); }
   function pct(f, b) { return b > 0 ? Math.round(f / b * 100) + '%' : '—'; }
+  function isFF(wk, ch) { const hz = forecastHorizonWeek[ch]; return hz && wk > hz; }
 
-  // ── Compute weekly totals for KPI tiles ──────────────────────────────────
-  const wkTotals = upcoming4.map(wk => {
-    let fcst = 0, bgt = 0;
-    BDG_SKUS.forEach(sku => CHANNELS.forEach(ch => {
-      fcst += fcstPal(wk, sku, ch);
-      bgt  += bgtPal(wk, sku, ch);
-    }));
-    return { wk, fcst: Math.round(fcst * 10) / 10, bgt: Math.round(bgt * 10) / 10 };
-  });
-
-  // ── KPI tiles ────────────────────────────────────────────────────────────
+  // ── KPI tiles — 4-week variance per SKU ──────────────────────────────────
+  const first4 = upcoming.slice(0, 4);
   let tiles = '';
-  if (upcoming4.length === 0) {
+  if (upcoming.length === 0) {
     tiles = `<div style="padding:20px;color:var(--muted)">FY27 starts ${fmtD(FY27_START)} — budget comparison will appear here from that date.</div>`;
   } else {
-    tiles = upcoming4.map(wk => {
-      const t   = wkTotals.find(x => x.wk === wk);
-      const fcst= t.fcst, bgt = t.bgt;
-      const varPal = fcst - bgt;
-      const cls = varCls(fcst, bgt);
-      const shortWk = fmtD(wk).slice(0,5);
-      return `<div style="background:#fff;border:1px solid var(--border);border-radius:6px;padding:14px 16px;min-width:160px;flex:1">
-        <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.4px">Wk ${shortWk}</div>
-        <div style="font-size:18px;font-weight:700;color:var(--navy)">${Math.round(fcst)} <span style="font-size:11px;font-weight:400;color:var(--muted)">pal fcst</span></div>
-        <div style="font-size:12px;color:var(--muted);margin-top:2px">${Math.round(bgt)} budget</div>
-        <div style="font-size:13px;margin-top:6px;${cls}">${fmtVar(varPal)} pal (${pct(fcst,bgt)})</div>
+    // One tile per SKU showing 4-week variance (all channels combined)
+    tiles = BDG_SKUS.map(sku => {
+      let f = 0, b = 0;
+      first4.forEach(wk => CHANNELS.forEach(c => { f += fcstPal(wk,sku,c); b += bgtPal(wk,sku,c); }));
+      const cls = varCls(f, b);
+      return `<div style="background:#fff;border:1px solid var(--border);border-radius:6px;padding:14px 16px;min-width:140px;flex:1">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.4px">${SKU_LBL[sku]}</div>
+        <div style="font-size:17px;font-weight:700;color:var(--navy)">${Math.round(f)} <span style="font-size:11px;font-weight:400;color:var(--muted)">pal fcst</span></div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px">${Math.round(b)} budget</div>
+        <div style="font-size:13px;margin-top:6px;${cls}">${fmtVar(f-b)} pal (${pct(f,b)})</div>
       </div>`;
     }).join('');
-    // Add a combined 4-week summary tile (navy brand)
-    const tot4fcst = wkTotals.reduce((s,t)=>s+t.fcst,0);
-    const tot4bgt  = wkTotals.reduce((s,t)=>s+t.bgt,0);
-    const tot4var  = tot4fcst - tot4bgt;
-    const tot4cls  = varCls(tot4fcst, tot4bgt);
-    tiles += `<div style="background:var(--navy);border:1px solid var(--navy);border-radius:6px;padding:14px 16px;min-width:160px;flex:1">
-      <div style="font-size:10px;color:rgba(255,255,255,.7);margin-bottom:4px;text-transform:uppercase;letter-spacing:.4px">4-Week Total</div>
-      <div style="font-size:18px;font-weight:700;color:#fff">${Math.round(tot4fcst)} <span style="font-size:11px;font-weight:400;color:rgba(255,255,255,.7)">pal fcst</span></div>
-      <div style="font-size:12px;color:rgba(255,255,255,.7);margin-top:2px">${Math.round(tot4bgt)} budget</div>
-      <div style="font-size:13px;margin-top:6px;${tot4cls}">${fmtVar(tot4var)} pal (${pct(tot4fcst,tot4bgt)})</div>
+    // Grand total tile
+    let tot4f = 0, tot4b = 0;
+    first4.forEach(wk => BDG_SKUS.forEach(s => CHANNELS.forEach(c => { tot4f += fcstPal(wk,s,c); tot4b += bgtPal(wk,s,c); })));
+    const tot4cls = varCls(tot4f, tot4b);
+    tiles += `<div style="background:var(--navy);border-radius:6px;padding:14px 16px;min-width:140px;flex:1">
+      <div style="font-size:10px;color:rgba(255,255,255,.7);margin-bottom:4px;text-transform:uppercase;letter-spacing:.4px">All SKUs</div>
+      <div style="font-size:17px;font-weight:700;color:#fff">${Math.round(tot4f)} <span style="font-size:11px;font-weight:400;color:rgba(255,255,255,.7)">pal fcst</span></div>
+      <div style="font-size:12px;color:rgba(255,255,255,.7);margin-top:2px">${Math.round(tot4b)} budget</div>
+      <div style="font-size:13px;margin-top:6px;${tot4cls}">${fmtVar(tot4f-tot4b)} pal (${pct(tot4f,tot4b)})</div>
     </div>`;
   }
 
-  // ── Detailed breakdown table ──────────────────────────────────────────────
-  // Identify forward-filled weeks per channel (beyond live forecast horizon)
-  const chFfwFwd = {
-    ww:      forecastHorizonWeek.ww,
-    coles:   forecastHorizonWeek.coles,
-    metcash: forecastHorizonWeek.metcash,
-  };
-  function isForwardFilled(wk, ch) {
-    const hz = chFfwFwd[ch];
-    return hz && wk > hz;
+  // ── Build a 4-week block table ────────────────────────────────────────────
+  // Columns: SKU | Retailer | Wk1 fcst | Wk2 fcst | Wk3 fcst | Wk4 fcst | Budget | Var (pal) | vs Bgt
+  function buildBlock(weeks) {
+    const BG_ODD = 'background:var(--light);';
+    const BG_EVN = 'background:#fff;';
+    const NK  = 'background:var(--navy);color:#fff;';
+    const BL  = 'background:var(--blue);color:#fff;';
+
+    let th = `<tr>
+      <th style="text-align:left;min-width:75px;background:#fff">SKU</th>
+      <th style="text-align:left;min-width:90px;background:#fff">Retailer</th>`;
+    weeks.forEach(wk => {
+      th += `<th class="num" style="${NK}padding:5px 8px;min-width:55px">${fmtD(wk).slice(0,5)}<br><span style="font-size:9px;opacity:.7">fcst (pal)</span></th>`;
+    });
+    // pad missing weeks if block < 4 (last block near end of ALL_WEEKS)
+    for (let p = weeks.length; p < 4; p++) th += `<th></th>`;
+    th += `<th class="num" style="${NK}padding:5px 8px;min-width:65px">4-Wk<br><span style="font-size:9px;opacity:.7">Budget</span></th>
+           <th class="num" style="${BL}padding:5px 8px;min-width:75px">Var<br><span style="font-size:9px;opacity:.7">(pal)</span></th>
+           <th class="num" style="${BL}padding:5px 8px;min-width:50px">vs Bgt</th>
+           </tr>`;
+
+    let tb = '';
+    BDG_SKUS.forEach((sku, si) => {
+      const rowBg = si % 2 !== 0 ? BG_ODD : BG_EVN;
+      CHANNELS.forEach((ch, ci) => {
+        tb += '<tr>';
+        if (ci === 0) {
+          tb += `<td rowspan="${CHANNELS.length+1}" style="${rowBg}font-weight:700;color:var(--navy);padding:5px 8px;vertical-align:top;border-top:2px solid var(--border)">${SKU_LBL[sku]}</td>`;
+        }
+        tb += `<td style="${rowBg}color:var(--muted);padding:4px 8px">${CH_LBL[ch]}</td>`;
+        let chF = 0, chB = 0;
+        weeks.forEach(wk => {
+          const f = fcstPal(wk, sku, ch);
+          chF += f; chB += bgtPal(wk, sku, ch);
+          const ffS = isFF(wk, ch) ? 'opacity:.6;font-style:italic;' : '';
+          const ffT = isFF(wk, ch) ? ' title="Forward-filled"' : '';
+          tb += `<td class="num" style="${rowBg}${ffS}padding:4px 8px"${ffT}>${fmt1(f)}</td>`;
+        });
+        for (let p = weeks.length; p < 4; p++) tb += `<td></td>`;
+        const chv = chF - chB;
+        const chCls = varCls(chF, chB);
+        tb += `<td class="num" style="${rowBg}color:var(--muted);padding:4px 8px">${fmt1(chB)}</td>
+               <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;${chCls}">${chB > 0 ? fmtVar(chv) : '—'}</td>
+               <td class="num" style="${rowBg}padding:4px 8px;${chCls}">${pct(chF,chB)}</td>`;
+        tb += '</tr>';
+      });
+      // SKU subtotal
+      tb += '<tr style="border-bottom:2px solid var(--border)">';
+      tb += `<td style="${rowBg}font-weight:700;color:var(--navy);padding:4px 8px">All channels</td>`;
+      let skF = 0, skB = 0;
+      weeks.forEach(wk => {
+        let wF = 0, wB = 0;
+        CHANNELS.forEach(c => { wF += fcstPal(wk,sku,c); wB += bgtPal(wk,sku,c); });
+        skF += wF; skB += wB;
+        tb += `<td class="num" style="${rowBg}font-weight:700;color:var(--navy);padding:4px 8px">${fmt1(wF)}</td>`;
+      });
+      for (let p = weeks.length; p < 4; p++) tb += `<td></td>`;
+      const skv = skF - skB;
+      const skCls = varCls(skF, skB);
+      tb += `<td class="num" style="${rowBg}font-weight:700;color:var(--muted);padding:4px 8px">${fmt1(skB)}</td>
+             <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;${skCls}">${skB > 0 ? fmtVar(skv) : '—'}</td>
+             <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;${skCls}">${pct(skF,skB)}</td>`;
+      tb += '</tr>';
+    });
+    // Grand total
+    tb += '<tr style="background:var(--navy)">';
+    tb += `<td colspan="2" style="font-weight:700;color:#fff;padding:6px 8px">Grand Total — All SKUs</td>`;
+    let gF = 0, gB = 0;
+    weeks.forEach(wk => {
+      let wF = 0, wB = 0;
+      BDG_SKUS.forEach(s => CHANNELS.forEach(c => { wF += fcstPal(wk,s,c); wB += bgtPal(wk,s,c); }));
+      gF += wF; gB += wB;
+      tb += `<td class="num" style="font-weight:700;color:#fff;padding:6px 8px">${Math.round(wF)}</td>`;
+    });
+    for (let p = weeks.length; p < 4; p++) tb += `<td></td>`;
+    const gv = gF - gB;
+    const gCls = varCls(gF, gB).replace('font-weight:700','');
+    tb += `<td class="num" style="color:rgba(255,255,255,.7);padding:6px 8px">${Math.round(gB)}</td>
+           <td class="num" style="font-weight:700;padding:6px 8px;${gCls}">${gB > 0 ? fmtVar(gv) : '—'}</td>
+           <td class="num" style="font-weight:700;padding:6px 8px;${gCls}">${pct(gF,gB)}</td>`;
+    tb += '</tr>';
+    return `<table><thead>${th}</thead><tbody>${tb}</tbody></table>`;
   }
 
-  // Sticky first two columns — match row background so scrolled numbers don't ghost under labels
-  const S1     = 'position:sticky;left:0;z-index:2;';
-  const S2     = 'position:sticky;left:72px;z-index:2;';
-  const BG_ODD = 'background:var(--light);';  // #EEF2F8
-  const BG_EVN = 'background:#fff;';
-
-  let thead = `<tr>
-    <th style="text-align:left;min-width:70px;${S1}${BG_EVN}">SKU</th>
-    <th style="text-align:left;min-width:90px;${S2}${BG_EVN}">Retailer</th>`;
-  upcoming4.forEach(wk => {
-    const shortWk = fmtD(wk).slice(0,5);
-    thead += `<th class="num" colspan="3" style="background:var(--navy);color:#fff;padding:4px 8px">Wk ${shortWk}</th>`;
-  });
-  thead += `<th class="num" colspan="3" style="background:var(--blue);color:#fff;padding:4px 8px">4-Wk Total</th>`;
-  thead += `</tr><tr>
-    <th style="${S1}${BG_EVN}"></th>
-    <th style="${S2}${BG_EVN}"></th>`;
-  upcoming4.forEach(() => {
-    thead += `<th class="num" style="color:var(--muted);font-size:10px;background:var(--light)">Fcst</th>
-              <th class="num" style="color:var(--muted);font-size:10px;background:var(--light)">Bgt</th>
-              <th class="num" style="color:var(--muted);font-size:10px;background:var(--light)">Var</th>`;
-  });
-  thead += `<th class="num" style="color:#fff;font-size:10px;background:var(--blue)">Fcst</th>
-            <th class="num" style="color:#fff;font-size:10px;background:var(--blue)">Bgt</th>
-            <th class="num" style="color:#fff;font-size:10px;background:var(--blue)">Var</th>`;
-  thead += '</tr>';
-
-  let tbody = '';
-  BDG_SKUS.forEach((sku, si) => {
-    const isOdd  = si % 2 !== 0;
-    const rowBg  = isOdd ? BG_ODD : BG_EVN;
-    const rowBgS = isOdd ? BG_ODD : BG_EVN;   // sticky bg matches row bg
-
-    // Channel rows
-    CHANNELS.forEach((ch, ci) => {
-      const isFirst = ci === 0;
-      tbody += `<tr>`;
-      if (isFirst) {
-        tbody += `<td rowspan="${CHANNELS.length + 1}" style="${rowBgS}${S1}font-weight:700;color:var(--navy);padding:5px 8px;vertical-align:top;border-top:2px solid var(--border)">${SKU_LBL[sku]}</td>`;
-      }
-      tbody += `<td style="${rowBgS}${S2}color:var(--muted);padding:4px 8px">${CH_LBL[ch]}</td>`;
-      let chTotF = 0, chTotB = 0;
-      upcoming4.forEach(wk => {
-        const f = fcstPal(wk, sku, ch);
-        const b = bgtPal(wk, sku, ch);
-        const v = f - b;
-        const cls = varCls(f, b);
-        const ffNote = isForwardFilled(wk, ch) ? ' title="Forward-filled — beyond live forecast"' : '';
-        const ffStyle = isForwardFilled(wk, ch) ? 'opacity:.6;font-style:italic;' : '';
-        chTotF += f; chTotB += b;
-        tbody += `<td class="num" style="${rowBg}${ffStyle}padding:4px 8px"${ffNote}>${fmt1(f)}</td>
-                  <td class="num" style="${rowBg}padding:4px 8px;color:var(--muted)">${fmt1(b)}</td>
-                  <td class="num" style="${rowBg}padding:4px 8px;${cls}">${b > 0 ? fmtVar(v) : '—'}</td>`;
-      });
-      // 4-week channel total
-      const chv = chTotF - chTotB;
-      const chCls = varCls(chTotF, chTotB);
-      tbody += `<td class="num" style="${rowBg}padding:4px 8px;font-weight:600;color:var(--navy)">${fmt1(chTotF)}</td>
-                <td class="num" style="${rowBg}padding:4px 8px;color:var(--muted)">${fmt1(chTotB)}</td>
-                <td class="num" style="${rowBg}padding:4px 8px;${chCls}">${chTotB > 0 ? fmtVar(chv) : '—'}</td>`;
-      tbody += '</tr>';
-    });
-    // SKU subtotal row
-    tbody += `<tr style="border-bottom:2px solid var(--border)">`;
-    tbody += `<td style="${rowBgS}${S2}font-weight:700;color:var(--navy);padding:4px 8px">All channels</td>`;
-    let skuTotF = 0, skuTotB = 0;
-    upcoming4.forEach(wk => {
-      let tf = 0, tb = 0;
-      CHANNELS.forEach(ch => { tf += fcstPal(wk, sku, ch); tb += bgtPal(wk, sku, ch); });
-      skuTotF += tf; skuTotB += tb;
-      const tv = tf - tb;
-      const cls = varCls(tf, tb);
-      tbody += `<td class="num" style="${rowBg}font-weight:700;padding:4px 8px;color:var(--navy)">${fmt1(tf)}</td>
-                <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;color:var(--muted)">${fmt1(tb)}</td>
-                <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;${cls}">${tb > 0 ? fmtVar(tv) : '—'}</td>`;
-    });
-    const stv = skuTotF - skuTotB;
-    const stCls = varCls(skuTotF, skuTotB);
-    tbody += `<td class="num" style="${rowBg}font-weight:700;padding:4px 8px;color:var(--navy)">${fmt1(skuTotF)}</td>
-              <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;color:var(--muted)">${fmt1(skuTotB)}</td>
-              <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;${stCls}">${skuTotB > 0 ? fmtVar(stv) : '—'}</td>`;
-    tbody += '</tr>';
-  });
-
-  // Grand total row — navy brand
-  tbody += `<tr style="background:var(--navy)">`;
-  tbody += `<td style="${S1}background:var(--navy);font-weight:700;color:#fff;padding:6px 8px">Grand Total</td>`;
-  tbody += `<td style="${S2}background:var(--navy);color:rgba(255,255,255,.7);padding:6px 8px">All SKUs</td>`;
-  let gtotF = 0, gtotB = 0;
-  upcoming4.forEach(wk => {
-    let tf = 0, tb = 0;
-    BDG_SKUS.forEach(sku => CHANNELS.forEach(ch => { tf += fcstPal(wk, sku, ch); tb += bgtPal(wk, sku, ch); }));
-    gtotF += tf; gtotB += tb;
-    const tv = tf - tb;
-    const cls = varCls(tf, tb).replace('font-weight:700','');
-    tbody += `<td class="num" style="font-weight:700;color:#fff;padding:6px 8px">${Math.round(tf)}</td>
-              <td class="num" style="color:rgba(255,255,255,.7);padding:6px 8px">${Math.round(tb)}</td>
-              <td class="num" style="font-weight:700;padding:6px 8px;${cls}">${tb > 0 ? fmtVar(tv) : '—'}</td>`;
-  });
-  const gtv = gtotF - gtotB;
-  const gtCls = varCls(gtotF, gtotB).replace('font-weight:700','');
-  tbody += `<td class="num" style="font-weight:700;color:#fff;padding:6px 8px">${Math.round(gtotF)}</td>
-            <td class="num" style="color:rgba(255,255,255,.7);padding:6px 8px">${Math.round(gtotB)}</td>
-            <td class="num" style="font-weight:700;padding:6px 8px;${gtCls}">${gtotB > 0 ? fmtVar(gtv) : '—'}</td>`;
-  tbody += '</tr>';
+  // Split 12 upcoming weeks into 3 blocks of 4
+  const blocks = [[],[],[]];
+  upcoming.forEach((wk, i) => blocks[Math.floor(i/4)].push(wk));
+  const blockHdrs = blocks.map((blk, bi) => {
+    if (!blk.length) return '';
+    const label = bi === 0 ? 'Next 4 Weeks' : bi === 1 ? 'Weeks 5–8' : 'Weeks 9–12';
+    const range = `${fmtD(blk[0]).slice(0,5)} – ${fmtD(blk[blk.length-1]).slice(0,5)}`;
+    return `<div class="panel">
+      <div class="ph navy">${label} &nbsp;<span style="font-weight:400;opacity:.75">${range}</span>
+        ${bi===0 ? '<span style="font-size:10px;opacity:.7;margin-left:8px">All values pallets. Italic = forward-filled forecast. Green ≥90% of budget, Amber 75–90%, Red &lt;75%.</span>' : ''}
+      </div>
+      <div class="tscroll">${buildBlock(blk)}</div>
+    </div>`;
+  }).join('');
 
   // ── YTD section ───────────────────────────────────────────────────────────
   let ytdHtml = '';
@@ -4960,15 +4922,12 @@ function renderBudget() {
   // ── Render ────────────────────────────────────────────────────────────────
   el.innerHTML = `
     <div class="panel">
-      <div class="ph navy">Budget at Risk — Next 4 Weeks (Retailer Forecast vs FY27 Budget)
-        <span style="font-size:10px;opacity:.7">Pallets. Green ≥ 90% of budget. Amber 75–90%. Red &lt; 75%.</span>
+      <div class="ph navy">Budget at Risk — FY27 vs Retailer Forecast
+        <span style="font-size:10px;opacity:.7">All values pallets. Budget = FY26 actuals + growth. Forecast = live retailer orders.</span>
       </div>
       <div style="display:flex;gap:12px;padding:12px 16px;flex-wrap:wrap">${tiles}</div>
     </div>
-    <div class="panel">
-      <div class="ph navy">Week-by-Week Breakdown — SKU &amp; Retailer</div>
-      <div class="tscroll"><table><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>
-    </div>
+    ${blockHdrs}
     <div class="panel">
       <div class="ph navy">FY27 YTD Position</div>
       ${ytdHtml}
