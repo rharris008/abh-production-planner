@@ -4709,10 +4709,9 @@ function renderBudget() {
   // YTD: FY27 weeks completed before this Monday
   const ytdWeeks    = fy27Weeks.filter(w => w < currentMon);
 
-  // Helper: get forecast pallets from COMBINED (pallets = units / UPP)
+  // Helper: get forecast pallets from COMBINED (already in pallets)
   function fcstPal(wk, sku, ch) {
-    const units = COMBINED[wk]?.[sku]?.[ch] || 0;
-    return units > 0 ? units / (UPP[sku] || 1) : 0;
+    return COMBINED[wk]?.[sku]?.[ch] || 0;
   }
   // Helper: get budget pallets
   function bgtPal(wk, sku, ch) {
