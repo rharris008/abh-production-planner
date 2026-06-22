@@ -4532,29 +4532,30 @@ function forwardFillDemand() {
     const lastLiveWk = ALL_WEEKS[lastLiveIdx];
     SKUS.forEach(s => { lastVals[s] = COMBINED[lastLiveWk]?.[s]?.[ch] || 0; });
 
-    // Pro-rate partial final week: compare this channel's last live week total to the
-    // per-channel average of the prior 4 live weeks. If it's < 85% of that average,
-    // the week is likely a partial forecast (e.g. ends Wednesday) and we scale up.
-    // Per-channel ratio avoids cross-channel date-convention contamination.
-    let priorSum = 0, priorCount = 0;
-    for (let j = Math.max(todayIdx, lastLiveIdx - 4); j < lastLiveIdx; j++) {
-      const priorWk = ALL_WEEKS[j];
-      const t = SKUS.reduce((acc, s) => acc + ((COMBINED[priorWk]?.[s]?.[ch]) || 0), 0);
-      if (t > 0) { priorSum += t; priorCount++; }
-    }
-    const lastTotal = SKUS.reduce((acc, s) => acc + (lastVals[s] || 0), 0);
-    const avgPrior  = priorCount > 0 ? priorSum / priorCount : 0;
-    if (avgPrior > 0 && lastTotal > 0 && lastTotal < avgPrior * 0.85) {
-      const scale = Math.min(avgPrior / lastTotal, 5); // cap at 5x (1-day minimum)
-      SKUS.forEach(s => {
-        lastVals[s] = Math.round(lastVals[s] * scale);
-        if (COMBINED[lastLiveWk]?.[s]) {
-          COMBINED[lastLiveWk][s][ch] = lastVals[s];
-          COMBINED[lastLiveWk][s].total = (COMBINED[lastLiveWk][s].ww || 0) +
-                                          (COMBINED[lastLiveWk][s].coles || 0) +
-                                          (COMBINED[lastLiveWk][s].metcash || 0);
-        }
-      });
+    // Pro-rate partial final week: count delivery days for THIS channel using its own
+    // daily data. Coles/Metcash daily is keyed by arrival or ship date respectively.
+    // WW pivot format has no daily data (weekly planned quantities are already full-week
+    // amounts) — skip scaling for WW when daily is empty.
+    const chOvr   = ch === 'ww' ? wwOverride : ch === 'coles' ? colesOvr : metcashOvr;
+    const chDaily = chOvr?.daily || {};
+    const chHasDaily = Object.keys(chDaily).length > 0;
+    if (chHasDaily) {
+      const deliveryDays = [0,1,2,3,4].filter(d => {
+        const dt = addDays(lastLiveWk, d);
+        return SKUS.some(s => (chDaily[dt]?.[s] || 0) > 0);
+      }).length;
+      if (deliveryDays > 0 && deliveryDays < 5) {
+        const scale = 5 / deliveryDays;
+        SKUS.forEach(s => {
+          lastVals[s] = Math.round(lastVals[s] * scale);
+          if (COMBINED[lastLiveWk]?.[s]) {
+            COMBINED[lastLiveWk][s][ch] = lastVals[s];
+            COMBINED[lastLiveWk][s].total = (COMBINED[lastLiveWk][s].ww || 0) +
+                                            (COMBINED[lastLiveWk][s].coles || 0) +
+                                            (COMBINED[lastLiveWk][s].metcash || 0);
+          }
+        });
+      }
     }
 
     // Forward-fill from the week after last live data through to the horizon
