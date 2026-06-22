@@ -5354,7 +5354,7 @@ function applyPublicHolidays(rows) {
   publicHolidays = new Set();
   publicHolidayNames = {};
   rows.forEach(r => {
-    if (r.date) {
+    if (r.date && r.name !== 'Bank Holiday') {
       publicHolidays.add(r.date);
       publicHolidayNames[r.date] = r.name || 'Public Holiday';
     }
