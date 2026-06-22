@@ -4753,22 +4753,22 @@ function renderBudget() {
       const varPal = fcst - bgt;
       const cls = varCls(fcst, bgt);
       const shortWk = fmtD(wk).slice(0,5);
-      return `<div style="background:#1a2535;border:1px solid var(--border);border-radius:6px;padding:14px 16px;min-width:160px;flex:1">
-        <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Wk ${shortWk}</div>
-        <div style="font-size:18px;font-weight:700;color:var(--text)">${Math.round(fcst)} <span style="font-size:11px;font-weight:400;color:var(--muted)">pal fcst</span></div>
+      return `<div style="background:#fff;border:1px solid var(--border);border-radius:6px;padding:14px 16px;min-width:160px;flex:1">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.4px">Wk ${shortWk}</div>
+        <div style="font-size:18px;font-weight:700;color:var(--navy)">${Math.round(fcst)} <span style="font-size:11px;font-weight:400;color:var(--muted)">pal fcst</span></div>
         <div style="font-size:12px;color:var(--muted);margin-top:2px">${Math.round(bgt)} budget</div>
         <div style="font-size:13px;margin-top:6px;${cls}">${fmtVar(varPal)} pal (${pct(fcst,bgt)})</div>
       </div>`;
     }).join('');
-    // Add a combined 4-week summary tile
+    // Add a combined 4-week summary tile (navy brand)
     const tot4fcst = wkTotals.reduce((s,t)=>s+t.fcst,0);
     const tot4bgt  = wkTotals.reduce((s,t)=>s+t.bgt,0);
     const tot4var  = tot4fcst - tot4bgt;
     const tot4cls  = varCls(tot4fcst, tot4bgt);
-    tiles += `<div style="background:#1B2A4A;border:1px solid #2e4070;border-radius:6px;padding:14px 16px;min-width:160px;flex:1">
-      <div style="font-size:10px;color:#8EB4D8;margin-bottom:4px">4-Week Total</div>
-      <div style="font-size:18px;font-weight:700;color:#fff">${Math.round(tot4fcst)} <span style="font-size:11px;font-weight:400;color:#8EB4D8">pal fcst</span></div>
-      <div style="font-size:12px;color:#8EB4D8;margin-top:2px">${Math.round(tot4bgt)} budget</div>
+    tiles += `<div style="background:var(--navy);border:1px solid var(--navy);border-radius:6px;padding:14px 16px;min-width:160px;flex:1">
+      <div style="font-size:10px;color:rgba(255,255,255,.7);margin-bottom:4px;text-transform:uppercase;letter-spacing:.4px">4-Week Total</div>
+      <div style="font-size:18px;font-weight:700;color:#fff">${Math.round(tot4fcst)} <span style="font-size:11px;font-weight:400;color:rgba(255,255,255,.7)">pal fcst</span></div>
+      <div style="font-size:12px;color:rgba(255,255,255,.7);margin-top:2px">${Math.round(tot4bgt)} budget</div>
       <div style="font-size:13px;margin-top:6px;${tot4cls}">${fmtVar(tot4var)} pal (${pct(tot4fcst,tot4bgt)})</div>
     </div>`;
   }
@@ -4785,39 +4785,47 @@ function renderBudget() {
     return hz && wk > hz;
   }
 
-  const stickyL1 = 'position:sticky;left:0;z-index:2;background:#1a2535;';
-  const stickyL2 = 'position:sticky;left:72px;z-index:2;background:#1a2535;';
-  const stickyL2Alt = 'position:sticky;left:72px;z-index:2;background:#111927;';
-  let thead = `<tr><th style="text-align:left;min-width:70px;${stickyL1}">SKU</th><th style="text-align:left;min-width:80px;${stickyL2}">Retailer</th>`;
+  // Sticky first two columns — match row background so scrolled numbers don't ghost under labels
+  const S1     = 'position:sticky;left:0;z-index:2;';
+  const S2     = 'position:sticky;left:72px;z-index:2;';
+  const BG_ODD = 'background:var(--light);';  // #EEF2F8
+  const BG_EVN = 'background:#fff;';
+
+  let thead = `<tr>
+    <th style="text-align:left;min-width:70px;${S1}${BG_EVN}">SKU</th>
+    <th style="text-align:left;min-width:90px;${S2}${BG_EVN}">Retailer</th>`;
   upcoming4.forEach(wk => {
     const shortWk = fmtD(wk).slice(0,5);
-    thead += `<th class="num" colspan="3" style="background:#1B2A4A;color:#fff;padding:4px 8px">Wk ${shortWk}</th>`;
+    thead += `<th class="num" colspan="3" style="background:var(--navy);color:#fff;padding:4px 8px">Wk ${shortWk}</th>`;
   });
-  // 4-week total column group
-  thead += `<th class="num" colspan="3" style="background:#0E7CCE;color:#fff;padding:4px 8px">4-Wk Total</th>`;
-  thead += '</tr><tr><th></th><th></th>';
+  thead += `<th class="num" colspan="3" style="background:var(--blue);color:#fff;padding:4px 8px">4-Wk Total</th>`;
+  thead += `</tr><tr>
+    <th style="${S1}${BG_EVN}"></th>
+    <th style="${S2}${BG_EVN}"></th>`;
   upcoming4.forEach(() => {
-    thead += `<th class="num" style="color:var(--muted);font-size:10px;background:#141e2e">Fcst</th>
-              <th class="num" style="color:var(--muted);font-size:10px;background:#141e2e">Bgt</th>
-              <th class="num" style="color:var(--muted);font-size:10px;background:#141e2e">Var</th>`;
+    thead += `<th class="num" style="color:var(--muted);font-size:10px;background:var(--light)">Fcst</th>
+              <th class="num" style="color:var(--muted);font-size:10px;background:var(--light)">Bgt</th>
+              <th class="num" style="color:var(--muted);font-size:10px;background:var(--light)">Var</th>`;
   });
-  thead += `<th class="num" style="color:#8EB4D8;font-size:10px;background:#0b3d5e">Fcst</th>
-            <th class="num" style="color:#8EB4D8;font-size:10px;background:#0b3d5e">Bgt</th>
-            <th class="num" style="color:#8EB4D8;font-size:10px;background:#0b3d5e">Var</th>`;
+  thead += `<th class="num" style="color:#fff;font-size:10px;background:var(--blue)">Fcst</th>
+            <th class="num" style="color:#fff;font-size:10px;background:var(--blue)">Bgt</th>
+            <th class="num" style="color:#fff;font-size:10px;background:var(--blue)">Var</th>`;
   thead += '</tr>';
 
   let tbody = '';
   BDG_SKUS.forEach((sku, si) => {
-    const rowBg = si % 2 === 0 ? '' : 'background:#111927;';
+    const isOdd  = si % 2 !== 0;
+    const rowBg  = isOdd ? BG_ODD : BG_EVN;
+    const rowBgS = isOdd ? BG_ODD : BG_EVN;   // sticky bg matches row bg
+
     // Channel rows
     CHANNELS.forEach((ch, ci) => {
       const isFirst = ci === 0;
       tbody += `<tr>`;
       if (isFirst) {
-        tbody += `<td rowspan="${CHANNELS.length + 1}" style="${rowBg}${stickyL1}font-weight:700;color:var(--text);padding:5px 8px;vertical-align:top;border-top:1px solid var(--border)">${SKU_LBL[sku]}</td>`;
+        tbody += `<td rowspan="${CHANNELS.length + 1}" style="${rowBgS}${S1}font-weight:700;color:var(--navy);padding:5px 8px;vertical-align:top;border-top:2px solid var(--border)">${SKU_LBL[sku]}</td>`;
       }
-      const altBg = rowBg ? stickyL2Alt : stickyL2;
-      tbody += `<td style="${rowBg}${altBg}color:var(--muted);padding:4px 8px">${CH_LBL[ch]}</td>`;
+      tbody += `<td style="${rowBgS}${S2}color:var(--muted);padding:4px 8px">${CH_LBL[ch]}</td>`;
       let chTotF = 0, chTotB = 0;
       upcoming4.forEach(wk => {
         const f = fcstPal(wk, sku, ch);
@@ -4825,7 +4833,7 @@ function renderBudget() {
         const v = f - b;
         const cls = varCls(f, b);
         const ffNote = isForwardFilled(wk, ch) ? ' title="Forward-filled — beyond live forecast"' : '';
-        const ffStyle = isForwardFilled(wk, ch) ? 'opacity:.65;font-style:italic;' : '';
+        const ffStyle = isForwardFilled(wk, ch) ? 'opacity:.6;font-style:italic;' : '';
         chTotF += f; chTotB += b;
         tbody += `<td class="num" style="${rowBg}${ffStyle}padding:4px 8px"${ffNote}>${fmt1(f)}</td>
                   <td class="num" style="${rowBg}padding:4px 8px;color:var(--muted)">${fmt1(b)}</td>
@@ -4834,14 +4842,14 @@ function renderBudget() {
       // 4-week channel total
       const chv = chTotF - chTotB;
       const chCls = varCls(chTotF, chTotB);
-      tbody += `<td class="num" style="${rowBg}padding:4px 8px;font-weight:600">${fmt1(chTotF)}</td>
+      tbody += `<td class="num" style="${rowBg}padding:4px 8px;font-weight:600;color:var(--navy)">${fmt1(chTotF)}</td>
                 <td class="num" style="${rowBg}padding:4px 8px;color:var(--muted)">${fmt1(chTotB)}</td>
                 <td class="num" style="${rowBg}padding:4px 8px;${chCls}">${chTotB > 0 ? fmtVar(chv) : '—'}</td>`;
       tbody += '</tr>';
     });
-    // SKU total row
+    // SKU subtotal row
     tbody += `<tr style="border-bottom:2px solid var(--border)">`;
-    tbody += `<td style="${rowBg}${stickyL2}font-weight:700;color:var(--text);padding:4px 8px">Total</td>`;
+    tbody += `<td style="${rowBgS}${S2}font-weight:700;color:var(--navy);padding:4px 8px">All channels</td>`;
     let skuTotF = 0, skuTotB = 0;
     upcoming4.forEach(wk => {
       let tf = 0, tb = 0;
@@ -4849,22 +4857,22 @@ function renderBudget() {
       skuTotF += tf; skuTotB += tb;
       const tv = tf - tb;
       const cls = varCls(tf, tb);
-      tbody += `<td class="num" style="${rowBg}font-weight:700;padding:4px 8px">${fmt1(tf)}</td>
+      tbody += `<td class="num" style="${rowBg}font-weight:700;padding:4px 8px;color:var(--navy)">${fmt1(tf)}</td>
                 <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;color:var(--muted)">${fmt1(tb)}</td>
                 <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;${cls}">${tb > 0 ? fmtVar(tv) : '—'}</td>`;
     });
     const stv = skuTotF - skuTotB;
     const stCls = varCls(skuTotF, skuTotB);
-    tbody += `<td class="num" style="${rowBg}font-weight:700;padding:4px 8px">${fmt1(skuTotF)}</td>
+    tbody += `<td class="num" style="${rowBg}font-weight:700;padding:4px 8px;color:var(--navy)">${fmt1(skuTotF)}</td>
               <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;color:var(--muted)">${fmt1(skuTotB)}</td>
               <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;${stCls}">${skuTotB > 0 ? fmtVar(stv) : '—'}</td>`;
     tbody += '</tr>';
   });
 
-  // Grand total row
-  tbody += `<tr style="background:#1B2A4A">`;
-  tbody += `<td style="${stickyL1}background:#1B2A4A;font-weight:700;color:#fff;padding:6px 8px">Grand Total</td>`;
-  tbody += `<td style="${stickyL2}background:#1B2A4A;padding:6px 8px"></td>`;
+  // Grand total row — navy brand
+  tbody += `<tr style="background:var(--navy)">`;
+  tbody += `<td style="${S1}background:var(--navy);font-weight:700;color:#fff;padding:6px 8px">Grand Total</td>`;
+  tbody += `<td style="${S2}background:var(--navy);color:rgba(255,255,255,.7);padding:6px 8px">All SKUs</td>`;
   let gtotF = 0, gtotB = 0;
   upcoming4.forEach(wk => {
     let tf = 0, tb = 0;
@@ -4873,13 +4881,13 @@ function renderBudget() {
     const tv = tf - tb;
     const cls = varCls(tf, tb).replace('font-weight:700','');
     tbody += `<td class="num" style="font-weight:700;color:#fff;padding:6px 8px">${Math.round(tf)}</td>
-              <td class="num" style="color:#8EB4D8;padding:6px 8px">${Math.round(tb)}</td>
+              <td class="num" style="color:rgba(255,255,255,.7);padding:6px 8px">${Math.round(tb)}</td>
               <td class="num" style="font-weight:700;padding:6px 8px;${cls}">${tb > 0 ? fmtVar(tv) : '—'}</td>`;
   });
   const gtv = gtotF - gtotB;
   const gtCls = varCls(gtotF, gtotB).replace('font-weight:700','');
   tbody += `<td class="num" style="font-weight:700;color:#fff;padding:6px 8px">${Math.round(gtotF)}</td>
-            <td class="num" style="color:#8EB4D8;padding:6px 8px">${Math.round(gtotB)}</td>
+            <td class="num" style="color:rgba(255,255,255,.7);padding:6px 8px">${Math.round(gtotB)}</td>
             <td class="num" style="font-weight:700;padding:6px 8px;${gtCls}">${gtotB > 0 ? fmtVar(gtv) : '—'}</td>`;
   tbody += '</tr>';
 
@@ -4913,8 +4921,8 @@ function renderBudget() {
       const v = skuF - skuB;
       const cls = varCls(skuF, skuB);
       ytdRows += `<tr>
-        <td style="padding:5px 10px;font-weight:600;color:var(--text)">${SKU_LBL[sku]}</td>
-        <td class="num" style="padding:5px 10px">${Math.round(skuF)}</td>
+        <td style="padding:5px 10px;font-weight:600;color:var(--navy)">${SKU_LBL[sku]}</td>
+        <td class="num" style="padding:5px 10px;color:var(--navy)">${Math.round(skuF)}</td>
         <td class="num" style="padding:5px 10px;color:var(--muted)">${Math.round(skuB)}</td>
         <td class="num" style="padding:5px 10px;${cls}">${fmtVar(v)}</td>
         <td class="num" style="padding:5px 10px;${cls}">${pct(skuF,skuB)}</td>
@@ -4922,10 +4930,10 @@ function renderBudget() {
     });
     const ytdV = ytdTotalF - ytdTotalB;
     const ytdCls = varCls(ytdTotalF, ytdTotalB);
-    ytdRows += `<tr style="background:#1B2A4A;font-weight:700;color:#fff">
+    ytdRows += `<tr style="background:var(--navy);font-weight:700;color:#fff">
       <td style="padding:6px 10px">Total</td>
       <td class="num" style="padding:6px 10px">${Math.round(ytdTotalF)}</td>
-      <td class="num" style="padding:6px 10px;color:#8EB4D8">${Math.round(ytdTotalB)}</td>
+      <td class="num" style="padding:6px 10px;color:rgba(255,255,255,.7)">${Math.round(ytdTotalB)}</td>
       <td class="num" style="padding:6px 10px;${ytdCls}">${fmtVar(ytdV)}</td>
       <td class="num" style="padding:6px 10px;${ytdCls}">${pct(ytdTotalF,ytdTotalB)}</td>
     </tr>`;
