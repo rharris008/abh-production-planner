@@ -4771,17 +4771,33 @@ function renderBudget() {
   }
 
   // ── Detailed breakdown table ──────────────────────────────────────────────
+  // Identify forward-filled weeks per channel (beyond live forecast horizon)
+  const chFfwFwd = {
+    ww:      forecastHorizonWeek.ww,
+    coles:   forecastHorizonWeek.coles,
+    metcash: forecastHorizonWeek.metcash,
+  };
+  function isForwardFilled(wk, ch) {
+    const hz = chFfwFwd[ch];
+    return hz && wk > hz;
+  }
+
   let thead = '<tr><th style="text-align:left;min-width:70px">SKU</th><th style="text-align:left;min-width:80px">Retailer</th>';
   upcoming4.forEach(wk => {
     const shortWk = fmtD(wk).slice(0,5);
     thead += `<th class="num" colspan="3" style="background:#1B2A4A;color:#fff;padding:4px 8px">Wk ${shortWk}</th>`;
   });
+  // 4-week total column group
+  thead += `<th class="num" colspan="3" style="background:#0E7CCE;color:#fff;padding:4px 8px">4-Wk Total</th>`;
   thead += '</tr><tr><th></th><th></th>';
   upcoming4.forEach(() => {
     thead += `<th class="num" style="color:var(--muted);font-size:10px;background:#141e2e">Fcst</th>
               <th class="num" style="color:var(--muted);font-size:10px;background:#141e2e">Bgt</th>
               <th class="num" style="color:var(--muted);font-size:10px;background:#141e2e">Var</th>`;
   });
+  thead += `<th class="num" style="color:#8EB4D8;font-size:10px;background:#0b3d5e">Fcst</th>
+            <th class="num" style="color:#8EB4D8;font-size:10px;background:#0b3d5e">Bgt</th>
+            <th class="num" style="color:#8EB4D8;font-size:10px;background:#0b3d5e">Var</th>`;
   thead += '</tr>';
 
   let tbody = '';
@@ -4795,44 +4811,68 @@ function renderBudget() {
         tbody += `<td rowspan="${CHANNELS.length + 1}" style="${rowBg}font-weight:700;color:var(--text);padding:5px 8px;vertical-align:top;border-top:1px solid var(--border)">${SKU_LBL[sku]}</td>`;
       }
       tbody += `<td style="${rowBg}color:var(--muted);padding:4px 8px">${CH_LBL[ch]}</td>`;
+      let chTotF = 0, chTotB = 0;
       upcoming4.forEach(wk => {
         const f = fcstPal(wk, sku, ch);
         const b = bgtPal(wk, sku, ch);
         const v = f - b;
         const cls = varCls(f, b);
-        tbody += `<td class="num" style="${rowBg}padding:4px 8px">${fmt1(f)}</td>
+        const ffNote = isForwardFilled(wk, ch) ? ' title="Forward-filled — beyond live forecast"' : '';
+        const ffStyle = isForwardFilled(wk, ch) ? 'opacity:.65;font-style:italic;' : '';
+        chTotF += f; chTotB += b;
+        tbody += `<td class="num" style="${rowBg}${ffStyle}padding:4px 8px"${ffNote}>${fmt1(f)}</td>
                   <td class="num" style="${rowBg}padding:4px 8px;color:var(--muted)">${fmt1(b)}</td>
                   <td class="num" style="${rowBg}padding:4px 8px;${cls}">${b > 0 ? fmtVar(v) : '—'}</td>`;
       });
+      // 4-week channel total
+      const chv = chTotF - chTotB;
+      const chCls = varCls(chTotF, chTotB);
+      tbody += `<td class="num" style="${rowBg}padding:4px 8px;font-weight:600">${fmt1(chTotF)}</td>
+                <td class="num" style="${rowBg}padding:4px 8px;color:var(--muted)">${fmt1(chTotB)}</td>
+                <td class="num" style="${rowBg}padding:4px 8px;${chCls}">${chTotB > 0 ? fmtVar(chv) : '—'}</td>`;
       tbody += '</tr>';
     });
     // SKU total row
     tbody += `<tr style="border-bottom:2px solid var(--border)">`;
     tbody += `<td style="${rowBg}font-weight:700;color:var(--text);padding:4px 8px">Total</td>`;
+    let skuTotF = 0, skuTotB = 0;
     upcoming4.forEach(wk => {
       let tf = 0, tb = 0;
       CHANNELS.forEach(ch => { tf += fcstPal(wk, sku, ch); tb += bgtPal(wk, sku, ch); });
+      skuTotF += tf; skuTotB += tb;
       const tv = tf - tb;
       const cls = varCls(tf, tb);
       tbody += `<td class="num" style="${rowBg}font-weight:700;padding:4px 8px">${fmt1(tf)}</td>
                 <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;color:var(--muted)">${fmt1(tb)}</td>
                 <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;${cls}">${tb > 0 ? fmtVar(tv) : '—'}</td>`;
     });
+    const stv = skuTotF - skuTotB;
+    const stCls = varCls(skuTotF, skuTotB);
+    tbody += `<td class="num" style="${rowBg}font-weight:700;padding:4px 8px">${fmt1(skuTotF)}</td>
+              <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;color:var(--muted)">${fmt1(skuTotB)}</td>
+              <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;${stCls}">${skuTotB > 0 ? fmtVar(stv) : '—'}</td>`;
     tbody += '</tr>';
   });
 
   // Grand total row
   tbody += `<tr style="background:#1B2A4A">`;
   tbody += `<td colspan="2" style="font-weight:700;color:#fff;padding:6px 8px">Grand Total</td>`;
+  let gtotF = 0, gtotB = 0;
   upcoming4.forEach(wk => {
     let tf = 0, tb = 0;
     BDG_SKUS.forEach(sku => CHANNELS.forEach(ch => { tf += fcstPal(wk, sku, ch); tb += bgtPal(wk, sku, ch); }));
+    gtotF += tf; gtotB += tb;
     const tv = tf - tb;
     const cls = varCls(tf, tb).replace('font-weight:700','');
     tbody += `<td class="num" style="font-weight:700;color:#fff;padding:6px 8px">${Math.round(tf)}</td>
               <td class="num" style="color:#8EB4D8;padding:6px 8px">${Math.round(tb)}</td>
               <td class="num" style="font-weight:700;padding:6px 8px;${cls}">${tb > 0 ? fmtVar(tv) : '—'}</td>`;
   });
+  const gtv = gtotF - gtotB;
+  const gtCls = varCls(gtotF, gtotB).replace('font-weight:700','');
+  tbody += `<td class="num" style="font-weight:700;color:#fff;padding:6px 8px">${Math.round(gtotF)}</td>
+            <td class="num" style="color:#8EB4D8;padding:6px 8px">${Math.round(gtotB)}</td>
+            <td class="num" style="font-weight:700;padding:6px 8px;${gtCls}">${gtotB > 0 ? fmtVar(gtv) : '—'}</td>`;
   tbody += '</tr>';
 
   // ── YTD section ───────────────────────────────────────────────────────────
