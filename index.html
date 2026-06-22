@@ -177,6 +177,7 @@ tr.risk-a td{background:#FEF9F0}
     <div class="tab" onclick="switchTab('stock',this)">Stock</div>
     <div class="tab" onclick="switchTab('openorders',this)">Open Orders</div>
     <div class="tab" onclick="switchTab('upload',this)">Forecast Upload</div>
+    <div class="tab" onclick="switchTab('budget',this)">Budget vs Forecast</div>
   </div>
   <div id="navFreshness" title="Data freshness — last update per source"></div>
 </div>
@@ -461,6 +462,10 @@ tr.risk-a td{background:#FEF9F0}
   </div>
 </div>
 
+<div id="tab-budget" class="tc">
+  <div id="budgetContent"></div>
+</div>
+
 </div><!-- /main -->
 
 <script>
@@ -470,6 +475,8 @@ const COLES_ORDERS   = [];
 const METCASH_ORDERS  = [];
 
 const COMBINED       = {};
+// FY27 budget (pallets) by week_start → sku → channel. Generated from ops_sales_budget_weekly.
+const BUDGET_DATA = {"2026-07-06":{"10L Cask":{"ww":507.0,"coles":322.3,"metcash":91.0},"2L Bottle":{"ww":64.7,"coles":67.1,"metcash":7.6},"5L Cask":{"ww":73.7,"coles":58.8,"metcash":14.0},"600ml 6pk":{"ww":19.3,"coles":64.8,"metcash":10.0}},"2026-07-13":{"10L Cask":{"ww":507.0,"coles":322.3,"metcash":91.0},"2L Bottle":{"ww":64.7,"coles":67.1,"metcash":7.6},"5L Cask":{"ww":73.7,"coles":58.8,"metcash":14.0},"600ml 6pk":{"ww":19.3,"coles":64.8,"metcash":10.0}},"2026-07-20":{"10L Cask":{"ww":507.0,"coles":322.3,"metcash":91.0},"2L Bottle":{"ww":64.7,"coles":67.1,"metcash":7.6},"5L Cask":{"ww":73.7,"coles":58.8,"metcash":14.0},"600ml 6pk":{"ww":19.3,"coles":64.8,"metcash":10.0}},"2026-07-27":{"10L Cask":{"ww":507.0,"coles":322.3,"metcash":91.0},"2L Bottle":{"ww":64.7,"coles":67.1,"metcash":7.6},"5L Cask":{"ww":73.7,"coles":58.8,"metcash":14.0},"600ml 6pk":{"ww":19.3,"coles":64.8,"metcash":10.0}},"2026-08-03":{"10L Cask":{"ww":369.2,"coles":234.8,"metcash":66.3},"2L Bottle":{"ww":47.1,"coles":48.9,"metcash":5.5},"5L Cask":{"ww":53.7,"coles":42.8,"metcash":10.2},"600ml 6pk":{"ww":14.1,"coles":47.2,"metcash":7.3}},"2026-08-10":{"10L Cask":{"ww":369.2,"coles":234.8,"metcash":66.3},"2L Bottle":{"ww":47.1,"coles":48.9,"metcash":5.5},"5L Cask":{"ww":53.7,"coles":42.8,"metcash":10.2},"600ml 6pk":{"ww":14.1,"coles":47.2,"metcash":7.3}},"2026-08-17":{"10L Cask":{"ww":369.2,"coles":234.8,"metcash":66.3},"2L Bottle":{"ww":47.1,"coles":48.9,"metcash":5.5},"5L Cask":{"ww":53.7,"coles":42.8,"metcash":10.2},"600ml 6pk":{"ww":14.1,"coles":47.2,"metcash":7.3}},"2026-08-24":{"10L Cask":{"ww":369.2,"coles":234.8,"metcash":66.3},"2L Bottle":{"ww":47.1,"coles":48.9,"metcash":5.5},"5L Cask":{"ww":53.7,"coles":42.8,"metcash":10.2},"600ml 6pk":{"ww":14.1,"coles":47.2,"metcash":7.3}},"2026-08-31":{"10L Cask":{"ww":369.2,"coles":234.8,"metcash":66.3},"2L Bottle":{"ww":47.1,"coles":48.9,"metcash":5.5},"5L Cask":{"ww":53.7,"coles":42.8,"metcash":10.2},"600ml 6pk":{"ww":14.1,"coles":47.2,"metcash":7.3}},"2026-09-07":{"10L Cask":{"ww":369.2,"coles":234.8,"metcash":66.3},"2L Bottle":{"ww":47.1,"coles":48.9,"metcash":5.5},"5L Cask":{"ww":53.7,"coles":42.8,"metcash":10.2},"600ml 6pk":{"ww":14.1,"coles":47.2,"metcash":7.3}},"2026-09-14":{"10L Cask":{"ww":369.2,"coles":234.8,"metcash":66.3},"2L Bottle":{"ww":47.1,"coles":48.9,"metcash":5.5},"5L Cask":{"ww":53.7,"coles":42.8,"metcash":10.2},"600ml 6pk":{"ww":14.1,"coles":47.2,"metcash":7.3}},"2026-09-21":{"10L Cask":{"ww":369.2,"coles":234.8,"metcash":66.3},"2L Bottle":{"ww":47.1,"coles":48.9,"metcash":5.5},"5L Cask":{"ww":53.7,"coles":42.8,"metcash":10.2},"600ml 6pk":{"ww":14.1,"coles":47.2,"metcash":7.3}},"2026-09-28":{"10L Cask":{"ww":369.2,"coles":234.8,"metcash":66.3},"2L Bottle":{"ww":47.1,"coles":48.9,"metcash":5.5},"5L Cask":{"ww":53.7,"coles":42.8,"metcash":10.2},"600ml 6pk":{"ww":14.1,"coles":47.2,"metcash":7.3}},"2026-10-05":{"10L Cask":{"ww":581.1,"coles":369.3,"metcash":104.3},"2L Bottle":{"ww":74.2,"coles":76.9,"metcash":8.7},"5L Cask":{"ww":84.4,"coles":67.4,"metcash":16.0},"600ml 6pk":{"ww":22.1,"coles":74.5,"metcash":11.5}},"2026-10-12":{"10L Cask":{"ww":581.1,"coles":369.3,"metcash":104.3},"2L Bottle":{"ww":74.2,"coles":76.9,"metcash":8.7},"5L Cask":{"ww":84.4,"coles":67.4,"metcash":16.0},"600ml 6pk":{"ww":22.1,"coles":74.5,"metcash":11.5}},"2026-10-19":{"10L Cask":{"ww":158.7,"coles":100.8,"metcash":28.5},"2L Bottle":{"ww":20.2,"coles":21.0,"metcash":2.4},"5L Cask":{"ww":23.0,"coles":18.4,"metcash":4.4},"600ml 6pk":{"ww":6.1,"coles":20.3,"metcash":3.1}},"2026-10-26":{"10L Cask":{"ww":158.7,"coles":100.8,"metcash":28.5},"2L Bottle":{"ww":20.2,"coles":21.0,"metcash":2.4},"5L Cask":{"ww":23.0,"coles":18.4,"metcash":4.4},"600ml 6pk":{"ww":6.1,"coles":20.3,"metcash":3.1}},"2026-11-02":{"10L Cask":{"ww":115.2,"coles":73.2,"metcash":20.7},"2L Bottle":{"ww":14.7,"coles":15.2,"metcash":1.7},"5L Cask":{"ww":16.7,"coles":13.3,"metcash":3.2},"600ml 6pk":{"ww":4.4,"coles":14.8,"metcash":2.3}},"2026-11-09":{"10L Cask":{"ww":115.2,"coles":73.2,"metcash":20.7},"2L Bottle":{"ww":14.7,"coles":15.2,"metcash":1.7},"5L Cask":{"ww":16.7,"coles":13.3,"metcash":3.2},"600ml 6pk":{"ww":4.4,"coles":14.8,"metcash":2.3}},"2026-11-16":{"10L Cask":{"ww":115.2,"coles":73.2,"metcash":20.7},"2L Bottle":{"ww":14.7,"coles":15.2,"metcash":1.7},"5L Cask":{"ww":16.7,"coles":13.3,"metcash":3.2},"600ml 6pk":{"ww":4.4,"coles":14.8,"metcash":2.3}},"2026-11-23":{"10L Cask":{"ww":115.2,"coles":73.2,"metcash":20.7},"2L Bottle":{"ww":14.7,"coles":15.2,"metcash":1.7},"5L Cask":{"ww":16.7,"coles":13.3,"metcash":3.2},"600ml 6pk":{"ww":4.4,"coles":14.8,"metcash":2.3}},"2026-11-30":{"10L Cask":{"ww":115.2,"coles":73.2,"metcash":20.7},"2L Bottle":{"ww":14.7,"coles":15.2,"metcash":1.7},"5L Cask":{"ww":16.7,"coles":13.3,"metcash":3.2},"600ml 6pk":{"ww":4.4,"coles":14.8,"metcash":2.3}},"2026-12-07":{"10L Cask":{"ww":198.1,"coles":125.9,"metcash":35.6},"2L Bottle":{"ww":25.3,"coles":26.2,"metcash":3.0},"5L Cask":{"ww":28.7,"coles":22.9,"metcash":5.5},"600ml 6pk":{"ww":7.6,"coles":25.4,"metcash":3.9}},"2026-12-14":{"10L Cask":{"ww":198.1,"coles":125.9,"metcash":35.6},"2L Bottle":{"ww":25.3,"coles":26.2,"metcash":3.0},"5L Cask":{"ww":28.7,"coles":22.9,"metcash":5.5},"600ml 6pk":{"ww":7.6,"coles":25.4,"metcash":3.9}},"2026-12-21":{"10L Cask":{"ww":198.1,"coles":125.9,"metcash":35.6},"2L Bottle":{"ww":25.3,"coles":26.2,"metcash":3.0},"5L Cask":{"ww":28.7,"coles":22.9,"metcash":5.5},"600ml 6pk":{"ww":7.6,"coles":25.4,"metcash":3.9}},"2026-12-28":{"10L Cask":{"ww":198.1,"coles":125.9,"metcash":35.6},"2L Bottle":{"ww":25.3,"coles":26.2,"metcash":3.0},"5L Cask":{"ww":28.7,"coles":22.9,"metcash":5.5},"600ml 6pk":{"ww":7.6,"coles":25.4,"metcash":3.9}},"2027-01-04":{"10L Cask":{"ww":460.3,"coles":292.5,"metcash":82.6},"2L Bottle":{"ww":58.8,"coles":60.9,"metcash":6.9},"5L Cask":{"ww":66.7,"coles":53.3,"metcash":12.6},"600ml 6pk":{"ww":17.6,"coles":59.2,"metcash":9.2}},"2027-01-11":{"10L Cask":{"ww":460.3,"coles":292.5,"metcash":82.6},"2L Bottle":{"ww":58.8,"coles":60.9,"metcash":6.9},"5L Cask":{"ww":66.7,"coles":53.3,"metcash":12.6},"600ml 6pk":{"ww":17.6,"coles":59.2,"metcash":9.2}},"2027-01-18":{"10L Cask":{"ww":460.3,"coles":292.5,"metcash":82.6},"2L Bottle":{"ww":58.8,"coles":60.9,"metcash":6.9},"5L Cask":{"ww":66.7,"coles":53.3,"metcash":12.6},"600ml 6pk":{"ww":17.6,"coles":59.2,"metcash":9.2}},"2027-01-25":{"10L Cask":{"ww":460.3,"coles":292.5,"metcash":82.6},"2L Bottle":{"ww":58.8,"coles":60.9,"metcash":6.9},"5L Cask":{"ww":66.7,"coles":53.3,"metcash":12.6},"600ml 6pk":{"ww":17.6,"coles":59.2,"metcash":9.2}},"2027-02-01":{"10L Cask":{"ww":460.3,"coles":292.5,"metcash":82.6},"2L Bottle":{"ww":58.8,"coles":60.9,"metcash":6.9},"5L Cask":{"ww":66.7,"coles":53.3,"metcash":12.6},"600ml 6pk":{"ww":17.6,"coles":59.2,"metcash":9.2}},"2027-02-08":{"10L Cask":{"ww":460.3,"coles":292.5,"metcash":82.6},"2L Bottle":{"ww":58.8,"coles":60.9,"metcash":6.9},"5L Cask":{"ww":66.7,"coles":53.3,"metcash":12.6},"600ml 6pk":{"ww":17.6,"coles":59.2,"metcash":9.2}},"2027-02-15":{"10L Cask":{"ww":460.3,"coles":292.5,"metcash":82.6},"2L Bottle":{"ww":58.8,"coles":60.9,"metcash":6.9},"5L Cask":{"ww":66.7,"coles":53.3,"metcash":12.6},"600ml 6pk":{"ww":17.6,"coles":59.2,"metcash":9.2}},"2027-02-22":{"10L Cask":{"ww":460.3,"coles":292.5,"metcash":82.6},"2L Bottle":{"ww":58.8,"coles":60.9,"metcash":6.9},"5L Cask":{"ww":66.7,"coles":53.3,"metcash":12.6},"600ml 6pk":{"ww":17.6,"coles":59.2,"metcash":9.2}},"2027-03-01":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-03-08":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-03-15":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-03-22":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-03-29":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-04-05":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-04-12":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-04-19":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-04-26":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-05-03":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-05-10":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-05-17":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-05-24":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-05-31":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-06-07":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-06-14":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-06-21":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}}};
 const ALL_WEEKS      = ["2026-03-16", "2026-03-23", "2026-03-30", "2026-04-06", "2026-04-13", "2026-04-20", "2026-04-27", "2026-05-04", "2026-05-11", "2026-05-18", "2026-05-25", "2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29", "2026-07-06", "2026-07-13", "2026-07-20", "2026-07-27", "2026-08-03", "2026-08-10", "2026-08-17", "2026-08-24", "2026-08-31", "2026-09-07", "2026-09-14", "2026-09-21", "2026-09-28", "2026-10-05", "2026-10-12", "2026-10-19", "2026-10-26", "2026-11-02", "2026-11-09", "2026-11-16", "2026-11-23", "2026-11-30", "2026-12-07", "2026-12-14", "2026-12-21", "2026-12-28", "2027-01-04", "2027-01-11", "2027-01-18", "2027-01-25", "2027-02-01", "2027-02-08", "2027-02-15", "2027-02-22", "2027-03-01", "2027-03-08", "2027-03-15", "2027-03-22", "2027-03-29", "2027-04-05", "2027-04-12", "2027-04-19", "2027-04-26", "2027-05-03", "2027-05-10", "2027-05-17", "2027-05-24", "2027-05-31", "2027-06-07", "2027-06-14", "2027-06-21", "2027-06-28", "2027-07-05", "2027-07-12", "2027-07-19", "2027-07-26", "2027-08-02", "2027-08-09", "2027-08-16", "2027-08-23", "2027-08-30", "2027-09-06"];
 const STOCK_PAL      = {"10L Cask": 0, "2L Bottle": 0, "5L Cask": 0, "600ml 12pk": 0, "600ml 6pk": 0};
 const STOCK_UNITS    = {"10L Cask": 0, "2L Bottle": 0, "5L Cask": 0, "600ml 12pk": 0, "600ml 6pk": 0};
@@ -4620,6 +4627,8 @@ function rebuildData() {
   onWeekChange();
   renderFrontAlerts(); // always anchored to today — must run after onWeekChange so planWeek cache is warm
   renderAudit();       // cross-reference audit — refreshes whenever data changes
+  // Refresh budget tab if it is currently visible
+  if (document.getElementById('tab-budget')?.classList.contains('active')) renderBudget();
 }
 
 function buildEmbWW(){
@@ -4679,7 +4688,237 @@ function setRetailerView(r) {
   const pr = planWeek(currentWeek);
   renderSkuStrips(pr);
 }
-function switchTab(n,el){document.querySelectorAll('.tc').forEach(e=>e.classList.remove('active'));document.querySelectorAll('.tab').forEach(e=>e.classList.remove('active'));document.getElementById('tab-'+n).classList.add('active');if(el)el.classList.add('active');}
+function switchTab(n,el){document.querySelectorAll('.tc').forEach(e=>e.classList.remove('active'));document.querySelectorAll('.tab').forEach(e=>e.classList.remove('active'));document.getElementById('tab-'+n).classList.add('active');if(el)el.classList.add('active');if(n==='budget')renderBudget();}
+
+// ══ BUDGET VS FORECAST TAB ════════════════════════════════════════════════════
+function renderBudget() {
+  const el = document.getElementById('budgetContent');
+  if (!el) return;
+
+  const FY27_START  = '2026-07-06';
+  const today       = localToday();
+  const currentMon  = monOf(today);
+  const CHANNELS    = ['ww','coles','metcash'];
+  const CH_LBL      = {ww:'Woolworths',coles:'Coles',metcash:'Metcash'};
+  const BDG_SKUS    = ['10L Cask','5L Cask','2L Bottle','600ml 6pk'];
+  const SKU_LBL     = {'10L Cask':'10L Cask','5L Cask':'5L Cask','2L Bottle':'2L','600ml 6pk':'600ml 6pk'};
+
+  // FY27 weeks >= current Monday (forecast weeks)
+  const fy27Weeks   = ALL_WEEKS.filter(w => w >= FY27_START);
+  const upcoming4   = fy27Weeks.filter(w => w >= currentMon).slice(0, 4);
+  // YTD: FY27 weeks completed before this Monday
+  const ytdWeeks    = fy27Weeks.filter(w => w < currentMon);
+
+  // Helper: get forecast pallets from COMBINED (pallets = units / UPP)
+  function fcstPal(wk, sku, ch) {
+    const units = COMBINED[wk]?.[sku]?.[ch] || 0;
+    return units > 0 ? units / (UPP[sku] || 1) : 0;
+  }
+  // Helper: get budget pallets
+  function bgtPal(wk, sku, ch) {
+    return BUDGET_DATA[wk]?.[sku]?.[ch] || 0;
+  }
+  // Variance colour
+  function varCls(fcst, bgt) {
+    if (bgt <= 0) return '';
+    const pct = fcst / bgt;
+    if (pct >= 0.90) return 'color:#27AE60;font-weight:700';
+    if (pct >= 0.75) return 'color:#E67E22;font-weight:700';
+    return 'color:#C0392B;font-weight:700';
+  }
+  function fmt1(n) { return n > 0 ? n.toFixed(1) : '—'; }
+  function fmtVar(v) { return v >= 0 ? '+' + v.toFixed(1) : v.toFixed(1); }
+  function pct(f, b) { return b > 0 ? Math.round(f / b * 100) + '%' : '—'; }
+
+  // ── Compute weekly totals for KPI tiles ──────────────────────────────────
+  const wkTotals = upcoming4.map(wk => {
+    let fcst = 0, bgt = 0;
+    BDG_SKUS.forEach(sku => CHANNELS.forEach(ch => {
+      fcst += fcstPal(wk, sku, ch);
+      bgt  += bgtPal(wk, sku, ch);
+    }));
+    return { wk, fcst: Math.round(fcst * 10) / 10, bgt: Math.round(bgt * 10) / 10 };
+  });
+
+  // ── KPI tiles ────────────────────────────────────────────────────────────
+  let tiles = '';
+  if (upcoming4.length === 0) {
+    tiles = `<div style="padding:20px;color:var(--muted)">FY27 starts ${fmtD(FY27_START)} — budget comparison will appear here from that date.</div>`;
+  } else {
+    tiles = upcoming4.map(wk => {
+      const t   = wkTotals.find(x => x.wk === wk);
+      const fcst= t.fcst, bgt = t.bgt;
+      const varPal = fcst - bgt;
+      const cls = varCls(fcst, bgt);
+      const shortWk = fmtD(wk).slice(0,5);
+      return `<div style="background:#1a2535;border:1px solid var(--border);border-radius:6px;padding:14px 16px;min-width:160px;flex:1">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Wk ${shortWk}</div>
+        <div style="font-size:18px;font-weight:700;color:var(--text)">${Math.round(fcst)} <span style="font-size:11px;font-weight:400;color:var(--muted)">pal fcst</span></div>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px">${Math.round(bgt)} budget</div>
+        <div style="font-size:13px;margin-top:6px;${cls}">${fmtVar(varPal)} pal (${pct(fcst,bgt)})</div>
+      </div>`;
+    }).join('');
+    // Add a combined 4-week summary tile
+    const tot4fcst = wkTotals.reduce((s,t)=>s+t.fcst,0);
+    const tot4bgt  = wkTotals.reduce((s,t)=>s+t.bgt,0);
+    const tot4var  = tot4fcst - tot4bgt;
+    const tot4cls  = varCls(tot4fcst, tot4bgt);
+    tiles += `<div style="background:#1B2A4A;border:1px solid #2e4070;border-radius:6px;padding:14px 16px;min-width:160px;flex:1">
+      <div style="font-size:10px;color:#8EB4D8;margin-bottom:4px">4-Week Total</div>
+      <div style="font-size:18px;font-weight:700;color:#fff">${Math.round(tot4fcst)} <span style="font-size:11px;font-weight:400;color:#8EB4D8">pal fcst</span></div>
+      <div style="font-size:12px;color:#8EB4D8;margin-top:2px">${Math.round(tot4bgt)} budget</div>
+      <div style="font-size:13px;margin-top:6px;${tot4cls}">${fmtVar(tot4var)} pal (${pct(tot4fcst,tot4bgt)})</div>
+    </div>`;
+  }
+
+  // ── Detailed breakdown table ──────────────────────────────────────────────
+  let thead = '<tr><th style="text-align:left;min-width:70px">SKU</th><th style="text-align:left;min-width:80px">Retailer</th>';
+  upcoming4.forEach(wk => {
+    const shortWk = fmtD(wk).slice(0,5);
+    thead += `<th class="num" colspan="3" style="background:#1B2A4A;color:#fff;padding:4px 8px">Wk ${shortWk}</th>`;
+  });
+  thead += '</tr><tr><th></th><th></th>';
+  upcoming4.forEach(() => {
+    thead += `<th class="num" style="color:var(--muted);font-size:10px;background:#141e2e">Fcst</th>
+              <th class="num" style="color:var(--muted);font-size:10px;background:#141e2e">Bgt</th>
+              <th class="num" style="color:var(--muted);font-size:10px;background:#141e2e">Var</th>`;
+  });
+  thead += '</tr>';
+
+  let tbody = '';
+  BDG_SKUS.forEach((sku, si) => {
+    const rowBg = si % 2 === 0 ? '' : 'background:#111927;';
+    // Channel rows
+    CHANNELS.forEach((ch, ci) => {
+      const isFirst = ci === 0;
+      tbody += `<tr>`;
+      if (isFirst) {
+        tbody += `<td rowspan="${CHANNELS.length + 1}" style="${rowBg}font-weight:700;color:var(--text);padding:5px 8px;vertical-align:top;border-top:1px solid var(--border)">${SKU_LBL[sku]}</td>`;
+      }
+      tbody += `<td style="${rowBg}color:var(--muted);padding:4px 8px">${CH_LBL[ch]}</td>`;
+      upcoming4.forEach(wk => {
+        const f = fcstPal(wk, sku, ch);
+        const b = bgtPal(wk, sku, ch);
+        const v = f - b;
+        const cls = varCls(f, b);
+        tbody += `<td class="num" style="${rowBg}padding:4px 8px">${fmt1(f)}</td>
+                  <td class="num" style="${rowBg}padding:4px 8px;color:var(--muted)">${fmt1(b)}</td>
+                  <td class="num" style="${rowBg}padding:4px 8px;${cls}">${b > 0 ? fmtVar(v) : '—'}</td>`;
+      });
+      tbody += '</tr>';
+    });
+    // SKU total row
+    tbody += `<tr style="border-bottom:2px solid var(--border)">`;
+    tbody += `<td style="${rowBg}font-weight:700;color:var(--text);padding:4px 8px">Total</td>`;
+    upcoming4.forEach(wk => {
+      let tf = 0, tb = 0;
+      CHANNELS.forEach(ch => { tf += fcstPal(wk, sku, ch); tb += bgtPal(wk, sku, ch); });
+      const tv = tf - tb;
+      const cls = varCls(tf, tb);
+      tbody += `<td class="num" style="${rowBg}font-weight:700;padding:4px 8px">${fmt1(tf)}</td>
+                <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;color:var(--muted)">${fmt1(tb)}</td>
+                <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;${cls}">${tb > 0 ? fmtVar(tv) : '—'}</td>`;
+    });
+    tbody += '</tr>';
+  });
+
+  // Grand total row
+  tbody += `<tr style="background:#1B2A4A">`;
+  tbody += `<td colspan="2" style="font-weight:700;color:#fff;padding:6px 8px">Grand Total</td>`;
+  upcoming4.forEach(wk => {
+    let tf = 0, tb = 0;
+    BDG_SKUS.forEach(sku => CHANNELS.forEach(ch => { tf += fcstPal(wk, sku, ch); tb += bgtPal(wk, sku, ch); }));
+    const tv = tf - tb;
+    const cls = varCls(tf, tb).replace('font-weight:700','');
+    tbody += `<td class="num" style="font-weight:700;color:#fff;padding:6px 8px">${Math.round(tf)}</td>
+              <td class="num" style="color:#8EB4D8;padding:6px 8px">${Math.round(tb)}</td>
+              <td class="num" style="font-weight:700;padding:6px 8px;${cls}">${tb > 0 ? fmtVar(tv) : '—'}</td>`;
+  });
+  tbody += '</tr>';
+
+  // ── YTD section ───────────────────────────────────────────────────────────
+  let ytdHtml = '';
+  if (ytdWeeks.length === 0) {
+    const daysToFY27 = Math.ceil((new Date(FY27_START+'T00:00:00') - new Date(today+'T00:00:00')) / 86400000);
+    ytdHtml = `<div style="padding:16px;color:var(--muted);font-size:12px">
+      FY27 YTD tracking starts ${fmtD(FY27_START)} (${daysToFY27} days). Actuals will accumulate here week by week as sales data arrives from NetSuite.
+    </div>`;
+  } else {
+    // Compute YTD budget and forecast (COMBINED values for completed weeks)
+    const ytdBySkuCh = {};
+    BDG_SKUS.forEach(sku => {
+      ytdBySkuCh[sku] = {};
+      CHANNELS.forEach(ch => { ytdBySkuCh[sku][ch] = {fcst:0, bgt:0}; });
+    });
+    ytdWeeks.forEach(wk => {
+      BDG_SKUS.forEach(sku => CHANNELS.forEach(ch => {
+        ytdBySkuCh[sku][ch].fcst += fcstPal(wk, sku, ch);
+        ytdBySkuCh[sku][ch].bgt  += bgtPal(wk, sku, ch);
+      }));
+    });
+
+    let ytdRows = '';
+    let ytdTotalF = 0, ytdTotalB = 0;
+    BDG_SKUS.forEach(sku => {
+      let skuF = 0, skuB = 0;
+      CHANNELS.forEach(ch => { skuF += ytdBySkuCh[sku][ch].fcst; skuB += ytdBySkuCh[sku][ch].bgt; });
+      ytdTotalF += skuF; ytdTotalB += skuB;
+      const v = skuF - skuB;
+      const cls = varCls(skuF, skuB);
+      ytdRows += `<tr>
+        <td style="padding:5px 10px;font-weight:600;color:var(--text)">${SKU_LBL[sku]}</td>
+        <td class="num" style="padding:5px 10px">${Math.round(skuF)}</td>
+        <td class="num" style="padding:5px 10px;color:var(--muted)">${Math.round(skuB)}</td>
+        <td class="num" style="padding:5px 10px;${cls}">${fmtVar(v)}</td>
+        <td class="num" style="padding:5px 10px;${cls}">${pct(skuF,skuB)}</td>
+      </tr>`;
+    });
+    const ytdV = ytdTotalF - ytdTotalB;
+    const ytdCls = varCls(ytdTotalF, ytdTotalB);
+    ytdRows += `<tr style="background:#1B2A4A;font-weight:700;color:#fff">
+      <td style="padding:6px 10px">Total</td>
+      <td class="num" style="padding:6px 10px">${Math.round(ytdTotalF)}</td>
+      <td class="num" style="padding:6px 10px;color:#8EB4D8">${Math.round(ytdTotalB)}</td>
+      <td class="num" style="padding:6px 10px;${ytdCls}">${fmtVar(ytdV)}</td>
+      <td class="num" style="padding:6px 10px;${ytdCls}">${pct(ytdTotalF,ytdTotalB)}</td>
+    </tr>`;
+
+    ytdHtml = `
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
+        ${ytdWeeks.length} completed week${ytdWeeks.length>1?'s':''} — FY27 W01 to Wk ${fmtD(ytdWeeks[ytdWeeks.length-1]).slice(0,5)}.
+        Forecast column shows retailer-reported orders. Actuals from NS feed will replace forecasts for closed weeks once available.
+      </div>
+      <div class="tscroll">
+        <table>
+          <thead><tr>
+            <th style="text-align:left;min-width:90px">SKU</th>
+            <th class="num">Forecast (pal)</th>
+            <th class="num">Budget (pal)</th>
+            <th class="num">Variance</th>
+            <th class="num">vs Budget</th>
+          </tr></thead>
+          <tbody>${ytdRows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  el.innerHTML = `
+    <div class="panel">
+      <div class="ph navy">Budget at Risk — Next 4 Weeks (Retailer Forecast vs FY27 Budget)
+        <span style="font-size:10px;opacity:.7">Pallets. Green ≥ 90% of budget. Amber 75–90%. Red &lt; 75%.</span>
+      </div>
+      <div style="display:flex;gap:12px;padding:12px 16px;flex-wrap:wrap">${tiles}</div>
+    </div>
+    <div class="panel">
+      <div class="ph navy">Week-by-Week Breakdown — SKU &amp; Retailer</div>
+      <div class="tscroll"><table><thead>${thead}</thead><tbody>${tbody}</tbody></table></div>
+    </div>
+    <div class="panel">
+      <div class="ph navy">FY27 YTD Position</div>
+      ${ytdHtml}
+    </div>`;
+}
 function exportCSV(){
   const pr=planWeek(currentWeek);
   const sched=buildSchedule(currentWeek,pr);
