@@ -4770,7 +4770,8 @@ function renderBudget() {
     });
     // pad missing weeks if block < 4 (last block near end of ALL_WEEKS)
     for (let p = weeks.length; p < 4; p++) th += `<th></th>`;
-    th += `<th class="num" style="${NK}padding:5px 8px;min-width:65px">4-Wk<br><span style="font-size:9px;opacity:.7">Budget</span></th>
+    th += `<th class="num" style="${NK}padding:5px 8px;min-width:70px;border-left:2px solid rgba(255,255,255,.3)">4-Wk<br><span style="font-size:9px;opacity:.7">Fcst</span></th>
+           <th class="num" style="${NK}padding:5px 8px;min-width:65px">4-Wk<br><span style="font-size:9px;opacity:.7">Budget</span></th>
            <th class="num" style="${BL}padding:5px 8px;min-width:75px">Var<br><span style="font-size:9px;opacity:.7">(pal)</span></th>
            <th class="num" style="${BL}padding:5px 8px;min-width:50px">vs Bgt</th>
            </tr>`;
@@ -4795,7 +4796,8 @@ function renderBudget() {
         for (let p = weeks.length; p < 4; p++) tb += `<td></td>`;
         const chv = chF - chB;
         const chCls = varCls(chF, chB);
-        tb += `<td class="num" style="${rowBg}color:var(--muted);padding:4px 8px">${fmt1(chB)}</td>
+        tb += `<td class="num" style="${rowBg}font-weight:600;color:var(--navy);padding:4px 8px;border-left:2px solid var(--border)">${fmt1(chF)}</td>
+               <td class="num" style="${rowBg}color:var(--muted);padding:4px 8px">${fmt1(chB)}</td>
                <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;${chCls}">${chB > 0 ? fmtVar(chv) : '—'}</td>
                <td class="num" style="${rowBg}padding:4px 8px;${chCls}">${pct(chF,chB)}</td>`;
         tb += '</tr>';
@@ -4813,7 +4815,8 @@ function renderBudget() {
       for (let p = weeks.length; p < 4; p++) tb += `<td></td>`;
       const skv = skF - skB;
       const skCls = varCls(skF, skB);
-      tb += `<td class="num" style="${rowBg}font-weight:700;color:var(--muted);padding:4px 8px">${fmt1(skB)}</td>
+      tb += `<td class="num" style="${rowBg}font-weight:700;color:var(--navy);padding:4px 8px;border-left:2px solid var(--border)">${fmt1(skF)}</td>
+             <td class="num" style="${rowBg}font-weight:700;color:var(--muted);padding:4px 8px">${fmt1(skB)}</td>
              <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;${skCls}">${skB > 0 ? fmtVar(skv) : '—'}</td>
              <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;${skCls}">${pct(skF,skB)}</td>`;
       tb += '</tr>';
@@ -4831,7 +4834,8 @@ function renderBudget() {
     for (let p = weeks.length; p < 4; p++) tb += `<td></td>`;
     const gv = gF - gB;
     const gCls = varCls(gF, gB).replace('font-weight:700','');
-    tb += `<td class="num" style="color:rgba(255,255,255,.7);padding:6px 8px">${Math.round(gB)}</td>
+    tb += `<td class="num" style="font-weight:700;color:#fff;padding:6px 8px;border-left:2px solid rgba(255,255,255,.3)">${Math.round(gF)}</td>
+           <td class="num" style="color:rgba(255,255,255,.7);padding:6px 8px">${Math.round(gB)}</td>
            <td class="num" style="font-weight:700;padding:6px 8px;${gCls}">${gB > 0 ? fmtVar(gv) : '—'}</td>
            <td class="num" style="font-weight:700;padding:6px 8px;${gCls}">${pct(gF,gB)}</td>`;
     tb += '</tr>';
