@@ -500,6 +500,11 @@ let wwOverride  = null;
 let planWeekCache = {};  // cache of {closingStock} per week — reset each onWeekChange
 let publicHolidays = new Set();  // Set of 'YYYY-MM-DD' strings — loaded from Supabase
 let publicHolidayNames = {};      // map of 'YYYY-MM-DD' -> holiday name
+// Planned shutdowns: hardcoded non-production days not subject to Supabase override
+const plannedShutdowns = new Map([
+  ['2026-06-29', 'Year-End Stocktake'],
+  ['2026-06-30', 'Year-End Stocktake'],
+]);
 const lineBSku = '5L';            // used for actuals label normalisation only — Line A and Line B always run combined
 let colesOvr    = null;
 let metcashOvr  = null;
@@ -551,7 +556,7 @@ function workingDaysInWeek(weekStart) {
   const days = [];
   for (let d = 0; d < 5; d++) {
     const dt = addDays(weekStart, d);
-    if (!publicHolidays.has(dt)) days.push(dt);
+    if (!publicHolidays.has(dt) && !plannedShutdowns.has(dt)) days.push(dt);
   }
   return days;
 }
@@ -577,7 +582,7 @@ function planningStartDayIdx(weekStart) {
   if (today <= weekStart) return 0;
   for (let d = 0; d < 5; d++) {
     const dt = addDays(weekStart, d);
-    if (dt >= today && !publicHolidays.has(dt)) return d;
+    if (dt >= today && !publicHolidays.has(dt) && !plannedShutdowns.has(dt)) return d;
   }
   return 5; // whole week already past
 }
@@ -595,6 +600,7 @@ function holidaysInWeek(weekStart) {
   for (let d = 0; d < 5; d++) {
     const dt = addDays(weekStart, d);
     if (publicHolidays.has(dt)) names.push(publicHolidayNames[dt] || 'Public Holiday');
+    if (plannedShutdowns.has(dt)) names.push(plannedShutdowns.get(dt));
   }
   return names;
 }
@@ -2171,6 +2177,7 @@ function renderRollingTable(pr) {
     for (let pd = 0; pd < 5; pd++) {
       const phDate = addDays(wk, pd);
       if (publicHolidays.has(phDate)) phNames.push(publicHolidayNames[phDate] || 'Public Holiday');
+      if (plannedShutdowns.has(phDate)) phNames.push(plannedShutdowns.get(phDate));
     }
     const phLabel = phNames.length ? ` <span style="font-size:9px;color:#fff;background:var(--navy);padding:1px 4px;border-radius:3px;font-weight:700" title="${phNames.join(', ')}">PH</span>` : '';
     h += `<tr style="${rowStyle}"><td style="font-size:11px;white-space:nowrap">${fmtD(wk)}${lineBLabel}${doneLabel}${projLabel}${phLabel}</td>`;
@@ -2360,19 +2367,22 @@ function renderSchedule(week, pr) {
   weekDates.forEach(({date, isSat}) => {
     const due = DAILY_REQUIRED[date] || {};
     const isHoliday = !isSat && publicHolidays.has(date);
+    const isShutdown = !isSat && plannedShutdowns.has(date);
     const isPast = isCurrentWeek && !isSat && date < today;
     const dayEntries = byDate[date] || {Day: [], Aft: []};
     const all = [...dayEntries.Day, ...dayEntries.Aft];
     const totPal = all.reduce((a, s) => a + s.pallets, 0);
 
-    if (isHoliday) {
+    if (isHoliday || isShutdown) {
+      const label = isShutdown ? plannedShutdowns.get(date) : (publicHolidayNames[date] || 'Public Holiday');
+      const badge = isShutdown ? 'No Production' : 'Plant closed';
       grid.innerHTML += `<div class="sday" style="opacity:0.6;background:#f8f8f8">
         <div class="sdh" style="background:#8B6914;color:#fff">
           <span>${fmtD(date)}</span>
-          <span class="dtot">🗓 PH</span>
+          <span class="dtot">🗓 ${isShutdown ? 'SD' : 'PH'}</span>
         </div>
         <div style="text-align:center;padding:20px 5px;color:#999;font-size:11px">
-          ${publicHolidayNames[date] || 'Public Holiday'}<br>Plant closed
+          ${label}<br>${badge}
         </div>
       </div>`;
       return;
