@@ -4529,7 +4529,29 @@ function forwardFillDemand() {
 
     // Capture last known value per SKU for this channel
     const lastVals = {};
-    SKUS.forEach(s => { lastVals[s] = COMBINED[ALL_WEEKS[lastLiveIdx]]?.[s]?.[ch] || 0; });
+    const lastLiveWk = ALL_WEEKS[lastLiveIdx];
+    SKUS.forEach(s => { lastVals[s] = COMBINED[lastLiveWk]?.[s]?.[ch] || 0; });
+
+    // Pro-rate partial final week: if the last live week has fewer than 5 delivery days
+    // (e.g. forecast ends Wednesday), the weekly total is understated. Count Mon-Fri days
+    // in that week that have live entries in DAILY_REQUIRED and scale up to a full week.
+    const deliveryDays = [0,1,2,3,4].filter(d => {
+      const dt = addDays(lastLiveWk, d);
+      return SKUS.some(s => (DAILY_REQUIRED[dt]?.[s] || 0) > 0);
+    }).length;
+    if (deliveryDays > 0 && deliveryDays < 5) {
+      const scale = 5 / deliveryDays;
+      SKUS.forEach(s => {
+        lastVals[s] = Math.round(lastVals[s] * scale);
+        // Update COMBINED for the last live week so its display value matches the forward-fill seed
+        if (COMBINED[lastLiveWk]?.[s]) {
+          COMBINED[lastLiveWk][s][ch] = lastVals[s];
+          COMBINED[lastLiveWk][s].total = (COMBINED[lastLiveWk][s].ww || 0) +
+                                          (COMBINED[lastLiveWk][s].coles || 0) +
+                                          (COMBINED[lastLiveWk][s].metcash || 0);
+        }
+      });
+    }
 
     // Forward-fill from the week after last live data through to the horizon
     for (let i = lastLiveIdx + 1; i <= endIdx; i++) {
