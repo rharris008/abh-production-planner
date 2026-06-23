@@ -1254,9 +1254,15 @@ function planWeek(week) {
   // Rob Harris 20/06/2026.
   if (CONFIRMED_SCHEDULES[week]) {
     const conf = CONFIRMED_SCHEDULES[week];
+    // Mid-week: only count production from today forward — past days are already in live NS stock.
+    // Full conf is kept for buildSchedule (shift card display); confProd is the planning signal.
+    const today0 = localToday();
+    const confProd = (week === monOf(today0))
+      ? conf.filter(s => s.date >= today0)
+      : conf;
     const confirmedProd = {};
     SKUS.forEach(s => confirmedProd[s] = 0);
-    conf.forEach(s => { confirmedProd[s.sku] = (confirmedProd[s.sku]||0) + s.pallets; });
+    confProd.forEach(s => { confirmedProd[s.sku] = (confirmedProd[s.sku]||0) + s.pallets; });
 
     const stockEnd = {};
     SKUS.forEach(s => { stockEnd[s] = (avail[s]||0) + confirmedProd[s] - demand[s].total; });
@@ -1304,13 +1310,13 @@ function planWeek(week) {
     const netDemC = {};
     SKUS.forEach(s => netDemC[s] = Math.max(0, demand[s].total - (avail[s]||0)));
 
-    // Derive line stubs from confirmed schedule entries
-    const hmpsC  = conf.filter(s => s.sku === '10L Cask' && s.label && s.label.includes('HMPS'));
-    const cask5C  = conf.filter(s => s.sku === '5L Cask');
-    const cask10C = conf.filter(s => s.sku === '10L Cask' && !(s.label && s.label.includes('HMPS')));
-    const bot2LC  = conf.filter(s => s.sku === '2L Bottle');
-    const ep12C   = conf.filter(s => s.sku === '600ml 12pk');
-    const ep6C    = conf.filter(s => s.sku === '600ml 6pk');
+    // Derive line stubs from remaining production only (confProd = today-forward)
+    const hmpsC  = confProd.filter(s => s.sku === '10L Cask' && s.label && s.label.includes('HMPS'));
+    const cask5C  = confProd.filter(s => s.sku === '5L Cask');
+    const cask10C = confProd.filter(s => s.sku === '10L Cask' && !(s.label && s.label.includes('HMPS')));
+    const bot2LC  = confProd.filter(s => s.sku === '2L Bottle');
+    const ep12C   = confProd.filter(s => s.sku === '600ml 12pk');
+    const ep6C    = confProd.filter(s => s.sku === '600ml 6pk');
     const hmpsConfPal  = hmpsC.reduce((a,s)=>a+s.pallets,0);
     const hmpsDaysC    = new Set(hmpsC.map(s=>s.date)).size;
     const cask5Pal     = cask5C.reduce((a,s)=>a+s.pallets,0);
