@@ -4720,7 +4720,7 @@ function renderBudget() {
     if (b <= 0) return '';
     const r = f / b;
     if (r >= 1.00) return 'color:#27AE60;font-weight:700';
-    if (r >= 0.75) return 'color:#E67E22;font-weight:700';
+    if (r >= 0.90) return 'color:#E67E22;font-weight:700';
     return 'color:#C0392B;font-weight:700';
   }
   function fmt1(n) { return n > 0 ? n.toFixed(1) : '—'; }
