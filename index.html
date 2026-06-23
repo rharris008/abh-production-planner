@@ -509,8 +509,6 @@ let publicHolidays = new Set();  // Set of 'YYYY-MM-DD' strings — loaded from 
 let publicHolidayNames = {};      // map of 'YYYY-MM-DD' -> holiday name
 // Planned shutdowns: hardcoded non-production days not subject to Supabase override
 const plannedShutdowns = new Map([
-  ['2026-06-29', 'Year-End Stocktake'],
-  ['2026-06-30', 'Year-End Stocktake'],
 ]);
 // Week SKU overrides: force Line A&B to a specific SKU for a given week (Mon date → '10L Cask' | '5L Cask')
 const weekSkuOverride = new Map([
