@@ -180,6 +180,7 @@ tr.risk-a td{background:#FEF9F0}
     <div class="tab" onclick="switchTab('upload',this)">Forecast Upload</div>
     <div class="tab" onclick="switchTab('budget',this)">Budget vs Forecast</div>
   </div>
+  <div id="navWhosAway" title="Staff currently away or on leave within 7 days"></div>
   <div id="navFreshness" title="Data freshness — last update per source"></div>
 </div>
 
@@ -5767,11 +5768,98 @@ function updateNavTop(){
 window.addEventListener('load', updateNavTop);
 window.addEventListener('resize', updateNavTop);
 
+// ══ WHO'S AWAY ════════════════════════════════════════════════════════════════
+// Reads from Supabase staff_holidays table. Falls back to inline data if the
+// table does not exist or Supabase is unavailable.
+// Table DDL (run once in Supabase Dashboard → SQL Editor):
+//   CREATE TABLE IF NOT EXISTS staff_holidays (
+//     id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT,
+//     start_date DATE NOT NULL, end_date DATE NOT NULL,
+//     note TEXT, created_at TIMESTAMPTZ DEFAULT NOW()
+//   );
+//   ALTER TABLE staff_holidays ENABLE ROW LEVEL SECURITY;
+//   CREATE POLICY "public read" ON staff_holidays FOR SELECT USING (true);
+
+const WHOSAWAY_FALLBACK = [
+  {name:'Caine Bowers', start_date:'2026-06-23', end_date:'2026-06-26', note:'Returns 27/06'},
+  {name:'Jeremy Wheeler', start_date:'2026-06-15', end_date:'2026-06-26', note:'Returns 29/06'},
+  {name:'Aaron Mattin', start_date:'2026-06-26', end_date:'2026-07-15', note:null},
+  {name:'Lisa', start_date:'2026-06-26', end_date:'2026-07-03', note:null}
+];
+
+function renderWhosAway(records) {
+  const el = document.getElementById('navWhosAway');
+  if (!el) return;
+
+  const today = localToday(); // YYYY-MM-DD, local time (AEST)
+  const inSevenDays = (() => {
+    const d = new Date(today + 'T00:00:00');
+    d.setDate(d.getDate() + 7);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  })();
+
+  const fmtDMY = isoDate => {
+    const [, m, d] = isoDate.split('-');
+    return `${d}/${m}`;
+  };
+  const addOneDay = isoDate => {
+    const d = new Date(isoDate + 'T00:00:00');
+    d.setDate(d.getDate() + 1);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  };
+
+  const away = [];
+  const upcoming = [];
+
+  records.forEach(r => {
+    const s = r.start_date, e = r.end_date;
+    if (!s || !e) return;
+    if (s <= today && today <= e) {
+      // Currently away — return date is end_date + 1
+      const returnDate = r.note || `Returns ${fmtDMY(addOneDay(e))}`;
+      away.push(`<span class="whip-away" title="${returnDate}">${r.name} (${returnDate.replace('Returns ','').trim()})</span>`);
+    } else if (s > today && s <= inSevenDays) {
+      // Upcoming — starts within 7 days
+      upcoming.push(`<span class="whip-upcoming" title="Away from ${fmtDMY(s)}">${r.name} (away ${fmtDMY(s)})</span>`);
+    }
+  });
+
+  const chips = [...away, ...upcoming];
+  if (!chips.length) {
+    el.style.display = 'none';
+    return;
+  }
+
+  el.innerHTML = '<span class="whip-label">Away</span>' + chips.join('');
+  el.style.display = 'flex';
+}
+
+async function loadWhosAway() {
+  try {
+    const url = `${SB_URL}/rest/v1/staff_holidays?select=name,start_date,end_date,note&order=start_date.asc`;
+    const res = await fetch(url, {
+      headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY },
+      signal: AbortSignal.timeout ? AbortSignal.timeout(5000) : undefined
+    });
+    if (res.ok) {
+      const data = await res.json();
+      renderWhosAway(Array.isArray(data) ? data : WHOSAWAY_FALLBACK);
+    } else {
+      // Table may not exist yet (404) — use inline fallback silently
+      renderWhosAway(WHOSAWAY_FALLBACK);
+    }
+  } catch(e) {
+    renderWhosAway(WHOSAWAY_FALLBACK);
+  }
+}
+
 // Fire sbPull after page fully loads — planner renders first
 window.addEventListener('load', function() {
   setTimeout(() => sbPull(), 800);
+  loadWhosAway();
 });
 
 </script>
 </body>
 </html>
+
