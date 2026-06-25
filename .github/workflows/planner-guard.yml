@@ -1,0 +1,41 @@
+name: planner-guard
+on:
+  push:
+    branches: [ main ]
+permissions:
+  contents: write
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restore index.html if empty or truncated
+        run: |
+          set -e
+          MIN=1000
+          sz=$(wc -c < index.html 2>/dev/null || echo 0)
+          echo "index.html = ${sz} bytes (minimum ${MIN})"
+          if [ "${sz}" -ge "${MIN}" ]; then
+            echo "index.html OK"
+            exit 0
+          fi
+          echo "::warning::index.html is ${sz} bytes - restoring last good version"
+          good=""
+          for c in $(git rev-list HEAD); do
+            blob=$(git rev-parse "$c:index.html" 2>/dev/null) || continue
+            s=$(git cat-file -s "$blob" 2>/dev/null || echo 0)
+            if [ "${s:-0}" -ge "${MIN}" ]; then good=$c; break; fi
+          done
+          if [ -z "$good" ]; then
+            echo "::error::no non-empty index.html found in history"
+            exit 1
+          fi
+          git checkout "$good" -- index.html
+          git config user.name "planner-guard"
+          git config user.email "actions@users.noreply.github.com"
+          git commit -m "guard: auto-restore index.html (was ${sz} bytes, truncated by ${GITHUB_SHA})"
+          git push
+          echo "::error::index.html was truncated to ${sz} bytes and auto-restored from ${good}. Re-apply the original change cleanly."
+          exit 1
