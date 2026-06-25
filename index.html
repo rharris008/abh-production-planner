@@ -2421,16 +2421,28 @@ function renderSchedule(week, pr) {
   grid.className = `sgrid d${weekDates.length}`;
   grid.innerHTML = '';
 
+  // Per-week forecast suppression: if NS open orders exist for a SKU anywhere in this
+  // week, suppress forecast badges for that SKU on ALL days of the week.
+  // Fixes: Coles order_date = Mon bleeds 55 onto Monday; WW need_arrival = Fri bleeds
+  // 59 onto Friday even when confirmed orders only cover Mon+Tue.
+  // Result: only NS open order quantities appear; total matches NetSuite exactly.
+  const weekOoTotals = {};
+  SKUS.forEach(s => { weekOoTotals[s] = 0; });
+  weekDates.forEach(({date}) => {
+    const dayOo = openOrdersDailyPal[date] || {};
+    SKUS.forEach(s => { weekOoTotals[s] += (dayOo[s] || 0); });
+  });
+
   weekDates.forEach(({date, isSat}) => {
     // Merge forecast (DAILY_REQUIRED) with NS open orders (openOrdersDailyPal) for display.
-    // Open orders take priority: if NS has an order for this date/SKU, show that quantity.
-    // Fall back to forecast only when there is no open order for that SKU on that date.
-    // This ensures badges match confirmed sales orders, not planned forecast deliveries.
+    // If NS has confirmed orders for this SKU anywhere in the week, use only NS quantities
+    // (per-day). If no NS orders exist for this SKU this week, fall back to forecast.
+    // This ensures shift-schedule badges match NetSuite open orders exactly.
     const dueF = DAILY_REQUIRED[date] || {};
     const dueO = openOrdersDailyPal[date] || {};
     const dueKeys = new Set([...Object.keys(dueF), ...Object.keys(dueO)]);
     const due = {};
-    dueKeys.forEach(s => { const v = (dueO[s] > 0) ? dueO[s] : (dueF[s] || 0); if(v>0) due[s]=v; });
+    dueKeys.forEach(s => { const v = (weekOoTotals[s] > 0) ? (dueO[s] || 0) : (dueF[s] || 0); if(v>0) due[s]=v; });
     const isHoliday = !isSat && publicHolidays.has(date);
     const isShutdown = !isSat && plannedShutdowns.has(date);
     const isPast = isCurrentWeek && !isSat && date < today;
