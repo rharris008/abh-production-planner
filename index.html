@@ -2242,24 +2242,31 @@ function renderRollingTable(pr) {
     h += `<tr style="${rowStyle}"><td style="font-size:11px;white-space:nowrap">${fmtD(wk)}${lineBLabel}${doneLabel}${projLabel}${phLabel}</td>`;
 
     skuCols.forEach(s => {
-      const d    = isFinishedWeek ? 0 : dem[s].total; // finished week: no demand adjustment
+      // Current week: use getAdjustedDemand (same source as planWeek/tiles) not raw getDemand.
+      // On Thu/Fri getAdjustedDemand returns 0 — all orders committed to OO or dispatched.
+      const adjDem = isThisWeek ? getAdjustedDemand(wk) : null;
+      const d      = isFinishedWeek ? 0 : (adjDem ? adjDem[s].total : dem[s].total);
       const prod = maxProd[s] || 0;
-      // For future weeks: use planWeek's canonical closingStock rather than recomputing
-      // stock + prod - demand. planWeek uses getAdjustedDemand() + DAILY_REQUIRED deductions;
-      // the rolling table was using getDemand() only — producing a different answer.
-      // Using planWeekCache eliminates the tiles vs rolling-table discrepancy. (Fix 21/06/2026)
+      // Current and future weeks: use planWeek's canonical closingStock so rolling table
+      // matches the tiles (both derive from planWeek / getAdjustedDemand).
+      // Extended from !isThisWeek to also cover the current week. (Fix 26/06/2026)
       const wkCache = planWeekCache[wk];
-      const close = (!isThisWeek && !isFinishedWeek && wkCache?.closingStock?.[s] != null)
+      const close = (!isFinishedWeek && wkCache?.closingStock?.[s] != null)
         ? wkCache.closingStock[s]
         : stock[s] + prod - d;
-      cumulative[s] += prod - d;   // cumulative ± = net production vs demand (unchanged)
+      cumulative[s] += prod - d;   // cumulative ± = net production vs adjusted demand
       const cum = Math.round(cumulative[s]);
       stock[s] = Math.max(0, close);  // clamp for next row's opening stock
 
       const closeCls = close < 0 ? 'color:var(--red);font-weight:700' : close < dem[s].total ? 'color:var(--amber)' : 'color:var(--green)';
       const cumCls   = cum < 0 ? 'color:var(--red);font-weight:700' : cum > 0 ? 'color:var(--green)' : '';
       const cumTxt   = cum > 0 ? `+${fmt(cum)}` : fmt(cum);
-      const demCell  = isFinishedWeek ? `<span style="color:var(--muted)">${fmt(dem[s].total)}</span>` : fmt(dem[s].total);
+      // Thu/Fri current week: d=0 but raw weekly demand > 0 — demand committed to OO/shipped.
+      // Show raw greyed so the user still sees the weekly forecast.
+      const thisDemCommitted = isThisWeek && d === 0 && dem[s].total > 0;
+      const demCell  = isFinishedWeek || thisDemCommitted
+          ? `<span style="color:var(--muted)">${fmt(dem[s].total)}</span>`
+          : fmt(d);
       const prodCell = isFinishedWeek ? `<span style="color:var(--muted)">—</span>` : fmt(prod);
 
       h += `<td class="num" style="border-left:2px solid var(--border)">${demCell}</td>
