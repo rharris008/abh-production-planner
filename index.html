@@ -664,14 +664,16 @@ function getAdjustedDemand(week) {
     (new Date(today + 'T00:00:00') - new Date(week + 'T00:00:00')) / 86400000
   );
 
-  // Weekend — all working production for this week is done
-  if (dayOfWeek >= 5) {
+  // Thu/Fri/weekend — by Thursday all current-week demand is committed to open orders
+  // or already dispatched. Live NS stock already reflects those dispatches. The 2/5 and
+  // 1/5 fractions on Thu/Fri double-count demand that is already in OO/stock — return zero.
+  if (dayOfWeek >= 3) {
     const zero = {};
     SKUS.forEach(s => zero[s] = {ww:0, coles:0, metcash:0, other:0, total:0});
     return zero;
   }
 
-  // Scale: Mon=5/5, Tue=4/5, Wed=3/5, Thu=2/5, Fri=1/5
+  // Scale: Mon=5/5, Tue=4/5, Wed=3/5
   const scale = (5 - dayOfWeek) / 5;
 
   const adj = {};
