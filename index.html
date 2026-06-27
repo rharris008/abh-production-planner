@@ -2263,10 +2263,13 @@ function renderRollingTable(pr) {
       const cumTxt   = cum > 0 ? `+${fmt(cum)}` : fmt(cum);
       // Thu/Fri current week: d=0 but raw weekly demand > 0 — demand committed to OO/shipped.
       // Show raw greyed so the user still sees the weekly forecast.
-      const thisDemCommitted = isThisWeek && d === 0 && dem[s].total > 0;
-      const demCell  = isFinishedWeek || thisDemCommitted
-          ? `<span style="color:var(--muted)">${fmt(dem[s].total)}</span>`
-          : fmt(d);
+      // Finished week (Sat/Sun): week is over, show — like the prod cell.
+      const thisDemCommitted = isThisWeek && !isFinishedWeek && d === 0 && dem[s].total > 0;
+      const demCell  = isFinishedWeek
+          ? `<span style="color:var(--muted)">—</span>`
+          : thisDemCommitted
+            ? `<span style="color:var(--muted)">${fmt(dem[s].total)}</span>`
+            : fmt(d);
       const prodCell = isFinishedWeek ? `<span style="color:var(--muted)">—</span>` : fmt(prod);
 
       h += `<td class="num" style="border-left:2px solid var(--border)">${demCell}</td>
