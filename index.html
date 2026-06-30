@@ -2789,9 +2789,12 @@ function buildAllAlerts() {
         const key = `${pb.sku}|${pb.nextWk}`;
         if (seenPrebuild.has(key)) return;
         seenPrebuild.add(key);
-        const urgentFlag = pb.urgent ? '🔴 ' : '🟡 ';
-        const weeksText  = pb.weeksAway === 1 ? 'next week' : `in ${pb.weeksAway} weeks`;
-        alerts.push({t: pb.urgent ? 'r' : 'a',
+        // Recalculate weeksAway relative to TODAY (not the week the alert was computed from)
+        const actualWeeksAway = ALL_WEEKS.indexOf(pb.nextWk) - todayIdx;
+        const urgent = actualWeeksAway <= 2;
+        const urgentFlag = urgent ? '🔴 ' : '🟡 ';
+        const weeksText  = actualWeeksAway === 1 ? 'next week' : `in ${actualWeeksAway} weeks`;
+        alerts.push({t: urgent ? 'r' : 'a',
           msg:`${urgentFlag}<strong>Forward deficit: ${pb.sku}</strong> — w/c ${fmtD(pb.nextWk)} (${weeksText}) projects a shortfall of <strong>${fmt(pb.gap)} pal</strong> even at max capacity.`});
       });
     }
