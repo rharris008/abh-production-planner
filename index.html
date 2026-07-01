@@ -2254,9 +2254,9 @@ function renderRollingTable(pr) {
       const close = (!isFinishedWeek && wkCache?.closingStock?.[s] != null)
         ? wkCache.closingStock[s]
         : stock[s] + prod - d;
-      cumulative[s] += prod - d;   // cumulative ± = net production vs adjusted demand
+      cumulative[s] += close - stock[s];  // actual net change per week (close - opening), not max prod - demand
       const cum = Math.round(cumulative[s]);
-      stock[s] = Math.max(0, close);  // clamp for next row's opening stock
+      stock[s] = close;  // carry forward without floor — previous Closing = next Opening always
 
       const closeCls = close < 0 ? 'color:var(--red);font-weight:700' : close < dem[s].total ? 'color:var(--amber)' : 'color:var(--green)';
       const cumCls   = cum < 0 ? 'color:var(--red);font-weight:700' : cum > 0 ? 'color:var(--green)' : '';
