@@ -2246,15 +2246,16 @@ function renderRollingTable(pr) {
       // On Thu/Fri getAdjustedDemand returns 0 — all orders committed to OO or dispatched.
       const adjDem = isThisWeek ? getAdjustedDemand(wk) : null;
       const d      = isFinishedWeek ? 0 : (adjDem ? adjDem[s].total : dem[s].total);
-      const prod = maxProd[s] || 0;
-      // Current and future weeks: use planWeek's canonical closingStock so rolling table
-      // matches the tiles (both derive from planWeek / getAdjustedDemand).
-      // Extended from !isThisWeek to also cover the current week. (Fix 26/06/2026)
+      // Use planWeek closing (actual scheduled production + Saturday) when available.
+      // Fall back to max capacity formula beyond the plan horizon.
       const wkCache = planWeekCache[wk];
       const close = (!isFinishedWeek && wkCache?.closingStock?.[s] != null)
         ? wkCache.closingStock[s]
-        : stock[s] + prod - d;
-      cumulative[s] += close - stock[s];  // actual net change per week (close - opening), not max prod - demand
+        : stock[s] + (maxProd[s] || 0) - d;
+      // Back-calculate planned production so Opening + Planned − Demand = Closing exactly.
+      // This is always consistent regardless of whether close came from cache or formula.
+      const plannedProd = isFinishedWeek ? 0 : (close - stock[s] + d);
+      cumulative[s] += close - stock[s];  // = plannedProd − demand, steps exactly one week each row
       const cum = Math.round(cumulative[s]);
       stock[s] = close;  // carry forward without floor — previous Closing = next Opening always
 
@@ -2270,7 +2271,7 @@ function renderRollingTable(pr) {
           : thisDemCommitted
             ? `<span style="color:var(--muted)">${fmt(dem[s].total)}</span>`
             : fmt(d);
-      const prodCell = isFinishedWeek ? `<span style="color:var(--muted)">—</span>` : fmt(prod);
+      const prodCell = isFinishedWeek ? `<span style="color:var(--muted)">—</span>` : fmt(Math.round(plannedProd));
 
       h += `<td class="num" style="border-left:2px solid var(--border)">${demCell}</td>
             <td class="num">${prodCell}</td>
