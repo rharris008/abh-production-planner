@@ -5426,11 +5426,13 @@ async function sbPushUpsert(dataset, rows, filename = '') {
 
 
 async function lockPlanToSupabase(week) {
-  const sched = CONFIRMED_SCHEDULES[week];
-  if (!sched) { alert('No confirmed plan for w/c ' + week + '. Add it to CONFIRMED_SCHEDULES first.'); return; }
+  if (!CONFIRMED_SCHEDULES[week]) { alert('No confirmed plan for w/c ' + week + '. Add it to CONFIRMED_SCHEDULES first.'); return; }
   const btn = document.getElementById('lockPlanBtn');
   if (btn) { btn.textContent = 'SAVING...'; btn.disabled = true; }
   try {
+    // Use buildSchedule so planned_pallets = efficiency-adjusted figures the planner displays,
+    // not the raw capacity target. target_pallets stores the unscaled max for reference.
+    const sched = buildSchedule(week, planWeek(week));
     // Clear any existing rows for this week so re-locking replaces cleanly
     await sbFetchTimeout(
       `${SB_URL}/rest/v1/production_plan_daily?week_start=eq.${week}`,
@@ -5446,8 +5448,8 @@ async function lockPlanToSupabase(week) {
         line:            s.label,
         sku:             s.sku,
         shift:           s.shift,
-        planned_pallets: s.pallets,
-        target_pallets:  s.target || null
+        planned_pallets: s.pallets,       // efficiency-adjusted (what planner shows)
+        target_pallets:  getMaxPal(s)     // unscaled line capacity
       }));
     const res = await sbFetchTimeout(
       `${SB_URL}/rest/v1/production_plan_daily`,
