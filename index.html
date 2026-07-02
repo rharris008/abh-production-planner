@@ -2414,6 +2414,20 @@ function renderSchedule(week, pr) {
   }
   badge.textContent = isConfirmed ? 'CONFIRMED PLAN' : '';
   badge.style.display = isConfirmed ? 'inline' : 'none';
+
+  // Lock Plan to Supabase button — only visible for confirmed weeks
+  let lockBtn = document.getElementById('lockPlanBtn');
+  if (!lockBtn) {
+    lockBtn = document.createElement('button');
+    lockBtn.id = 'lockPlanBtn';
+    lockBtn.style.cssText = 'background:var(--navy);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:3px;border:none;cursor:pointer;margin-left:8px;vertical-align:middle';
+    lockBtn.onclick = () => lockPlanToSupabase(currentWeek);
+    document.getElementById('schedHdr').appendChild(lockBtn);
+  }
+  lockBtn.textContent = 'LOCK TO SUPABASE';
+  lockBtn.style.background = 'var(--navy)';
+  lockBtn.style.display = isConfirmed ? 'inline' : 'none';
+
   const grid = document.getElementById('dayGrid');
 
   // Build date-indexed schedule map
@@ -5410,6 +5424,45 @@ async function sbPushUpsert(dataset, rows, filename = '') {
   }
 }
 
+
+async function lockPlanToSupabase(week) {
+  const sched = CONFIRMED_SCHEDULES[week];
+  if (!sched) { alert('No confirmed plan for w/c ' + week + '. Add it to CONFIRMED_SCHEDULES first.'); return; }
+  const btn = document.getElementById('lockPlanBtn');
+  if (btn) { btn.textContent = 'SAVING...'; btn.disabled = true; }
+  try {
+    // Clear any existing rows for this week so re-locking replaces cleanly
+    await sbFetchTimeout(
+      `${SB_URL}/rest/v1/production_plan_daily?week_start=eq.${week}`,
+      { method: 'DELETE', headers: sbHeaders() },
+      SB_TIMEOUT_MS
+    );
+    // Build rows — skip Maintenance placeholders
+    const rows = sched
+      .filter(s => s.sku && s.sku !== 'Maintenance')
+      .map(s => ({
+        week_start:      week,
+        plan_date:       s.date,
+        line:            s.label,
+        sku:             s.sku,
+        shift:           s.shift,
+        planned_pallets: s.pallets,
+        target_pallets:  s.target || null
+      }));
+    const res = await sbFetchTimeout(
+      `${SB_URL}/rest/v1/production_plan_daily`,
+      { method: 'POST', headers: { ...sbHeaders(), 'Prefer': 'return=minimal' }, body: JSON.stringify(rows) },
+      SB_TIMEOUT_MS
+    );
+    if (!res.ok) { const err = await res.text(); throw new Error(err); }
+    if (btn) { btn.textContent = 'LOCKED ✓'; btn.style.background = '#27AE60'; btn.disabled = false; }
+    sbStatus(`✓ Plan locked for w/c ${week} — ${rows.length} shifts saved`, 'ok');
+  } catch(e) {
+    if (btn) { btn.textContent = 'LOCK TO SUPABASE'; btn.disabled = false; }
+    sbStatus('⚠ Lock failed: ' + e.message, 'err');
+    alert('Lock to Supabase failed:\n' + e.message);
+  }
+}
 
 async function sbPull() {
   sbStatus('⏳ Loading live data...', 'info');
