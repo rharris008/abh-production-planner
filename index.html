@@ -1493,25 +1493,33 @@ function planWeek(week) {
   const projCover5L_noAB = peakDailyD5 > 0
     ? projClose5L_noAB / peakDailyD5
     : (projClose5L_noAB >= 0 ? 99 : 0);
-  // A&B SKU decision — "10L takes priority over 5L" (Rob Harris 21/06/2026).
-  // Default: A&B runs 10L.
-  // 5L emergency override: ONLY switch to 5L when:
-  //   (a) 5L would breach the 3-day hard floor without A&B (projCover5L < 3), AND
-  //   (b) 5L is more urgently depleted than 10L (projCover5L < projCover10_HMPSonly).
-  // All other cases run 10L — including when both are above 3 days and 5L is slightly lower.
-  // When both are below 3 days and 10L is more critical: run 10L (priority).
-  // Note: if both breach 3 days simultaneously and 5L is more urgent, 5L runs but 10L
-  // cannot be rescued — this is a constraint the planner cannot resolve with A&B alone
-  // (requires pre-build in a prior week). The planner flags this via alert.
-  const lineABSku = (projCover5L_noAB < 3 && projCover5L_noAB < projCover10_HMPSonly)
-    ? '5L Cask'    // 5L emergency — below floor AND more urgent than 10L
-    : '10L Cask';  // 10L default (takes priority)
+  // A&B SKU decision — Rob Harris 02/07/2026: minimum 5-day cover target for all SKUs.
+  // Previous rule (21/06/2026): default A&B to 10L, only switch to 5L at < 3 day emergency.
+  // Problem: when HMPS alone leaves 10L < 5 days, A&B also runs 10L all week — total 10L
+  // production massively overshoots demand (e.g. 13.7 days) while 5L drops to 4.0 days.
+  //
+  // Fix: calculate the minimum A&B days needed to bring each SKU to 5-day target cover.
+  // Enforce those minimum days in scheduleEPCaskLines so both SKUs hit the target.
+  // Primary SKU = whichever needs more A&B days (runs first); the other is enforced via minDays.
+  const MIN_CASK_COVER = 5;
+  const pal10perABday  = cap10shift * 2;   // pallets A&B can produce per day on 10L (both shifts)
+  const pal5perABday   = cap5shift  * 2;   // pallets A&B can produce per day on 5L (both shifts)
+  const gap10 = Math.max(0, MIN_CASK_COVER * peakDailyD10 - projClose10_HMPSonly);
+  const gap5  = Math.max(0, MIN_CASK_COVER * peakDailyD5  - projClose5L_noAB);
+  const minDays10raw = pal10perABday > 0 ? Math.ceil(gap10 / pal10perABday) : 0;
+  const minDays5raw  = pal5perABday  > 0 ? Math.ceil(gap5  / pal5perABday)  : 0;
+  // If combined days exceed available, 10L takes priority (HMPS runs 10L; A&B 10L is additive).
+  const minDays10Final = Math.min(minDays10raw, opDays);
+  const minDays5Final  = Math.max(0, Math.min(minDays5raw, opDays - minDays10Final));
+  // Primary SKU: whichever needs more A&B days (runs by default; other enforced via minDays).
+  // When equal, 10L is primary (maintains 10L priority when both equally constrained).
+  const lineABSku = minDays5Final > minDays10Final ? '5L Cask' : '10L Cask';
   const caskResult = scheduleEPCaskLines(
     week, opDays, eff,
     avail['10L Cask'] || 0, avail5,
-    0, 0,                        // no min-day enforcement
-    lineABSku === '5L Cask',     // hmpsCovers10L: true → primarySku=5L; false → primarySku=10L
-    2                            // always 2 shifts
+    minDays10Final, minDays5Final,   // enforce minimum days for each SKU to reach 5-day target
+    lineABSku === '5L Cask',         // hmpsCovers10L: true → primarySku=5L; false → primarySku=10L
+    2                                // always 2 shifts
   );
   const caskProd10 = caskResult.shifts.filter(s => s.sku === '10L Cask').reduce((a,s) => a + s.pallets, 0);
   const caskProd5  = caskResult.shifts.filter(s => s.sku === '5L Cask' ).reduce((a,s) => a + s.pallets, 0);
