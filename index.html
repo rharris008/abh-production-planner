@@ -1056,13 +1056,20 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
     } else if (phase === '2L Bottle') {
       // Leave 2L when: target cover reached OR 4-day cap hit
       if (c2 >= TARGET_2L_COVER || days2L >= TARGET_2L_DAYS) {
-        phase = '600ml 6pk';  // 600ml phase always starts with 6pk
+        // Rob Harris 02/07/2026: minimum 5-day cover rule. Pick the more urgent 600ml SKU.
+        // If 12pk is below 5 days and lower than 6pk, run it first; otherwise default to 6pk.
+        phase = (is12pkActive && c12 < 5 && c12 < c6 && (!isLastProdWk || s12 < finalDem12))
+          ? '600ml 12pk'
+          : '600ml 6pk';
       }
     } else if (phase === '600ml 6pk') {
       if (days600 >= TARGET_600_DAYS) {
         phase = '2L Bottle';         // completed 600ml cycle → back to 2L
       } else if (is12pkActive && c6 >= COV_6PK_TO_12PK && (!isLastProdWk || s12 < finalDem12)) {
         phase = '600ml 12pk';        // 6pk sufficiently stocked → switch to 12pk (capped in last prod wk)
+        weekOpenedWith6pkEmergency = false;
+      } else if (is12pkActive && c12 < 5 && c12 < c6 && (!isLastProdWk || s12 < finalDem12)) {
+        phase = '600ml 12pk';        // 12pk below 5-day target and more urgent than 6pk (02/07/2026)
         weekOpenedWith6pkEmergency = false;
       } else if (weekOpenedWith6pkEmergency && c6 >= EMERGENCY_FLOOR && c2 < TARGET_2L_COVER) {
         // 6pk recovered from opening emergency — pivot to 2L now.
