@@ -2501,9 +2501,11 @@ function renderSchedule(week, pr) {
   const midWeek = isCurrentWeek && isMidWeek(week);
 
   // Determine columns: Mon-Fri + optional Saturday
+  // For confirmed schedules, show Saturday if any confirmed entry has day:5
+  const confirmedHasSat = isConfirmed && (CONFIRMED_SCHEDULES[week] || []).some(s => s.day === 5);
   const weekDates = [];
   for (let d = 0; d < 5; d++) weekDates.push({date: addDays(week, d), isSat: false});
-  if (satUsed) weekDates.push({date: addDays(week, 5), isSat: true});
+  if (satUsed || confirmedHasSat) weekDates.push({date: addDays(week, 5), isSat: true});
   grid.className = `sgrid d${weekDates.length}`;
   grid.innerHTML = '';
 
