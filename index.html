@@ -622,6 +622,8 @@ const localToday = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 };
+// After 2pm AEST (UTC+10), day shift has finished — production is in live stock, not future demand
+const isPastDayShift = () => (new Date().getUTCHours() + 10) % 24 >= 14;
 const wkLabel= w => `${fmtD(w)} - ${fmtD(addDays(w,4))}`;
 
 // ══ DEMAND ═══════════════════════════════════════════════════════════════════
@@ -754,6 +756,7 @@ function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, mi
     const shiftsToday = sku === '5L Cask' ? shifts5 : 2;
 
     for (let sh = 0; sh < shiftsToday; sh++) {
+      if (sh === 0 && date === localToday() && isPastDayShift()) continue;
       const shiftName = sh === 0 ? 'Day' : 'Aft';
       const pallets = sku === '10L Cask' ? tgt10 : tgt5;
       if (sku === '10L Cask') s10 += pallets;
@@ -1100,6 +1103,7 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
     const changeover = is600Cur && is600Prev && prevSku !== sku;
 
     for (let sh = 0; sh < 2; sh++) {
+      if (sh === 0 && date === localToday() && isPastDayShift()) continue;
       const shiftName = sh === 0 ? 'Day' : 'Aft';
       const hasCO = sh === 0 && changeover;
       let pallets, target, cls;
