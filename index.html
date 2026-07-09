@@ -1937,7 +1937,7 @@ function buildSchedule(week, pr) {
     return CONFIRMED_SCHEDULES[week].map(s => ({
       ...s,
       pallets: Math.floor(getMaxPal(s) * eff),
-    }));
+    })).filter(s => !(s.shift === 'Day' && s.date === localToday() && isPastDayShift()));
   }
 
   const eff = getEff();
@@ -1949,8 +1949,9 @@ function buildSchedule(week, pr) {
     const lineShifts = line.shifts ?? 2;
     for (let d=0; d<Math.min(line.days, wkDays.length); d++) {
       for (let sh=0; sh<lineShifts; sh++) {
-        const tgt = Math.floor(line.tgt * eff);
         const date = wkDays[d];
+        if (sh === 0 && date === localToday() && isPastDayShift()) continue;
+        const tgt = Math.floor(line.tgt * eff);
         schedule.push({day:d, date, shift:sh===0?'Day':'Aft', label:line.label, sku:line.sku,
           pallets:tgt, target:tgt, cls, site:line.site});
       }
