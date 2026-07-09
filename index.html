@@ -5485,12 +5485,24 @@ async function lockPlanToSupabase(week) {
     // Use buildSchedule so planned_pallets = efficiency-adjusted figures the planner displays,
     // not the raw capacity target. target_pallets stores the unscaled max for reference.
     const sched = buildSchedule(week, planWeek(week));
+
+    // Read existing rows BEFORE delete so we can record prev_pallets in the audit log
+    const prevRes = await sbFetchTimeout(
+      `${SB_URL}/rest/v1/production_plan_daily?week_start=eq.${week}&select=plan_date,line,sku,shift,planned_pallets`,
+      { headers: sbHeaders() },
+      SB_TIMEOUT_MS
+    );
+    const prevRows = prevRes.ok ? await prevRes.json() : [];
+    const prevMap = {};
+    prevRows.forEach(r => { prevMap[`${r.plan_date}|${r.line}|${r.shift}`] = r.planned_pallets; });
+
     // Clear any existing rows for this week so re-locking replaces cleanly
     await sbFetchTimeout(
       `${SB_URL}/rest/v1/production_plan_daily?week_start=eq.${week}`,
       { method: 'DELETE', headers: sbHeaders() },
       SB_TIMEOUT_MS
     );
+
     // Build rows — skip Maintenance placeholders
     const rows = sched
       .filter(s => s.sku && s.sku !== 'Maintenance')
@@ -5509,6 +5521,25 @@ async function lockPlanToSupabase(week) {
       SB_TIMEOUT_MS
     );
     if (!res.ok) { const err = await res.text(); throw new Error(err); }
+
+    // Write audit log — one row per shift, capturing prev and new pallets
+    const lockedAt = new Date().toISOString();
+    const auditRows = rows.map(r => ({
+      locked_at:    lockedAt,
+      week_start:   r.week_start,
+      plan_date:    r.plan_date,
+      line:         r.line,
+      sku:          r.sku,
+      shift:        r.shift,
+      new_pallets:  r.planned_pallets,
+      prev_pallets: prevMap[`${r.plan_date}|${r.line}|${r.shift}`] ?? null
+    }));
+    await sbFetchTimeout(
+      `${SB_URL}/rest/v1/production_plan_audit_log`,
+      { method: 'POST', headers: { ...sbHeaders(), 'Prefer': 'return=minimal' }, body: JSON.stringify(auditRows) },
+      SB_TIMEOUT_MS
+    ).catch(e => console.warn('Audit log write failed (non-fatal):', e.message));
+
     if (btn) { btn.textContent = 'LOCKED ✓'; btn.style.background = '#27AE60'; btn.disabled = false; }
     sbStatus(`✓ Plan locked for w/c ${week} — ${rows.length} shifts saved`, 'ok');
   } catch(e) {
