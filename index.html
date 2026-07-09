@@ -490,12 +490,13 @@ const SKUS   = ['10L Cask','5L Cask','2L Bottle','600ml 12pk','600ml 6pk'];
 const CHIP   = {'10L Cask':'c10L','5L Cask':'c5L','2L Bottle':'c2L','600ml 12pk':'c12pk','600ml 6pk':'c6pk'};
 const DAYS   = ['Mon','Tue','Wed','Thu','Fri','Sat'];
 
-// 12pk line closure: last PRODUCTION week is w/c 13/07/2026.
-// Last SALES week is w/c 20/07/2026 — demand present but no new production; existing stock depletes.
-// No 12pk demand or production from 27/07/2026. Bottle line reverts to 2L + 6pk only.
-// LAST_12PK_PROD_WEEK marks the closure boundary: production uses strict < (stops from 20/07),
-// demand uses strict > (zeroed from 27/07). Source: Rob Harris 21/06/2026.
-const LAST_12PK_PROD_WEEK = '2026-07-20';
+// 12pk line closure extended to 31/08/2026 (Rob Harris 09/07/2026 — was 20/07/2026).
+// Last PRODUCTION week is w/c 24/08/2026 (Fri 28 Aug).
+// Last SALES week is w/c 31/08/2026 — demand present but no new production; existing stock depletes.
+// No 12pk demand or production from 07/09/2026. Bottle line reverts to 2L + 6pk only.
+// LAST_12PK_PROD_WEEK marks the closure boundary: production uses strict < (stops from 31/08),
+// demand uses strict > (zeroed from 07/09). Source: Rob Harris 09/07/2026.
+const LAST_12PK_PROD_WEEK = '2026-08-31';
 
 // ══ STATE ════════════════════════════════════════════════════════════════════
 let currentWeek = '';
