@@ -1267,12 +1267,13 @@ function planWeek(week) {
 
   // ══ CONFIRMED SCHEDULE BYPASS ══════════════════════════════════════════════
   // When Aaron has agreed next week's production, it is hard-coded in CONFIRMED_SCHEDULES.
-  // The planner uses those exact pallet figures — the algorithm does not override them.
-  // Rob Harris 20/06/2026.
+  // Pallet counts use efficiency-adjusted figures (max × eff), consistent with buildSchedule.
+  // The 90/sh figure in CONFIRMED_SCHEDULES is MAX capacity; planning always uses 75% of max.
+  // Rob Harris 10/07/2026.
   if (CONFIRMED_SCHEDULES[week]) {
     const conf = CONFIRMED_SCHEDULES[week];
     // Mid-week: only count production from today forward — past days are already in live NS stock.
-    // Also exclude today's Day shift if it has already elapsed (consistent with buildSchedule).
+    // Exclude today's Day shift after 14:00 AEST — same guard as buildSchedule (isPastDayShift).
     // Full conf is kept for buildSchedule (shift card display); confProd is the planning signal.
     const today0 = localToday();
     const confProd = (week === monOf(today0))
@@ -1280,7 +1281,8 @@ function planWeek(week) {
       : conf;
     const confirmedProd = {};
     SKUS.forEach(s => confirmedProd[s] = 0);
-    confProd.forEach(s => { confirmedProd[s.sku] = (confirmedProd[s.sku]||0) + s.pallets; });
+    // Use efficiency-adjusted pallets (max × eff), never the raw max-capacity figure from the array.
+    confProd.forEach(s => { confirmedProd[s.sku] = (confirmedProd[s.sku]||0) + Math.floor(getMaxPal(s) * eff); });
 
     const stockEnd = {};
     SKUS.forEach(s => { stockEnd[s] = (avail[s]||0) + confirmedProd[s] - demand[s].total; });
@@ -1335,16 +1337,16 @@ function planWeek(week) {
     const bot2LC  = confProd.filter(s => s.sku === '2L Bottle');
     const ep12C   = confProd.filter(s => s.sku === '600ml 12pk');
     const ep6C    = confProd.filter(s => s.sku === '600ml 6pk');
-    const hmpsConfPal  = hmpsC.reduce((a,s)=>a+s.pallets,0);
+    const hmpsConfPal  = hmpsC.reduce((a,s)=>a+Math.floor(getMaxPal(s)*eff),0);
     const hmpsDaysC    = new Set(hmpsC.map(s=>s.date)).size;
-    const cask5Pal     = cask5C.reduce((a,s)=>a+s.pallets,0);
+    const cask5Pal     = cask5C.reduce((a,s)=>a+Math.floor(getMaxPal(s)*eff),0);
     const cask5Days    = new Set(cask5C.map(s=>s.date)).size;
-    const cask10ABPal  = cask10C.reduce((a,s)=>a+s.pallets,0);
+    const cask10ABPal  = cask10C.reduce((a,s)=>a+Math.floor(getMaxPal(s)*eff),0);
     const cask10ABDays = new Set(cask10C.map(s=>s.date)).size;
-    const bot2LPal     = bot2LC.reduce((a,s)=>a+s.pallets,0);
+    const bot2LPal     = bot2LC.reduce((a,s)=>a+Math.floor(getMaxPal(s)*eff),0);
     const bot2LDays    = new Set(bot2LC.map(s=>s.date)).size;
-    const ep12Pal      = ep12C.reduce((a,s)=>a+s.pallets,0);
-    const ep6Pal       = ep6C.reduce((a,s)=>a+s.pallets,0);
+    const ep12Pal      = ep12C.reduce((a,s)=>a+Math.floor(getMaxPal(s)*eff),0);
+    const ep6Pal       = ep6C.reduce((a,s)=>a+Math.floor(getMaxPal(s)*eff),0);
 
     const atRiskOrdersC = [];
     if (typeof WW_ORDERS !== 'undefined') {
