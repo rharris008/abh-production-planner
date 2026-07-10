@@ -4866,7 +4866,9 @@ function renderBudget() {
   const SKU_LBL     = {'10L Cask':'10L Cask','5L Cask':'5L Cask','2L Bottle':'2L','600ml 6pk':'600ml 6pk'};
 
   const fy27Weeks = ALL_WEEKS.filter(w => w >= FY27_START);
-  const ytdWeeks  = fy27Weeks.filter(w => w < currentMon);
+  // A week is "done" once today >= its Saturday (day 5). Shift from current→past on Sat, not Sun.
+  const wkDone = (w) => addDays(w, 5) <= today;
+  const ytdWeeks  = fy27Weeks.filter(w => wkDone(w));
 
   // 4-4-5 retail calendar for FY27 (starting 06/07/2026)
   const FY27_445_MONTHS = [
@@ -4892,7 +4894,7 @@ function renderBudget() {
   }
   const _cur445Month = get445Month(today);
   const _cur445Idx   = _cur445Month ? FY27_445_MONTHS.indexOf(_cur445Month) : -1;
-  const upcoming = fy27Weeks.filter(w => w >= currentMon);
+  const upcoming = fy27Weeks.filter(w => !wkDone(w));
 
   function fcstPal(wk, sku, ch) { return COMBINED[wk]?.[sku]?.[ch] || 0; }
   function bgtPal(wk, sku, ch)  { return BUDGET_DATA[wk]?.[sku]?.[ch] || 0; }
@@ -5028,9 +5030,9 @@ function renderBudget() {
   function buildMonthOutturn(monthWeeks) {
     const tdy = localToday();
     function weekStatus(wk) {
-      const wkEnd = addDays(wk, 6);
-      if (wkEnd < tdy) return 'past';
-      if (wk <= tdy && tdy <= wkEnd) return 'current';
+      const wkSat = addDays(wk, 5);  // Saturday = last production day
+      if (wkSat <= tdy) return 'past';
+      if (wk <= tdy && tdy < wkSat) return 'current';
       return 'future';
     }
     const NK = 'background:var(--navy);color:#fff;';
