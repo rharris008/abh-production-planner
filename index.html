@@ -5000,6 +5000,98 @@ function renderBudget() {
     return `<table><thead>${th}</thead><tbody>${tb}</tbody></table>`;
   }
 
+  // ── Monthly Outturn builder ──────────────────────────────────────────────
+  // Shows actuals for completed weeks + forecast for remaining weeks of the
+  // current month. Outturn = act_to_date + remaining_forecast vs budget.
+  function buildMonthOutturn(monthWeeks) {
+    const tdy = localToday();
+    function weekStatus(wk) {
+      const wkEnd = addDays(wk, 6);
+      if (wkEnd < tdy) return 'past';
+      if (wk <= tdy && tdy <= wkEnd) return 'current';
+      return 'future';
+    }
+    const NK = 'background:var(--navy);color:#fff;';
+    const BL = 'background:var(--blue);color:#fff;';
+    const GN = 'background:#27AE60;color:#fff;';
+    let th = `<tr>
+      <th style="text-align:left;min-width:75px;background:#fff">SKU</th>
+      <th style="text-align:left;min-width:90px;background:#fff">Retailer</th>`;
+    monthWeeks.forEach(wk => {
+      const st = weekStatus(wk);
+      const bg = st === 'past' ? GN : st === 'current' ? BL : NK;
+      const lbl = st === 'past' ? 'Actual' : st === 'current' ? 'Act/Fcst' : 'Forecast';
+      th += `<th class="num" style="${bg}padding:5px 8px;min-width:60px">${fmtD(wk).slice(0,5)}<br><span style="font-size:9px;opacity:.85">${lbl}</span></th>`;
+    });
+    th += `<th class="num" style="${GN}padding:5px 8px;min-width:85px;border-left:3px solid rgba(255,255,255,.35)">Outturn<br><span style="font-size:9px;opacity:.85">act+fcst</span></th>
+           <th class="num" style="${NK}padding:5px 8px;min-width:75px">Budget<br><span style="font-size:9px;opacity:.85">(pal)</span></th>
+           <th class="num" style="${BL}padding:5px 8px;min-width:70px">Var<br><span style="font-size:9px;opacity:.85">(pal)</span></th>
+           <th class="num" style="${BL}padding:5px 8px;min-width:50px">vs Bgt</th></tr>`;
+    const BG_ODD = 'background:var(--light);';
+    const BG_EVN = 'background:#fff;';
+    let tb = '';
+    BDG_SKUS.forEach((sku, si) => {
+      const rowBg = si % 2 !== 0 ? BG_ODD : BG_EVN;
+      CHANNELS.forEach((ch, ci) => {
+        tb += '<tr>';
+        if (ci === 0) tb += `<td rowspan="${CHANNELS.length+1}" style="${rowBg}font-weight:700;color:var(--navy);padding:5px 8px;vertical-align:top;border-top:2px solid var(--border)">${SKU_LBL[sku]}</td>`;
+        tb += `<td style="${rowBg}color:var(--muted);padding:4px 8px">${CH_LBL[ch]}</td>`;
+        let out = 0, bgt = 0;
+        monthWeeks.forEach(wk => {
+          const st = weekStatus(wk);
+          const act = actPal(wk, sku, ch);
+          const fcst = fcstPal(wk, sku, ch);
+          const useAct = st === 'past' || (st === 'current' && act > 0);
+          const val = useAct ? act : fcst;
+          out += val; bgt += bgtPal(wk, sku, ch);
+          tb += `<td class="num" style="${rowBg}${useAct ? 'font-weight:600;' : 'opacity:.85;'}padding:4px 8px">${val > 0 ? val.toFixed(1) : '—'}</td>`;
+        });
+        const vv = out - bgt, vc = varCls(out, bgt);
+        tb += `<td class="num" style="${rowBg}font-weight:700;color:var(--navy);padding:4px 8px;border-left:3px solid var(--border)">${out > 0 ? out.toFixed(1) : '—'}</td>
+               <td class="num" style="${rowBg}color:var(--muted);padding:4px 8px">${bgt > 0 ? bgt.toFixed(1) : '—'}</td>
+               <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;${vc}">${bgt > 0 ? fmtVar(vv) : '—'}</td>
+               <td class="num" style="${rowBg}padding:4px 8px;${vc}">${pct(out,bgt)}</td></tr>`;
+      });
+      tb += '<tr style="border-bottom:2px solid var(--border)">';
+      tb += `<td style="${rowBg}font-weight:700;color:var(--navy);padding:4px 8px">All channels</td>`;
+      let skOut = 0, skBgt = 0;
+      monthWeeks.forEach(wk => {
+        const st = weekStatus(wk); let wO=0, wB=0;
+        CHANNELS.forEach(c => {
+          const act=actPal(wk,sku,c), fcst=fcstPal(wk,sku,c);
+          wO += (st==='past'||(st==='current'&&act>0))?act:fcst;
+          wB += bgtPal(wk,sku,c);
+        });
+        skOut+=wO; skBgt+=wB;
+        tb += `<td class="num" style="${rowBg}font-weight:700;color:var(--navy);padding:4px 8px">${wO>0?wO.toFixed(1):'—'}</td>`;
+      });
+      const sv=skOut-skBgt, sc=varCls(skOut,skBgt);
+      tb += `<td class="num" style="${rowBg}font-weight:700;color:var(--navy);padding:4px 8px;border-left:3px solid var(--border)">${skOut>0?skOut.toFixed(1):'—'}</td>
+             <td class="num" style="${rowBg}font-weight:700;color:var(--muted);padding:4px 8px">${skBgt>0?skBgt.toFixed(1):'—'}</td>
+             <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;${sc}">${skBgt>0?fmtVar(sv):'—'}</td>
+             <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;${sc}">${pct(skOut,skBgt)}</td></tr>`;
+    });
+    tb += '<tr style="background:var(--navy)">';
+    tb += `<td colspan="2" style="font-weight:700;color:#fff;padding:6px 8px">Grand Total — All SKUs</td>`;
+    let gOut=0, gBgt=0;
+    monthWeeks.forEach(wk => {
+      const st=weekStatus(wk); let wO=0, wB=0;
+      BDG_SKUS.forEach(s => CHANNELS.forEach(c => {
+        const act=actPal(wk,s,c), fcst=fcstPal(wk,s,c);
+        wO += (st==='past'||(st==='current'&&act>0))?act:fcst;
+        wB += bgtPal(wk,s,c);
+      }));
+      gOut+=wO; gBgt+=wB;
+      tb += `<td class="num" style="font-weight:700;color:#fff;padding:6px 8px">${wO>0?Math.round(wO):'—'}</td>`;
+    });
+    const gv=gOut-gBgt, gc=varCls(gOut,gBgt).replace('font-weight:700','');
+    tb += `<td class="num" style="font-weight:700;color:#fff;padding:6px 8px;border-left:3px solid rgba(255,255,255,.3)">${gOut>0?Math.round(gOut):'—'}</td>
+           <td class="num" style="color:rgba(255,255,255,.7);padding:6px 8px">${Math.round(gBgt)}</td>
+           <td class="num" style="font-weight:700;padding:6px 8px;${gc}">${gBgt>0?fmtVar(gv):'—'}</td>
+           <td class="num" style="font-weight:700;padding:6px 8px;${gc}">${pct(gOut,gBgt)}</td></tr>`;
+    return `<table><thead>${th}</thead><tbody>${tb}</tbody></table>`;
+  }
+
   // Split 12 upcoming weeks into 3 blocks of 4
   const blocks = [[],[],[]];
   upcoming.forEach((wk, i) => blocks[Math.floor(i/4)].push(wk));
@@ -5051,10 +5143,10 @@ function renderBudget() {
       const actCls = varCls(skuA, skuB);
       ytdRows += `<tr>
         <td style="padding:5px 10px;font-weight:600;color:var(--navy)">${SKU_LBL[sku]}</td>
-        ${hasActs ? `<td class="num" style="padding:5px 10px;font-weight:700;color:var(--navy)">${skuA > 0 ? Math.round(skuA) : '—'}</td>` : ''}
+        <td class="num" style="padding:5px 10px;font-weight:700;color:var(--navy)">${skuA > 0 ? Math.round(skuA) : '—'}</td>
         <td class="num" style="padding:5px 10px;color:var(--muted)">${Math.round(skuF)}</td>
         <td class="num" style="padding:5px 10px;color:var(--muted)">${Math.round(skuB)}</td>
-        ${hasActs ? `<td class="num" style="padding:5px 10px;${actCls}">${skuA > 0 ? fmtVar(actV) : '—'}</td><td class="num" style="padding:5px 10px;${actCls}">${skuA > 0 ? pct(skuA,skuB) : '—'}</td>` : ''}
+        <td class="num" style="padding:5px 10px;${actCls}">${skuA > 0 ? fmtVar(actV) : '—'}</td><td class="num" style="padding:5px 10px;${actCls}">${skuA > 0 ? pct(skuA,skuB) : '—'}</td>
         <td class="num" style="padding:5px 10px;${fcstCls}">${fmtVar(fcstV)}</td>
         <td class="num" style="padding:5px 10px;${fcstCls}">${pct(skuF,skuB)}</td>
       </tr>`;
@@ -5065,10 +5157,10 @@ function renderBudget() {
     const ytdActCls = varCls(ytdTotalA, ytdTotalB);
     ytdRows += `<tr style="background:var(--navy);font-weight:700;color:#fff">
       <td style="padding:6px 10px">Total</td>
-      ${hasActs ? `<td class="num" style="padding:6px 10px">${ytdTotalA > 0 ? Math.round(ytdTotalA) : '—'}</td>` : ''}
+      <td class="num" style="padding:6px 10px">${ytdTotalA > 0 ? Math.round(ytdTotalA) : '—'}</td>
       <td class="num" style="padding:6px 10px;color:rgba(255,255,255,.7)">${Math.round(ytdTotalF)}</td>
       <td class="num" style="padding:6px 10px;color:rgba(255,255,255,.7)">${Math.round(ytdTotalB)}</td>
-      ${hasActs ? `<td class="num" style="padding:6px 10px;${ytdActCls}">${ytdTotalA > 0 ? fmtVar(ytdActV) : '—'}</td><td class="num" style="padding:6px 10px;${ytdActCls}">${ytdTotalA > 0 ? pct(ytdTotalA,ytdTotalB) : '—'}</td>` : ''}
+      <td class="num" style="padding:6px 10px;${ytdActCls}">${ytdTotalA > 0 ? fmtVar(ytdActV) : '—'}</td><td class="num" style="padding:6px 10px;${ytdActCls}">${ytdTotalA > 0 ? pct(ytdTotalA,ytdTotalB) : '—'}</td>
       <td class="num" style="padding:6px 10px;${ytdCls}">${fmtVar(ytdV)}</td>
       <td class="num" style="padding:6px 10px;${ytdCls}">${pct(ytdTotalF,ytdTotalB)}</td>
     </tr>`;
@@ -5085,16 +5177,37 @@ function renderBudget() {
         <table>
           <thead><tr>
             <th style="text-align:left;min-width:90px">SKU</th>
-            ${hasActs ? '<th class="num" style="min-width:90px">Actuals (pal)</th>' : ''}
+            <th class="num" style="min-width:90px">Actuals (pal)</th>
             <th class="num">Forecast (pal)</th>
             <th class="num">Budget (pal)</th>
-            ${hasActs ? '<th class="num">Act vs Bgt</th><th class="num">Act%</th>' : ''}
+            <th class="num">Act vs Bgt</th><th class="num">Act%</th>
             <th class="num">Fcst Var</th>
             <th class="num">Fcst%</th>
           </tr></thead>
           <tbody>${ytdRows}</tbody>
         </table>
       </div>`;
+  }
+
+  // ── Current Month Outturn panel ─────────────────────────────────────────────
+  const _todayMonth = today.slice(0, 7);
+  const currentMonthWeeks = fy27Weeks.filter(w => w.slice(0, 7) === _todayMonth);
+  const _mDate = new Date(today + 'T00:00:00');
+  const _monthName = _mDate.toLocaleString('en-AU', {month:'long', year:'numeric'});
+  let monthHtml = '';
+  if (currentMonthWeeks.length > 0) {
+    const _hasMonActs = BDG_SKUS.some(s => CHANNELS.some(c => currentMonthWeeks.some(wk => actPal(wk,s,c) > 0)));
+    const _pastWks = currentMonthWeeks.filter(wk => addDays(wk,6) < today).length;
+    const _actNote = _hasMonActs
+      ? `${_pastWks} completed week${_pastWks!==1?'s':''}, remaining weeks showing retailer forecast.`
+      : 'NS shipped sales not yet received for this month — all weeks use retailer forecast as outturn estimate. Actuals will populate as NS invoice data arrives weekly.';
+    monthHtml = `<div class="panel">
+      <div class="ph navy">${_monthName} — Outturn vs Budget
+        <span style="font-size:10px;opacity:.7;margin-left:8px">Green = actuals (NS invoiced). Blue = current week. Navy = forecast. Outturn = actuals to date + remaining weeks forecast.</span>
+      </div>
+      <div style="font-size:11px;color:var(--muted);padding:8px 16px 4px">${_actNote}</div>
+      <div class="tscroll">${buildMonthOutturn(currentMonthWeeks)}</div>
+    </div>`;
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -5105,6 +5218,7 @@ function renderBudget() {
       </div>
       <div style="display:flex;gap:12px;padding:12px 16px;flex-wrap:wrap">${tiles}</div>
     </div>
+    ${monthHtml}
     ${blockHdrs}
     <div class="panel">
       <div class="ph navy">FY27 YTD Position</div>
