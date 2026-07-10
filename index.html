@@ -4866,8 +4866,33 @@ function renderBudget() {
   const SKU_LBL     = {'10L Cask':'10L Cask','5L Cask':'5L Cask','2L Bottle':'2L','600ml 6pk':'600ml 6pk'};
 
   const fy27Weeks = ALL_WEEKS.filter(w => w >= FY27_START);
-  const upcoming  = fy27Weeks.filter(w => w >= currentMon).slice(0, 12);
   const ytdWeeks  = fy27Weeks.filter(w => w < currentMon);
+
+  // 4-4-5 retail calendar for FY27 (starting 06/07/2026)
+  const FY27_445_MONTHS = [
+    { name: 'July 2026',      weeks: ['2026-07-06','2026-07-13','2026-07-20','2026-07-27'] },
+    { name: 'August 2026',    weeks: ['2026-08-03','2026-08-10','2026-08-17','2026-08-24'] },
+    { name: 'September 2026', weeks: ['2026-08-31','2026-09-07','2026-09-14','2026-09-21','2026-09-28'] },
+    { name: 'October 2026',   weeks: ['2026-10-05','2026-10-12','2026-10-19','2026-10-26'] },
+    { name: 'November 2026',  weeks: ['2026-11-02','2026-11-09','2026-11-16','2026-11-23'] },
+    { name: 'December 2026',  weeks: ['2026-11-30','2026-12-07','2026-12-14','2026-12-21','2026-12-28'] },
+    { name: 'January 2027',   weeks: ['2027-01-04','2027-01-11','2027-01-18','2027-01-25'] },
+    { name: 'February 2027',  weeks: ['2027-02-01','2027-02-08','2027-02-15','2027-02-22'] },
+    { name: 'March 2027',     weeks: ['2027-03-01','2027-03-08','2027-03-15','2027-03-22','2027-03-29'] },
+    { name: 'April 2027',     weeks: ['2027-04-05','2027-04-12','2027-04-19','2027-04-26'] },
+    { name: 'May 2027',       weeks: ['2027-05-03','2027-05-10','2027-05-17','2027-05-24'] },
+    { name: 'June 2027',      weeks: ['2027-05-31','2027-06-07','2027-06-14','2027-06-21','2027-06-28'] },
+  ];
+  // Helper: which 4-4-5 month does a given date fall in?
+  function get445Month(dateStr) {
+    return FY27_445_MONTHS.find(m => {
+      const last = m.weeks[m.weeks.length - 1];
+      return m.weeks[0] <= dateStr && dateStr <= addDays(last, 6);
+    });
+  }
+  const _cur445Month = get445Month(today);
+  const _cur445Idx   = _cur445Month ? FY27_445_MONTHS.indexOf(_cur445Month) : -1;
+  const upcoming = fy27Weeks.filter(w => w >= currentMon);
 
   function fcstPal(wk, sku, ch) { return COMBINED[wk]?.[sku]?.[ch] || 0; }
   function bgtPal(wk, sku, ch)  { return BUDGET_DATA[wk]?.[sku]?.[ch] || 0; }
@@ -4928,10 +4953,8 @@ function renderBudget() {
     weeks.forEach(wk => {
       th += `<th class="num" style="${NK}padding:5px 8px;min-width:55px">${fmtD(wk).slice(0,5)}<br><span style="font-size:9px;opacity:.7">fcst (pal)</span></th>`;
     });
-    // pad missing weeks if block < 4 (last block near end of ALL_WEEKS)
-    for (let p = weeks.length; p < 4; p++) th += `<th></th>`;
-    th += `<th class="num" style="${NK}padding:5px 8px;min-width:70px;border-left:2px solid rgba(255,255,255,.3)">4-Wk<br><span style="font-size:9px;opacity:.7">Fcst</span></th>
-           <th class="num" style="${NK}padding:5px 8px;min-width:65px">4-Wk<br><span style="font-size:9px;opacity:.7">Budget</span></th>
+    th += `<th class="num" style="${NK}padding:5px 8px;min-width:70px;border-left:2px solid rgba(255,255,255,.3)">Month<br><span style="font-size:9px;opacity:.7">Fcst</span></th>
+           <th class="num" style="${NK}padding:5px 8px;min-width:65px">Month<br><span style="font-size:9px;opacity:.7">Budget</span></th>
            <th class="num" style="${BL}padding:5px 8px;min-width:75px">Var<br><span style="font-size:9px;opacity:.7">(pal)</span></th>
            <th class="num" style="${BL}padding:5px 8px;min-width:50px">vs Bgt</th>
            </tr>`;
@@ -4953,7 +4976,6 @@ function renderBudget() {
           const ffT = isFF(wk, ch) ? ' title="Forward-filled"' : '';
           tb += `<td class="num" style="${rowBg}${ffS}padding:4px 8px"${ffT}>${fmt1(f)}</td>`;
         });
-        for (let p = weeks.length; p < 4; p++) tb += `<td></td>`;
         const chv = chF - chB;
         const chCls = varCls(chF, chB);
         tb += `<td class="num" style="${rowBg}font-weight:600;color:var(--navy);padding:4px 8px;border-left:2px solid var(--border)">${fmt1(chF)}</td>
@@ -4972,7 +4994,6 @@ function renderBudget() {
         skF += wF; skB += wB;
         tb += `<td class="num" style="${rowBg}font-weight:700;color:var(--navy);padding:4px 8px">${fmt1(wF)}</td>`;
       });
-      for (let p = weeks.length; p < 4; p++) tb += `<td></td>`;
       const skv = skF - skB;
       const skCls = varCls(skF, skB);
       tb += `<td class="num" style="${rowBg}font-weight:700;color:var(--navy);padding:4px 8px;border-left:2px solid var(--border)">${fmt1(skF)}</td>
@@ -4991,7 +5012,6 @@ function renderBudget() {
       gF += wF; gB += wB;
       tb += `<td class="num" style="font-weight:700;color:#fff;padding:6px 8px">${Math.round(wF)}</td>`;
     });
-    for (let p = weeks.length; p < 4; p++) tb += `<td></td>`;
     const gv = gF - gB;
     const gCls = varCls(gF, gB).replace('font-weight:700','');
     tb += `<td class="num" style="font-weight:700;color:#fff;padding:6px 8px;border-left:2px solid rgba(255,255,255,.3)">${Math.round(gF)}</td>
@@ -5108,18 +5128,19 @@ function renderBudget() {
     return `<table><thead>${th}</thead><tbody>${tb}</tbody></table>`;
   }
 
-  // Split 12 upcoming weeks into 3 blocks of 4
-  const blocks = [[],[],[]];
-  upcoming.forEach((wk, i) => blocks[Math.floor(i/4)].push(wk));
-  const blockHdrs = blocks.map((blk, bi) => {
-    if (!blk.length) return '';
-    const label = bi === 0 ? 'Next 4 Weeks' : bi === 1 ? 'Weeks 5–8' : 'Weeks 9–12';
-    const range = `${fmtD(blk[0]).slice(0,5)} – ${fmtD(blk[blk.length-1]).slice(0,5)}`;
+  // Build 3 forward month panels using 4-4-5 phasing (starting from next month after current)
+  const _startIdx = _cur445Idx >= 0 ? _cur445Idx + 1 : 0;
+  const forwardMonths = FY27_445_MONTHS
+    .slice(_startIdx, _startIdx + 3)
+    .map(m => ({ name: m.name, weeks: m.weeks.filter(w => fy27Weeks.includes(w)) }))
+    .filter(m => m.weeks.length > 0);
+  const blockHdrs = forwardMonths.map((m, bi) => {
+    const range = `${fmtD(m.weeks[0]).slice(0,5)} – ${fmtD(m.weeks[m.weeks.length-1]).slice(0,5)}`;
     return `<div class="panel">
-      <div class="ph navy">${label} &nbsp;<span style="font-weight:400;opacity:.75">${range}</span>
+      <div class="ph navy">${m.name} &nbsp;<span style="font-weight:400;opacity:.75">${range} &nbsp;(${m.weeks.length} weeks)</span>
         ${bi===0 ? '<span style="font-size:10px;opacity:.7;margin-left:8px">All values pallets. Italic = forward-filled forecast. Green ≥90% of budget, Amber 75–90%, Red &lt;75%.</span>' : ''}
       </div>
-      <div class="tscroll">${buildBlock(blk)}</div>
+      <div class="tscroll">${buildBlock(m.weeks)}</div>
     </div>`;
   }).join('');
 
@@ -5205,11 +5226,9 @@ function renderBudget() {
       </div>`;
   }
 
-  // ── Current Month Outturn panel ─────────────────────────────────────────────
-  const _todayMonth = today.slice(0, 7);
-  const currentMonthWeeks = fy27Weeks.filter(w => w.slice(0, 7) === _todayMonth);
-  const _mDate = new Date(today + 'T00:00:00');
-  const _monthName = _mDate.toLocaleString('en-AU', {month:'long', year:'numeric'});
+  // ── Current Month Outturn panel (4-4-5 fiscal month) ────────────────────────
+  const currentMonthWeeks = _cur445Month ? _cur445Month.weeks.filter(w => fy27Weeks.includes(w)) : [];
+  const _monthName = _cur445Month ? _cur445Month.name : '';
   let monthHtml = '';
   if (currentMonthWeeks.length > 0) {
     const _hasMonActs = BDG_SKUS.some(s => CHANNELS.some(c => currentMonthWeeks.some(wk => actPal(wk,s,c) > 0)));
