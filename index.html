@@ -526,6 +526,7 @@ let activeRetailer = 'All';  // retailer filter for SKU strip — 'All', 'WW', '
 let forecastHorizonWeek = { ww: null, coles: null, metcash: null };
 let actualsData    = null;  // parsed NetSuite runs filtered to current week
 let rawActualsData = null;  // all runs from uploaded file (unfiltered)
+let NS_ACTUALS_DATA = {};   // NS shipped sales (invoiced) for FY27 — week→sku→channel→pallets
 
 // Planned pallets per shift by line config (matches planning engine)
 const PLAN_TARGETS = {
@@ -4867,6 +4868,7 @@ function renderBudget() {
 
   function fcstPal(wk, sku, ch) { return COMBINED[wk]?.[sku]?.[ch] || 0; }
   function bgtPal(wk, sku, ch)  { return BUDGET_DATA[wk]?.[sku]?.[ch] || 0; }
+  function actPal(wk, sku, ch)  { return NS_ACTUALS_DATA[wk]?.[sku]?.[ch] || 0; }
   function varCls(f, b) {
     if (b <= 0) return '';
     const r = f / b;
@@ -5020,58 +5022,74 @@ function renderBudget() {
       FY27 YTD tracking starts ${fmtD(FY27_START)} (${daysToFY27} days). Actuals will accumulate here week by week as sales data arrives from NetSuite.
     </div>`;
   } else {
-    // Compute YTD budget and forecast (COMBINED values for completed weeks)
+    // Compute YTD budget, forecast and NS shipped actuals (for completed weeks)
     const ytdBySkuCh = {};
     BDG_SKUS.forEach(sku => {
       ytdBySkuCh[sku] = {};
-      CHANNELS.forEach(ch => { ytdBySkuCh[sku][ch] = {fcst:0, bgt:0}; });
+      CHANNELS.forEach(ch => { ytdBySkuCh[sku][ch] = {fcst:0, bgt:0, act:0}; });
     });
     ytdWeeks.forEach(wk => {
       BDG_SKUS.forEach(sku => CHANNELS.forEach(ch => {
         ytdBySkuCh[sku][ch].fcst += fcstPal(wk, sku, ch);
         ytdBySkuCh[sku][ch].bgt  += bgtPal(wk, sku, ch);
+        ytdBySkuCh[sku][ch].act  += actPal(wk, sku, ch);
       }));
     });
 
+    const hasActs = BDG_SKUS.some(s => CHANNELS.some(c => ytdBySkuCh[s][c].act > 0));
+
     let ytdRows = '';
-    let ytdTotalF = 0, ytdTotalB = 0;
+    let ytdTotalF = 0, ytdTotalB = 0, ytdTotalA = 0;
     BDG_SKUS.forEach(sku => {
-      let skuF = 0, skuB = 0;
-      CHANNELS.forEach(ch => { skuF += ytdBySkuCh[sku][ch].fcst; skuB += ytdBySkuCh[sku][ch].bgt; });
-      ytdTotalF += skuF; ytdTotalB += skuB;
-      const v = skuF - skuB;
-      const cls = varCls(skuF, skuB);
+      let skuF = 0, skuB = 0, skuA = 0;
+      CHANNELS.forEach(ch => { skuF += ytdBySkuCh[sku][ch].fcst; skuB += ytdBySkuCh[sku][ch].bgt; skuA += ytdBySkuCh[sku][ch].act; });
+      ytdTotalF += skuF; ytdTotalB += skuB; ytdTotalA += skuA;
+      const fcstV = skuF - skuB;
+      const fcstCls = varCls(skuF, skuB);
+      const actV = skuA - skuB;
+      const actCls = varCls(skuA, skuB);
       ytdRows += `<tr>
         <td style="padding:5px 10px;font-weight:600;color:var(--navy)">${SKU_LBL[sku]}</td>
-        <td class="num" style="padding:5px 10px;color:var(--navy)">${Math.round(skuF)}</td>
+        ${hasActs ? `<td class="num" style="padding:5px 10px;font-weight:700;color:var(--navy)">${skuA > 0 ? Math.round(skuA) : '—'}</td>` : ''}
+        <td class="num" style="padding:5px 10px;color:var(--muted)">${Math.round(skuF)}</td>
         <td class="num" style="padding:5px 10px;color:var(--muted)">${Math.round(skuB)}</td>
-        <td class="num" style="padding:5px 10px;${cls}">${fmtVar(v)}</td>
-        <td class="num" style="padding:5px 10px;${cls}">${pct(skuF,skuB)}</td>
+        ${hasActs ? `<td class="num" style="padding:5px 10px;${actCls}">${skuA > 0 ? fmtVar(actV) : '—'}</td><td class="num" style="padding:5px 10px;${actCls}">${skuA > 0 ? pct(skuA,skuB) : '—'}</td>` : ''}
+        <td class="num" style="padding:5px 10px;${fcstCls}">${fmtVar(fcstV)}</td>
+        <td class="num" style="padding:5px 10px;${fcstCls}">${pct(skuF,skuB)}</td>
       </tr>`;
     });
     const ytdV = ytdTotalF - ytdTotalB;
     const ytdCls = varCls(ytdTotalF, ytdTotalB);
+    const ytdActV = ytdTotalA - ytdTotalB;
+    const ytdActCls = varCls(ytdTotalA, ytdTotalB);
     ytdRows += `<tr style="background:var(--navy);font-weight:700;color:#fff">
       <td style="padding:6px 10px">Total</td>
-      <td class="num" style="padding:6px 10px">${Math.round(ytdTotalF)}</td>
+      ${hasActs ? `<td class="num" style="padding:6px 10px">${ytdTotalA > 0 ? Math.round(ytdTotalA) : '—'}</td>` : ''}
+      <td class="num" style="padding:6px 10px;color:rgba(255,255,255,.7)">${Math.round(ytdTotalF)}</td>
       <td class="num" style="padding:6px 10px;color:rgba(255,255,255,.7)">${Math.round(ytdTotalB)}</td>
+      ${hasActs ? `<td class="num" style="padding:6px 10px;${ytdActCls}">${ytdTotalA > 0 ? fmtVar(ytdActV) : '—'}</td><td class="num" style="padding:6px 10px;${ytdActCls}">${ytdTotalA > 0 ? pct(ytdTotalA,ytdTotalB) : '—'}</td>` : ''}
       <td class="num" style="padding:6px 10px;${ytdCls}">${fmtVar(ytdV)}</td>
       <td class="num" style="padding:6px 10px;${ytdCls}">${pct(ytdTotalF,ytdTotalB)}</td>
     </tr>`;
 
+    const actNote = hasActs
+      ? 'Actuals = NS shipped sales (invoiced). '
+      : 'NS shipped sales actuals will appear here once FY27 invoiced data loads from NetSuite. ';
     ytdHtml = `
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
         ${ytdWeeks.length} completed week${ytdWeeks.length>1?'s':''} — FY27 W01 to Wk ${fmtD(ytdWeeks[ytdWeeks.length-1]).slice(0,5)}.
-        Forecast column shows retailer-reported orders. Actuals from NS feed will replace forecasts for closed weeks once available.
+        ${actNote}Forecast = retailer-reported orders.
       </div>
       <div class="tscroll">
         <table>
           <thead><tr>
             <th style="text-align:left;min-width:90px">SKU</th>
+            ${hasActs ? '<th class="num" style="min-width:90px">Actuals (pal)</th>' : ''}
             <th class="num">Forecast (pal)</th>
             <th class="num">Budget (pal)</th>
-            <th class="num">Variance</th>
-            <th class="num">vs Budget</th>
+            ${hasActs ? '<th class="num">Act vs Bgt</th><th class="num">Act%</th>' : ''}
+            <th class="num">Fcst Var</th>
+            <th class="num">Fcst%</th>
           </tr></thead>
           <tbody>${ytdRows}</tbody>
         </table>
@@ -5587,6 +5605,7 @@ async function sbPull() {
     const rCo  = await sbFetch(`coles_forecast?${forecastQuery}`);    if (rCo  && rCo.length)  { applyColesFromSB(rCo);    loaded.push('Coles'); }
     const rMc  = await sbFetch(`metcash_forecast?${forecastQuery}`);  if (rMc  && rMc.length)  { applyMetcashFromSB(rMc);  loaded.push('Metcash'); }
     const rAct = await sbFetch('actuals');           if (rAct && rAct.length) { applyActualsFromSB(rAct); loaded.push('Actuals'); }
+    const rNSA = await sbFetch('ops_sales_actuals_weekly?fy_year=eq.2027&select=week_start,sku,channel,pallets'); if (rNSA && rNSA.length) { applyNSSalesActualsFromSB(rNSA); }
     const rSt  = await sbFetch('stock');             if (rSt  && rSt.length)  { applyStockFromSB(rSt);   loaded.push('Stock'); }
     const rPH  = await sbFetch('public_holidays');   if (rPH  && rPH.length)  { applyPublicHolidays(rPH); loaded.push('Holidays'); }
     const rOO  = await sbFetch('open_order_lines');   if (rOO  && rOO.length)  { applyOpenOrdersFromSB(rOO); loaded.push('OpenOrders'); }
@@ -5784,6 +5803,23 @@ function applyActualsFromSB(rows) {
   actualsData._lineBSku = lineBSku;  // snapshot at pull time
   document.getElementById('actualsContent').style.display = 'block';
   setStat('Actuals', `✓ Live data from Supabase (${filtered.length} runs)`, true);
+}
+
+function applyNSSalesActualsFromSB(rows) {
+  // Map ops_sales_actuals_weekly (NS report 750 names) to Budget tab SKU/channel keys
+  const SKU_MAP = {'Pureau 10L':'10L Cask','Pureau 5L':'5L Cask','Pureau 2L':'2L Bottle','Pureau 600ml 6pk':'600ml 6pk','Pureau 600ml 12pk':'600ml 12pk'};
+  const CH_MAP  = {'WW':'ww','Coles':'coles','IGA':'metcash'};
+  NS_ACTUALS_DATA = {};
+  rows.forEach(r => {
+    const sku = SKU_MAP[r.sku];   if (!sku) return;
+    const ch  = CH_MAP[r.channel]; if (!ch)  return;
+    const wk  = r.week_start;
+    if (!NS_ACTUALS_DATA[wk])      NS_ACTUALS_DATA[wk] = {};
+    if (!NS_ACTUALS_DATA[wk][sku]) NS_ACTUALS_DATA[wk][sku] = {};
+    NS_ACTUALS_DATA[wk][sku][ch] = (NS_ACTUALS_DATA[wk][sku][ch] || 0) + (parseFloat(r.pallets) || 0);
+  });
+  // Re-render budget tab if it is currently visible
+  if (document.getElementById('tab-budget')?.classList.contains('active')) renderBudget();
 }
 
 // Update a single chip in the nav freshness strip using actual row-level timestamps
