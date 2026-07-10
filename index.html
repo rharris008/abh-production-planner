@@ -1272,10 +1272,11 @@ function planWeek(week) {
   if (CONFIRMED_SCHEDULES[week]) {
     const conf = CONFIRMED_SCHEDULES[week];
     // Mid-week: only count production from today forward — past days are already in live NS stock.
+    // Also exclude today's Day shift if it has already elapsed (consistent with buildSchedule).
     // Full conf is kept for buildSchedule (shift card display); confProd is the planning signal.
     const today0 = localToday();
     const confProd = (week === monOf(today0))
-      ? conf.filter(s => s.date >= today0)
+      ? conf.filter(s => s.date > today0 || (s.date === today0 && !(s.shift === 'Day' && isPastDayShift())))
       : conf;
     const confirmedProd = {};
     SKUS.forEach(s => confirmedProd[s] = 0);
