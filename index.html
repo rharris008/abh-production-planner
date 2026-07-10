@@ -5025,7 +5025,9 @@ function renderBudget() {
       const lbl = st === 'past' ? 'Actual' : st === 'current' ? 'Act/Fcst' : 'Forecast';
       th += `<th class="num" style="${bg}padding:5px 8px;min-width:60px">${fmtD(wk).slice(0,5)}<br><span style="font-size:9px;opacity:.85">${lbl}</span></th>`;
     });
-    th += `<th class="num" style="${GN}padding:5px 8px;min-width:85px;border-left:3px solid rgba(255,255,255,.35)">Outturn<br><span style="font-size:9px;opacity:.85">act+fcst</span></th>
+    th += `<th class="num" style="${GN}padding:5px 8px;min-width:85px;border-left:3px solid rgba(255,255,255,.35)">Actuals<br><span style="font-size:9px;opacity:.85">(pal)</span></th>
+           <th class="num" style="${NK}padding:5px 8px;min-width:85px">Fcst rem.<br><span style="font-size:9px;opacity:.85">(pal)</span></th>
+           <th class="num" style="${BL}padding:5px 8px;min-width:85px;border-left:3px solid rgba(255,255,255,.35)">Outturn<br><span style="font-size:9px;opacity:.85">(pal)</span></th>
            <th class="num" style="${NK}padding:5px 8px;min-width:75px">Budget<br><span style="font-size:9px;opacity:.85">(pal)</span></th>
            <th class="num" style="${BL}padding:5px 8px;min-width:70px">Var<br><span style="font-size:9px;opacity:.85">(pal)</span></th>
            <th class="num" style="${BL}padding:5px 8px;min-width:50px">vs Bgt</th></tr>`;
@@ -5038,56 +5040,68 @@ function renderBudget() {
         tb += '<tr>';
         if (ci === 0) tb += `<td rowspan="${CHANNELS.length+1}" style="${rowBg}font-weight:700;color:var(--navy);padding:5px 8px;vertical-align:top;border-top:2px solid var(--border)">${SKU_LBL[sku]}</td>`;
         tb += `<td style="${rowBg}color:var(--muted);padding:4px 8px">${CH_LBL[ch]}</td>`;
-        let out = 0, bgt = 0;
+        let actSum = 0, fcstRem = 0, bgt = 0;
         monthWeeks.forEach(wk => {
           const st = weekStatus(wk);
           const act = actPal(wk, sku, ch);
           const fcst = fcstPal(wk, sku, ch);
           const useAct = st === 'past' || (st === 'current' && act > 0);
           const val = useAct ? act : fcst;
-          out += val; bgt += bgtPal(wk, sku, ch);
+          if (useAct) actSum += act; else fcstRem += fcst;
+          bgt += bgtPal(wk, sku, ch);
           tb += `<td class="num" style="${rowBg}${useAct ? 'font-weight:600;' : 'opacity:.85;'}padding:4px 8px">${val > 0 ? val.toFixed(1) : '—'}</td>`;
         });
+        const out = actSum + fcstRem;
         const vv = out - bgt, vc = varCls(out, bgt);
-        tb += `<td class="num" style="${rowBg}font-weight:700;color:var(--navy);padding:4px 8px;border-left:3px solid var(--border)">${out > 0 ? out.toFixed(1) : '—'}</td>
+        tb += `<td class="num" style="${rowBg}font-weight:700;color:#27AE60;padding:4px 8px;border-left:3px solid var(--border)">${actSum > 0 ? actSum.toFixed(1) : '—'}</td>
+               <td class="num" style="${rowBg}color:var(--muted);padding:4px 8px">${fcstRem > 0 ? fcstRem.toFixed(1) : '—'}</td>
+               <td class="num" style="${rowBg}font-weight:700;color:var(--navy);padding:4px 8px;border-left:3px solid var(--border)">${out > 0 ? out.toFixed(1) : '—'}</td>
                <td class="num" style="${rowBg}color:var(--muted);padding:4px 8px">${bgt > 0 ? bgt.toFixed(1) : '—'}</td>
                <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;${vc}">${bgt > 0 ? fmtVar(vv) : '—'}</td>
                <td class="num" style="${rowBg}padding:4px 8px;${vc}">${pct(out,bgt)}</td></tr>`;
       });
       tb += '<tr style="border-bottom:2px solid var(--border)">';
       tb += `<td style="${rowBg}font-weight:700;color:var(--navy);padding:4px 8px">All channels</td>`;
-      let skOut = 0, skBgt = 0;
+      let skAct = 0, skFcst = 0, skBgt = 0;
       monthWeeks.forEach(wk => {
-        const st = weekStatus(wk); let wO=0, wB=0;
+        const st = weekStatus(wk); let wA=0, wF=0, wB=0;
         CHANNELS.forEach(c => {
           const act=actPal(wk,sku,c), fcst=fcstPal(wk,sku,c);
-          wO += (st==='past'||(st==='current'&&act>0))?act:fcst;
+          const useAct = st==='past'||(st==='current'&&act>0);
+          if (useAct) wA+=act; else wF+=fcst;
           wB += bgtPal(wk,sku,c);
         });
-        skOut+=wO; skBgt+=wB;
+        skAct+=wA; skFcst+=wF; skBgt+=wB;
+        const wO=wA+wF;
         tb += `<td class="num" style="${rowBg}font-weight:700;color:var(--navy);padding:4px 8px">${wO>0?wO.toFixed(1):'—'}</td>`;
       });
-      const sv=skOut-skBgt, sc=varCls(skOut,skBgt);
-      tb += `<td class="num" style="${rowBg}font-weight:700;color:var(--navy);padding:4px 8px;border-left:3px solid var(--border)">${skOut>0?skOut.toFixed(1):'—'}</td>
+      const skOut=skAct+skFcst, sv=skOut-skBgt, sc=varCls(skOut,skBgt);
+      tb += `<td class="num" style="${rowBg}font-weight:700;color:#27AE60;padding:4px 8px;border-left:3px solid var(--border)">${skAct>0?skAct.toFixed(1):'—'}</td>
+             <td class="num" style="${rowBg}font-weight:700;color:var(--muted);padding:4px 8px">${skFcst>0?skFcst.toFixed(1):'—'}</td>
+             <td class="num" style="${rowBg}font-weight:700;color:var(--navy);padding:4px 8px;border-left:3px solid var(--border)">${skOut>0?skOut.toFixed(1):'—'}</td>
              <td class="num" style="${rowBg}font-weight:700;color:var(--muted);padding:4px 8px">${skBgt>0?skBgt.toFixed(1):'—'}</td>
              <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;${sc}">${skBgt>0?fmtVar(sv):'—'}</td>
              <td class="num" style="${rowBg}font-weight:700;padding:4px 8px;${sc}">${pct(skOut,skBgt)}</td></tr>`;
     });
     tb += '<tr style="background:var(--navy)">';
     tb += `<td colspan="2" style="font-weight:700;color:#fff;padding:6px 8px">Grand Total — All SKUs</td>`;
-    let gOut=0, gBgt=0;
+    let gAct=0, gFcst=0, gBgt=0;
     monthWeeks.forEach(wk => {
-      const st=weekStatus(wk); let wO=0, wB=0;
+      const st=weekStatus(wk); let wA=0, wF=0, wB=0;
       BDG_SKUS.forEach(s => CHANNELS.forEach(c => {
         const act=actPal(wk,s,c), fcst=fcstPal(wk,s,c);
-        wO += (st==='past'||(st==='current'&&act>0))?act:fcst;
+        const useAct = st==='past'||(st==='current'&&act>0);
+        if (useAct) wA+=act; else wF+=fcst;
         wB += bgtPal(wk,s,c);
       }));
-      gOut+=wO; gBgt+=wB;
+      gAct+=wA; gFcst+=wF; gBgt+=wB;
+      const wO=wA+wF;
       tb += `<td class="num" style="font-weight:700;color:#fff;padding:6px 8px">${wO>0?Math.round(wO):'—'}</td>`;
     });
-    const gv=gOut-gBgt, gc=varCls(gOut,gBgt).replace('font-weight:700','');
-    tb += `<td class="num" style="font-weight:700;color:#fff;padding:6px 8px;border-left:3px solid rgba(255,255,255,.3)">${gOut>0?Math.round(gOut):'—'}</td>
+    const gOut=gAct+gFcst, gv=gOut-gBgt, gc=varCls(gOut,gBgt).replace('font-weight:700','');
+    tb += `<td class="num" style="font-weight:700;color:#fff;padding:6px 8px;border-left:3px solid rgba(255,255,255,.3)">${gAct>0?Math.round(gAct):'—'}</td>
+           <td class="num" style="color:rgba(255,255,255,.7);padding:6px 8px">${gFcst>0?Math.round(gFcst):'—'}</td>
+           <td class="num" style="font-weight:700;color:#fff;padding:6px 8px;border-left:3px solid rgba(255,255,255,.3)">${gOut>0?Math.round(gOut):'—'}</td>
            <td class="num" style="color:rgba(255,255,255,.7);padding:6px 8px">${Math.round(gBgt)}</td>
            <td class="num" style="font-weight:700;padding:6px 8px;${gc}">${gBgt>0?fmtVar(gv):'—'}</td>
            <td class="num" style="font-weight:700;padding:6px 8px;${gc}">${pct(gOut,gBgt)}</td></tr>`;
@@ -5205,7 +5219,7 @@ function renderBudget() {
       : 'NS shipped sales not yet received for this month — all weeks use retailer forecast as outturn estimate. Actuals will populate as NS invoice data arrives weekly.';
     monthHtml = `<div class="panel">
       <div class="ph navy">${_monthName} — Outturn vs Budget
-        <span style="font-size:10px;opacity:.7;margin-left:8px">Green = actuals (NS invoiced). Blue = current week. Navy = forecast. Outturn = actuals to date + remaining weeks forecast.</span>
+        <span style="font-size:10px;opacity:.7;margin-left:8px">Actuals = NS invoiced pallets. Fcst rem. = retailer forecast for remaining weeks. Outturn = Actuals + Fcst rem.</span>
       </div>
       <div style="font-size:11px;color:var(--muted);padding:8px 16px 4px">${_actNote}</div>
       <div class="tscroll">${buildMonthOutturn(currentMonthWeeks)}</div>
