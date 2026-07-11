@@ -3863,20 +3863,14 @@ function renderReplan(pr, skuPlan, skuActual, completedDaysLoop) {
   const completedDates = (actualsData && actualsData._completeDates) || [];
   const nComplete = completedDates.length;
 
-  // Today estimate = planned capacity (same as Thu/Fri)
-  // WTD average is unreliable if line config changed mid-week (e.g. HMPS Single → Dual)
-  // Planned capacity reflects current line settings selected in the header
+  // Today estimate: derive from planWeek plannedProd as a per-day share.
+  // Remaining working days this week (today included if it is a working day).
+  const remWorkDays = Math.max(1, (todayIsThisWeek ? 1 : 0) + nFuture);
   const todayEst = {};
-  const hmpsTgt0 = hmpsConfig === 'Dual' ? 90 : 45;
-  const lineBTgt0 = lineBSku === '5L' ? 27 : 30;  // per Aaron 13/06/2026: Line A alone 5L=27 base, 10L=30 base
-  const todayCapPerDay = {
-    '10L Cask':   (hmpsTgt0 + 30) * 2 * eff,   // HMPS + Line A alone (30 base/shift)
-    '5L Cask':    lineBTgt0 * 2 * eff,
-    '2L Bottle':  52 * 2 * eff,
-    '600ml 12pk': 34 * 2 * eff,
-    '600ml 6pk':  32 * 2 * eff,
-  };
-  SKUS.forEach(s => { todayEst[s] = todayCapPerDay[s] || 0; });
+  SKUS.forEach(s => {
+    const totalPlan = (pr.plannedProd && pr.plannedProd[s]) ? pr.plannedProd[s] : 0;
+    todayEst[s] = remWorkDays > 0 ? Math.round(totalPlan / remWorkDays) : 0;
+  });
 
   // Remaining days: today (estimated) + Thu/Fri (planned capacity)
   // futureDays = tomorrow through end of week = strictly planned days
@@ -3907,24 +3901,14 @@ function renderReplan(pr, skuPlan, skuActual, completedDaysLoop) {
     stillNeeded[s] = Math.max(0, demand[s].total - produced);
   });
 
-  // Planned capacity per full day (2 shifts at efficiency)
-  const hmpsTgt = hmpsConfig === 'Dual' ? 90 : 45;
-  const lineBTgt = lineBSku === '5L' ? 27 : 30;  // per Aaron 13/06/2026: Line A alone 5L=27 base, 10L=30 base
-  const capPerDay = {
-    '10L Cask':   (hmpsTgt + 30) * 2 * eff,   // HMPS + Line A alone (30 base/shift)
-    '5L Cask':    lineBTgt * 2 * eff,
-    '2L Bottle':  52 * 2 * eff,
-    '600ml 12pk': 34 * 2 * eff,
-    '600ml 6pk':  32 * 2 * eff,
-  };
-
-  // Total expected output for rest of week:
-  // today = WTD average, remaining days = planned capacity
+  // H3 fix (11/07/2026): use planWeek()'s own plannedProd instead of recalculating
+  // capacity independently. planWeek already filters to remaining shifts (>= today),
+  // respects lineOutageForWeek(), and knows which SKU the cask lines are running.
+  // The old capPerDay formula diverged on 5L (27 vs 50/shift for dual lines) and on
+  // 10L (assumed Line A always ran 10L regardless of hmpsCovers10L).
   const expectedRemaining = {};
   SKUS.forEach(s => {
-    const todayOut  = todayIsThisWeek ? (todayEst[s] || 0) : 0;
-    const futureOut = nFuture * (capPerDay[s] || 0);
-    expectedRemaining[s] = todayOut + futureOut;
+    expectedRemaining[s] = (pr.plannedProd && pr.plannedProd[s]) ? pr.plannedProd[s] : 0;
   });
 
   let rt = `<thead><tr>
