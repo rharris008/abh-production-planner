@@ -2188,26 +2188,30 @@ function renderDemTable(pr) {
 
 // ══ RENDER: STOCK TABLE ═══════════════════════════════════════════════════════
 function renderStockTable(pr) {
-  const {demand,netDem,coverDays} = pr;
-  let h=`<thead><tr><th>SKU</th><th class="num">Stock (pal)</th><th class="num">Open Orders (pal)</th><th class="num">Avail (pal)</th><th class="num">Demand (pal)</th><th class="num">Net to Produce</th><th>Cover</th></tr></thead><tbody>`;
+  // H4 fix (11/07/2026): cover and net-to-produce now both come from planWeek() output.
+  // Previously: avail = stockPal - openOrdersPal (all future OO, wrong stock base, no on-hold deduction).
+  // Now: avail = pr.avail[s] (planWeek's opening stock = availPal() = stockPal - onHoldPal).
+  // OO are already in the weekly forecast demand — deducting them from stock AND demand is a double-count.
+  // Open Orders column retained as informational reference only; it does not reduce the avail/cover figures.
+  // coverDays is pr.coverDays[s] from planWeek() — same calculation as net-to-produce, can't contradict.
+  const {demand,netDem,avail:planAvail,coverDays:planCoverDays} = pr;
+  let h=`<thead><tr><th>SKU</th><th class="num">Avail Stock (pal)</th><th class="num">Open Orders (pal)</th><th class="num">Demand (pal)</th><th class="num">Net to Produce</th><th>Cover (days)</th></tr></thead><tbody>`;
   SKUS.forEach(s=>{
-    const stk=stockPal[s]||0, dem=demand[s].total, net=Math.max(0,netDem[s]);
+    const avail=Math.round(planAvail[s]||0);
+    const dem=demand[s].total, net=Math.max(0,netDem[s]);
     const oo=Math.round(openOrdersPal[s]||0);
-    const avail=Math.max(0,stk-oo);
-    const cov=dem>0?(avail/dem).toFixed(1)+'w':'—';
-    // Thresholds aligned to STOCK_COVER: floor/5 = fraction-of-week equivalent of floor days.
-    // floor=3 → 0.6w, target=5 → 1.0w. Aligns H3 with H4 (buildAllAlerts/planWeek).
-    const covCls=dem>0&&avail/dem<STOCK_COVER.floor/5?'r':dem>0&&avail/dem<STOCK_COVER.target/5?'a':'g';
-    const pct=dem>0?Math.min(100,Math.round(avail/dem*100)):100;
+    const cd=planCoverDays[s]??99;  // days of cover from planWeek — same source as net-to-produce
+    const covTxt=dem>0?cd.toFixed(1)+'d':'—';
+    const covCls=dem>0&&cd<STOCK_COVER.floor?'r':dem>0&&cd<STOCK_COVER.target?'a':'g';
+    const pct=Math.min(100,Math.round(cd/STOCK_COVER.target*100));
     h+=`<tr><td><span class="chip ${CHIP[s]}">${s}</span></td>
-      <td class="num">${fmt(Math.round(stk))}</td>
-      <td class="num ${oo>0?'r':''}">${oo>0?`-${fmt(oo)}`:'—'}</td>
       <td class="num"><strong>${fmt(avail)}</strong></td>
+      <td class="num" style="color:var(--muted);font-size:10px">${oo>0?fmt(oo)+' committed':'—'}</td>
       <td class="num">${fmt(dem)}</td>
       <td class="num ${net>0?'r':'g'}">${net>0?fmt(Math.round(net)):'Covered'}</td>
       <td><div style="background:#E0E0E0;border-radius:2px;height:5px;width:100%;margin-bottom:2px">
         <div style="width:${pct}%;height:5px;border-radius:2px;background:${pct>=100?'var(--green)':pct>=60?'var(--amber)':'var(--red)'}"></div></div>
-        <span class="${covCls}" style="font-size:10px">${cov}</span></td></tr>`;
+        <span class="${covCls}" style="font-size:10px">${covTxt}</span></td></tr>`;
   });
   document.getElementById('stockTable').innerHTML=h+'</tbody>';
 }
