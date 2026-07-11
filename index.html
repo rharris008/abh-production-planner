@@ -159,7 +159,7 @@ tr.risk-a td{background:#FEF9F0}
       <div class="tog"><button id="bDual" class="on" onclick="setHMPS('Dual')">Dual (90/sh)</button>
         <button id="bSingle" onclick="setHMPS('Single')">Single (45/sh)</button></div></div>
     <div class="ctrl-grp"><span class="ctrl-lbl">SATURDAY</span>
-      <div class="tog"><button id="bSatAuto" onclick="setSat('auto')">Auto (&lt;3d)</button>
+      <div class="tog"><button id="bSatAuto" onclick="setSat('auto')">Auto (&lt;<span id="satFloorLabel">3</span>d)</button>
         <button id="bSatOff" class="on" onclick="setSat('off')">Off</button>
         <button id="bSatOn" onclick="setSat('on')">Force</button></div></div>
   </div>
@@ -212,6 +212,23 @@ tr.risk-a td{background:#FEF9F0}
           <div class="oc-cell">
             <label>EP changeover (mins)</label>
             <input type="number" min="0" max="120" value="45" onchange="epChangeoverMins=parseInt(this.value)||0;onWeekChange()">
+          </div>
+        </div>
+        <div style="margin-top:10px">
+          <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Stock Cover Thresholds (days)</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+            <div class="oc-cell">
+              <label>Target cover (days)</label>
+              <input id="coverTargetInput" type="number" min="1" max="14" value="5"
+                onchange="STOCK_COVER.target=Math.max(1,parseInt(this.value)||5);planWeekCache={};onWeekChange();renderAlerts();"
+                title="Planning goal — all SKUs aim to reach this cover at normal shift rates">
+            </div>
+            <div class="oc-cell">
+              <label>Floor cover (days)</label>
+              <input id="coverFloorInput" type="number" min="1" max="10" value="3"
+                onchange="STOCK_COVER.floor=Math.max(1,parseInt(this.value)||3);var lbl=document.getElementById('satFloorLabel');if(lbl)lbl.textContent=STOCK_COVER.floor;planWeekCache={};onWeekChange();renderAlerts();"
+                title="Hard minimum — breach triggers escalation alert">
+            </div>
           </div>
         </div>
       </div>
@@ -497,6 +514,18 @@ const DAYS   = ['Mon','Tue','Wed','Thu','Fri','Sat'];
 // LAST_12PK_PROD_WEEK marks the closure boundary: production uses strict < (stops from 31/08),
 // demand uses strict > (zeroed from 07/09). Source: Rob Harris 09/07/2026.
 const LAST_12PK_PROD_WEEK = '2026-08-31';
+
+// ══ STOCK COVER RULE ══════════════════════════════════════════════════════════
+// Single source of truth for all cover thresholds (C2 fix — Rob Harris 11/07/2026).
+// target: planning goal achievable at normal shift hours/rates.
+// floor:  hard minimum — breach triggers alert, not auto-action.
+// Both values are exposed in the Stock Configuration UI panel and propagate
+// immediately to all scheduling and alert functions on change.
+// ZERO hardcoded copies of these numbers may exist anywhere else in this file.
+const STOCK_COVER = {
+  target: 5,   // days — planning goal (bring all SKUs to this cover each week)
+  floor:  3    // days — hard minimum (breach = alert, may require overtime or Saturday run)
+};
 
 // ══ STATE ════════════════════════════════════════════════════════════════════
 let currentWeek = '';
@@ -890,15 +919,15 @@ function scheduleEPNewLine(weekStart, opDays, eff, openStock12, openStock6, minS
 // Rules per Rob Harris 20/06/2026:
 // - 4 working days on 2L (target: reach 9 days stock)
 // - 6 working days on 600ml: 6pk FIRST, then 12pk
-// - Emergency override (highest priority): any SKU < 3 days cover → switch to it now
-// - No SKU ever falls below 3 days stock
+// - Emergency override (highest priority): any SKU < STOCK_COVER.floor days → switch to it now
+// - No SKU ever falls below STOCK_COVER.floor days stock
 // Cycle spans 2 weeks (4+6=10 working days). Phase is inferred from opening stock each week.
 // Returns {shifts, endStock2L, endStock12, endStock6}
 function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6, weekIdx) {
   const TARGET_2L_DAYS  = 4;   // working days on 2L per cycle
   const TARGET_600_DAYS = 6;   // working days on 600ml per cycle
   const TARGET_2L_COVER = 9;   // days — 2L runs until this is achieved
-  const EMERGENCY_FLOOR = 3;   // days — no SKU falls below this
+  // EMERGENCY_FLOOR removed — use STOCK_COVER.floor (global config, C2 fix 11/07/2026)
   const COV_6PK_TO_12PK = 7;   // days — switch within 600ml phase: 6pk→12pk when 6pk >= this
 
   // 12pk production stops BEFORE the closure week (strict <).
@@ -958,7 +987,7 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
 
   // Daily demand: next-week forecast → this-week forecast → next-week open orders.
   // Fallback chain matches coverDays (nextD → thisD → nextWkOO) so emergency thresholds
-  // fire at the same time the display would show < 3 days. Bug fixed 20/06/2026.
+  // fire at the same time the display would show < STOCK_COVER.floor days. Bug fixed 20/06/2026.
   // Also floors against remaining DAILY_REQUIRED delivery rate so that the emergency
   // fires even when there is no forecast/OO but deliveries are actively draining stock.
   // Bug fixed 21/06/2026.
@@ -1020,9 +1049,9 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
   // Track whether this week opened with a 6pk emergency.
   // When true, we allow an earlier pivot to 2L once 6pk is out of emergency
   // so 2L doesn't go an entire week without production.
-  let weekOpenedWith6pkEmergency = c6_open < EMERGENCY_FLOOR;
+  let weekOpenedWith6pkEmergency = c6_open < STOCK_COVER.floor;
 
-  if (c6_open < EMERGENCY_FLOOR || (is12pkActive && c12_open < EMERGENCY_FLOOR && s12 < finalDem12)) {
+  if (c6_open < STOCK_COVER.floor || (is12pkActive && c12_open < STOCK_COVER.floor && s12 < finalDem12)) {
     // 12pk emergency only fires when active AND stock is below the cap for the final prod week
     phase = (is12pkActive && c12_open < c6_open && s12 < finalDem12) ? '600ml 12pk' : '600ml 6pk';
   } else if (c2L_open < TARGET_2L_COVER) {
@@ -1048,22 +1077,22 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
     const c6  = cov('600ml 6pk',  s6);
     const c12 = cov('600ml 12pk', s12);
 
-    // ── Priority 1: Emergency — any SKU < 3 days ─────────────────────────────
+    // ── Priority 1: Emergency — any SKU below floor (STOCK_COVER.floor days) ──
     // 600ml emergencies trump 2L (600ml cannot go OOS)
-    if (c6 < EMERGENCY_FLOOR && phase !== '600ml 6pk') {
+    if (c6 < STOCK_COVER.floor && phase !== '600ml 6pk') {
       phase = '600ml 6pk';
-    } else if (is12pkActive && c12 < EMERGENCY_FLOOR && phase !== '600ml 12pk' && s12 < finalDem12) {
+    } else if (is12pkActive && c12 < STOCK_COVER.floor && phase !== '600ml 12pk' && s12 < finalDem12) {
       phase = '600ml 12pk';
-    } else if (c2 < EMERGENCY_FLOOR && phase !== '2L Bottle') {
+    } else if (c2 < STOCK_COVER.floor && phase !== '2L Bottle') {
       phase = '2L Bottle';
 
     // ── Priority 2: Normal cycle transitions ──────────────────────────────────
     } else if (phase === '2L Bottle') {
       // Leave 2L when: target cover reached OR 4-day cap hit
       if (c2 >= TARGET_2L_COVER || days2L >= TARGET_2L_DAYS) {
-        // Rob Harris 02/07/2026: minimum 5-day cover rule. Pick the more urgent 600ml SKU.
-        // If 12pk is below 5 days and lower than 6pk, run it first; otherwise default to 6pk.
-        phase = (is12pkActive && c12 < 5 && c12 < c6 && (!isLastProdWk || s12 < finalDem12))
+        // Rob Harris 02/07/2026: minimum target-cover rule. Pick the more urgent 600ml SKU.
+        // If 12pk is below target and lower than 6pk, run it first; otherwise default to 6pk.
+        phase = (is12pkActive && c12 < STOCK_COVER.target && c12 < c6 && (!isLastProdWk || s12 < finalDem12))
           ? '600ml 12pk'
           : '600ml 6pk';
       }
@@ -1073,14 +1102,14 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
       } else if (is12pkActive && c6 >= COV_6PK_TO_12PK && (!isLastProdWk || s12 < finalDem12)) {
         phase = '600ml 12pk';        // 6pk sufficiently stocked → switch to 12pk (capped in last prod wk)
         weekOpenedWith6pkEmergency = false;
-      } else if (is12pkActive && c12 < 5 && c12 < c6 && (!isLastProdWk || s12 < finalDem12)) {
-        phase = '600ml 12pk';        // 12pk below 5-day target and more urgent than 6pk (02/07/2026)
+      } else if (is12pkActive && c12 < STOCK_COVER.target && c12 < c6 && (!isLastProdWk || s12 < finalDem12)) {
+        phase = '600ml 12pk';        // 12pk below target cover and more urgent than 6pk (02/07/2026)
         weekOpenedWith6pkEmergency = false;
-      } else if (weekOpenedWith6pkEmergency && c6 >= EMERGENCY_FLOOR && c2 < TARGET_2L_COVER) {
-        // 6pk recovered from opening emergency — pivot to 2L now.
+      } else if (weekOpenedWith6pkEmergency && c6 >= STOCK_COVER.floor && c2 < TARGET_2L_COVER) {
+        // 6pk recovered from opening emergency (below STOCK_COVER.floor) — pivot to 2L now.
         // Don't insist on reaching 7 days (COV_6PK_TO_12PK) before letting 2L run.
         // Without this, 6pk monopolises the line all week and 2L goes unproduced.
-        // Rob Harris 20/06/2026: NO SKU under 3 days; 4 days on 2L is part of the cycle.
+        // Rob Harris 20/06/2026: NO SKU under floor days; 4 days on 2L is part of the cycle.
         phase = '2L Bottle';
         weekOpenedWith6pkEmergency = false;  // clear flag — pivot happened
       }
@@ -1372,7 +1401,7 @@ function planWeek(week) {
 
     const satTriggersC = SKUS.filter(s => {
       const effD = demand[s].total > 0 ? demand[s].total : (thisWkOOC[s]||0);
-      return (displayCoverDaysC[s]||0) < 3 && effD > 0;
+      return (displayCoverDaysC[s]||0) < STOCK_COVER.floor && effD > 0;
     });
 
     const resultC = {
@@ -1500,7 +1529,7 @@ function planWeek(week) {
     : (projClose10_HMPSonly >= 0 ? 99 : 0);
   // A&B SKU decision — Rob Harris 21/06/2026:
   // "10L takes priority over 5L. At worst they should be the same.
-  //  10L should not be less than 5L. Hard stop: both no less than 3 days."
+  //  10L should not be less than 5L. Hard stop: both no less than STOCK_COVER.floor days."
   //
   // Rule: run A&B on whichever cask SKU has LOWER projected cover.
   // 10L breaks ties (priority). This guarantees cover_10L >= cover_5L after A&B runs.
@@ -1509,19 +1538,19 @@ function planWeek(week) {
   const projCover5L_noAB = peakDailyD5 > 0
     ? projClose5L_noAB / peakDailyD5
     : (projClose5L_noAB >= 0 ? 99 : 0);
-  // A&B SKU decision — Rob Harris 02/07/2026: minimum 5-day cover target for all SKUs.
-  // Previous rule (21/06/2026): default A&B to 10L, only switch to 5L at < 3 day emergency.
-  // Problem: when HMPS alone leaves 10L < 5 days, A&B also runs 10L all week — total 10L
+  // A&B SKU decision — Rob Harris 02/07/2026: minimum cover target for all SKUs.
+  // Previous rule (21/06/2026): default A&B to 10L, only switch to 5L at < STOCK_COVER.floor day emergency.
+  // Problem: when HMPS alone leaves 10L < target days, A&B also runs 10L all week — total 10L
   // production massively overshoots demand (e.g. 13.7 days) while 5L drops to 4.0 days.
   //
-  // Fix: calculate the minimum A&B days needed to bring each SKU to 5-day target cover.
+  // Fix: calculate the minimum A&B days needed to bring each SKU to STOCK_COVER.target.
   // Enforce those minimum days in scheduleEPCaskLines so both SKUs hit the target.
   // Primary SKU = whichever needs more A&B days (runs first); the other is enforced via minDays.
-  const MIN_CASK_COVER = 5;
+  // MIN_CASK_COVER removed — use STOCK_COVER.target (global config, C2 fix 11/07/2026).
   const pal10perABday  = cap10shift * 2;   // pallets A&B can produce per day on 10L (both shifts)
   const pal5perABday   = cap5shift  * 2;   // pallets A&B can produce per day on 5L (both shifts)
-  const gap10 = Math.max(0, MIN_CASK_COVER * peakDailyD10 - projClose10_HMPSonly);
-  const gap5  = Math.max(0, MIN_CASK_COVER * peakDailyD5  - projClose5L_noAB);
+  const gap10 = Math.max(0, STOCK_COVER.target * peakDailyD10 - projClose10_HMPSonly);
+  const gap5  = Math.max(0, STOCK_COVER.target * peakDailyD5  - projClose5L_noAB);
   const minDays10raw = pal10perABday > 0 ? Math.ceil(gap10 / pal10perABday) : 0;
   const minDays5raw  = pal5perABday  > 0 ? Math.ceil(gap5  / pal5perABday)  : 0;
   // If combined days exceed available, 10L takes priority (HMPS runs 10L; A&B 10L is additive).
@@ -1533,10 +1562,10 @@ function planWeek(week) {
   const caskResult = scheduleEPCaskLines(
     week, opDays, eff,
     avail['10L Cask'] || 0, avail5,
-    minDays10Final, minDays5Final,   // enforce minimum days for each SKU to reach 5-day target
+    minDays10Final, minDays5Final,   // enforce minimum days for each SKU to reach STOCK_COVER.target
     lineABSku === '5L Cask',         // hmpsCovers10L: true → primarySku=5L; false → primarySku=10L
     2                                // always 2 shifts
-  );
+  );  // enforce minimum days for each SKU to reach STOCK_COVER.target
   const caskProd10 = caskResult.shifts.filter(s => s.sku === '10L Cask').reduce((a,s) => a + s.pallets, 0);
   const caskProd5  = caskResult.shifts.filter(s => s.sku === '5L Cask' ).reduce((a,s) => a + s.pallets, 0);
   const caskDays10 = caskResult.days10;   // physical days Line A&B ran 10L
@@ -1599,7 +1628,7 @@ function planWeek(week) {
   SKUS.forEach(s => {
     // Cover = closing stock / (next-week demand / 5 business days). Per Rob Harris 19/06/2026:
     // the relevant forward view is next week's demand over 5 business days, not this week's
-    // demand divided over 7 calendar days. Minimum AMBER threshold is 3 business days.
+    // demand divided over 7 calendar days. Minimum AMBER threshold is STOCK_COVER.floor business days.
     const nextWkDem = nextWkForCover ? getDemand(nextWkForCover) : null;
     const nextD = nextWkDem ? (nextWkDem[s].total || 0) : 0;
     const thisD = demand[s].total;
@@ -1625,7 +1654,7 @@ function planWeek(week) {
       if ((avail[s]||0) < cumDue) midWeekAtRisk.add(s);
     });
   }
-  // Saturday trigger: cover < 3 days this week OR forward projection shows deficit
+  // Saturday trigger: cover < STOCK_COVER.floor days this week OR forward projection shows deficit
   // Check forward stock for 5L specifically — if next 2 weeks project short, trigger Saturday
   const nextWk1 = ALL_WEEKS[weekIdx + 1];
   const nextWk2 = ALL_WEEKS[weekIdx + 2];
@@ -1668,7 +1697,7 @@ function planWeek(week) {
   const satTriggers = SKUS.filter(s => {
     // Use this week's open orders as fallback demand signal when no forecast is loaded
     const effectiveDemand = demand[s].total > 0 ? demand[s].total : (thisWkOO[s] || 0);
-    if ((coverDays[s]||0) < 3 || midWeekAtRisk.has(s)) return effectiveDemand > 0;
+    if ((coverDays[s]||0) < STOCK_COVER.floor || midWeekAtRisk.has(s)) return effectiveDemand > 0;
     if (s === '5L Cask'  && (fwd5short || lineBOutageSatNeeded5L))  return true;
     if (s === '10L Cask' && lineBOutageSatNeeded10L) return true;
     return false;
@@ -2166,7 +2195,9 @@ function renderStockTable(pr) {
     const oo=Math.round(openOrdersPal[s]||0);
     const avail=Math.max(0,stk-oo);
     const cov=dem>0?(avail/dem).toFixed(1)+'w':'—';
-    const covCls=dem>0&&avail/dem<1?'r':dem>0&&avail/dem<1.5?'a':'g';
+    // Thresholds aligned to STOCK_COVER: floor/5 = fraction-of-week equivalent of floor days.
+    // floor=3 → 0.6w, target=5 → 1.0w. Aligns H3 with H4 (buildAllAlerts/planWeek).
+    const covCls=dem>0&&avail/dem<STOCK_COVER.floor/5?'r':dem>0&&avail/dem<STOCK_COVER.target/5?'a':'g';
     const pct=dem>0?Math.min(100,Math.round(avail/dem*100)):100;
     h+=`<tr><td><span class="chip ${CHIP[s]}">${s}</span></td>
       <td class="num">${fmt(Math.round(stk))}</td>
@@ -2461,7 +2492,7 @@ function renderProdTable(pr) {
     const {single: satOutage, out: satLineOut} = lineOutageForWeek(currentWeek);
     const satReason = satOutage
       ? `Pre-build for Line ${satLineOut} outage — ${satLines.map(s=>s.sku).join(', ')}`
-      : `stock cover below 3 days on: ${satLines.map(s=>s.sku).join(', ')}`;
+      : `stock cover below ${STOCK_COVER.floor} days on: ${satLines.map(s=>s.sku).join(', ')}`;
     h+=`<tr style="background:#EEE8F8"><td colspan="8" style="font-weight:700;font-size:11px;padding:5px 10px;color:#4A0E82">SATURDAY — Single shift (${satReason})</td></tr>`;
     satLines.forEach(sl=>{
       h+=`<tr style="background:#F5F0FF"><td><span class="chip ${CHIP[sl.sku]}">${sl.sku}</span></td>
@@ -2774,7 +2805,7 @@ function buildAllAlerts() {
   const prodByDate  = {}; // accumulated for order-miss simulation
   const seenPrebuild = new Set();
 
-  // Night shift tracking (Rule: if BOTH 10L AND 5L < 5 days for 2+ consecutive weeks → alert)
+  // Night shift tracking (Rule: if BOTH 10L AND 5L < STOCK_COVER.target days for 2+ consecutive weeks → alert)
   let nightShiftConsec = 0;
   let nightShiftFirstWk = null;
   let nightShiftAlertFired = false;
@@ -2820,29 +2851,30 @@ function buildAllAlerts() {
       alerts.push({t:'r', msg:`<strong>Mid-week stockout risk ${wkLabel}:</strong> ${[...midWeekAtRisk].join(', ')} may not cover Mon–Wed deliveries.`});
     }
 
-    // Cover < 5 days end-of-week
+    // Cover below STOCK_COVER.target days end-of-week (per-SKU, all lines)
     SKUS.forEach(s => {
       const cov = coverDays[s] || 0;
       const oo  = Math.round(openOrdersPal[s] || 0);
       const effectiveDemand = demand[s].total > 0 ? demand[s].total : oo;
-      if (cov >= 0 && cov < 5 && effectiveDemand > 0 && !(finalShortfall[s] > 0.5)) {
+      if (cov >= 0 && cov < STOCK_COVER.target && effectiveDemand > 0 && !(finalShortfall[s] > 0.5)) {
         const noForecast = demand[s].total === 0 && oo > 0;
         const coverNote  = noForecast ? ` <em style="color:var(--amber)">(No forecast — estimated from open orders.)</em>` : '';
-        alerts.push({t:cov<3?'r':'a', msg:`<strong>${s} ${wkLabel}:</strong> Projected end-of-week cover ${fmtF(Math.max(0,cov))} days. Target is 7 days.${coverNote}`});
+        const floorNote  = cov < STOCK_COVER.floor ? ` <strong style="color:var(--red)">⚠ FLOOR BREACH — below ${STOCK_COVER.floor}-day minimum.</strong>` : '';
+        alerts.push({t:cov < STOCK_COVER.floor ?'r':'a', msg:`<strong>${s} ${wkLabel}:</strong> Projected end-of-week cover ${fmtF(Math.max(0,cov))} days. Planning target is ${STOCK_COVER.target} days.${floorNote}${coverNote}`});
       }
     });
 
-    // Night shift alert: both 10L AND 5L < 5 days cover for 2+ consecutive weeks
+    // Night shift alert: both 10L AND 5L below STOCK_COVER.target for 2+ consecutive weeks
     {
       const cov10 = coverDays['10L Cask'] || 0;
       const cov5  = coverDays['5L Cask']  || 0;
       const dem10 = demand['10L Cask'].total || 0;
       const dem5  = demand['5L Cask'].total  || 0;
-      if (cov10 < 5 && cov5 < 5 && dem10 > 0 && dem5 > 0) {
+      if (cov10 < STOCK_COVER.target && cov5 < STOCK_COVER.target && dem10 > 0 && dem5 > 0) {
         if (nightShiftConsec === 0) nightShiftFirstWk = wk;
         nightShiftConsec++;
         if (nightShiftConsec >= 2 && !nightShiftAlertFired) {
-          alerts.push({t:'r', msg:`<strong>⚠ NIGHT SHIFT REQUIRED:</strong> Both 10L Cask and 5L Cask are projected below 5 days cover for ${nightShiftConsec} consecutive weeks starting w/c ${fmtD(nightShiftFirstWk)}. Capacity cannot be met on day/afternoon shifts alone. Consider starting night shift on EP lines.`});
+          alerts.push({t:'r', msg:`<strong>⚠ NIGHT SHIFT REQUIRED:</strong> Both 10L Cask and 5L Cask are projected below ${STOCK_COVER.target} days cover for ${nightShiftConsec} consecutive weeks starting w/c ${fmtD(nightShiftFirstWk)}. Capacity cannot be met on day/afternoon shifts alone. Consider starting night shift on EP lines.`});
           nightShiftAlertFired = true;
         }
       } else {
@@ -2854,8 +2886,8 @@ function buildAllAlerts() {
     // Saturday triggers (EP only — HMPS never runs Saturday)
     if (satTriggers.length) {
       const epSkus = satTriggers.filter(s => s !== '10L Cask');
-      if (epSkus.length && satUsed)  alerts.push({t:'a', msg:`<strong>Saturday trigger active ${wkLabel}:</strong> ${epSkus.join(', ')} below 3 days cover. Lines: ${satLines.map(s=>s.label).join(', ')}.`});
-      if (epSkus.length && !satUsed) alerts.push({t:'a', msg:`<strong>Saturday trigger active ${wkLabel}:</strong> ${epSkus.join(', ')} below 3 days cover.`});
+      if (epSkus.length && satUsed)  alerts.push({t:'a', msg:`<strong>Saturday trigger active ${wkLabel}:</strong> ${epSkus.join(', ')} below ${STOCK_COVER.floor} days cover. Lines: ${satLines.map(s=>s.label).join(', ')}.`});
+      if (epSkus.length && !satUsed) alerts.push({t:'a', msg:`<strong>Saturday trigger active ${wkLabel}:</strong> ${epSkus.join(', ')} below ${STOCK_COVER.floor} days cover.`});
     }
 
     // Demand spike vs prior week (current week only)
@@ -2932,6 +2964,134 @@ function buildAllAlerts() {
     });
     if (missed.length > 6) alerts.push({t:'r',
       msg:`<strong>+ ${missed.length - 6} further orders at risk.</strong> See Dispatch Calendar for full list.`});
+  }
+
+  // ── 4-WEEK FORWARD COVER LOOK (per-SKU, C2 implementation) ─────────────────
+  // Reuses planWeek() results already computed above — no re-fetch, no duplication.
+  // For each SKU: find the earliest week in the next 4 where projected cover drops
+  // below STOCK_COVER.floor. If found, alert NOW (current week) while there is still
+  // time to build cover at normal hourly rates.
+  // Separate from the LOOKAHEAD_WEEKS per-week scan above — that alerts per-breach-week;
+  // this alerts in the CURRENT week so the planner can act before the breach arrives.
+  {
+    const FORWARD_LOOK_WEEKS = 4;
+    const eff     = getEff();
+    const hmpsTgt = hmpsConfig === 'Dual' ? 90 : 45;
+
+    // Per-SKU normal-rate pallets per shift (base × efficiency)
+    const normalPalPerShift = {
+      '10L Cask':    Math.floor((hmpsTgt + 40) * eff),  // HMPS + Line A (one line)
+      '5L Cask':     Math.floor(44 * eff),
+      '2L Bottle':   Math.floor(52 * eff),
+      '600ml 12pk':  Math.floor(34 * eff),
+      '600ml 6pk':   Math.floor(32 * eff),
+    };
+    // Night shift extension: 2 hours extra = 2/7.5 of a full shift per line
+    const nightShiftFrac = 2 / 7.5;
+    // Saturday: single shift on EP lines only (HMPS never runs Saturday)
+    const satSkuMap = {
+      '5L Cask':    Math.floor(44 * eff),    // EP Line A&B — 1 shift
+      '2L Bottle':  Math.floor(52 * eff),    // Bottle line — 1 shift
+      '600ml 12pk': Math.floor(34 * eff),    // EP New Line — 1 shift
+      '600ml 6pk':  Math.floor(32 * eff),    // EP New Line — 1 shift
+      '10L Cask':   Math.floor(40 * eff),    // EP Line A&B only (HMPS not available Sat)
+    };
+
+    // Collect forward breach info per SKU — only earliest breach per SKU
+    const forwardBreaches = [];
+    const seenForwardSku  = new Set();
+
+    for (let i = 1; i <= FORWARD_LOOK_WEEKS; i++) {
+      const fwkIdx = todayIdx + i;
+      if (fwkIdx >= ALL_WEEKS.length) break;
+      const fwk = ALL_WEEKS[fwkIdx];
+      const fpr = planWeek(fwk);  // already cached from LOOKAHEAD scan above
+
+      SKUS.forEach(sku => {
+        if (seenForwardSku.has(sku)) return;
+        const cov = fpr.coverDays[sku] ?? 0;
+        const dem = fpr.demand[sku].total || 0;
+        if (dem <= 0) return;
+        if (cov < STOCK_COVER.floor) {
+          seenForwardSku.add(sku);
+          // Extra pallets needed: (floor - projCover) × dailyDemand
+          // coverDays = stockEnd / effectiveD × 5, so effectiveD = stockEnd × 5 / coverDays
+          // When cov = 0, use dem/5 as daily rate
+          const dailyDem = cov > 0 ? ((fpr.stockEnd[sku] ?? 0) / cov) : (dem / 5);
+          const extraPal = Math.max(0, Math.ceil((STOCK_COVER.floor - Math.max(0, cov)) * dailyDem));
+
+          // Days remaining in current week to build that stock
+          const remDays   = remainingOpDaysInWeek(ALL_WEEKS[todayIdx]);
+          const normalCap = remDays * (normalPalPerShift[sku] || 0) * 2; // 2 shifts
+
+          // Cover trajectory: collect this week + next 4 weeks
+          const trajectory = [];
+          for (let t = 0; t <= FORWARD_LOOK_WEEKS; t++) {
+            const twkIdx = todayIdx + t;
+            if (twkIdx >= ALL_WEEKS.length) break;
+            const tpr = planWeek(ALL_WEEKS[twkIdx]);
+            trajectory.push(`w${t===0?'0':'+'+t}:${fmtF(Math.max(0,tpr.coverDays[sku]??0))}d`);
+          }
+
+          // Escalation: is the breach unavoidable even if we produce at normal capacity this week?
+          const stockEndThisWk = planWeek(ALL_WEEKS[todayIdx]).stockEnd[sku] ?? 0;
+          const extraFromNormal = Math.min(extraPal, normalCap);
+          const unavoidable     = extraFromNormal < extraPal;
+
+          // Night shift option: 2h extension per remaining shift pair = nightShiftFrac × palPerShift × 2 × remDays
+          const nightPal  = Math.floor((normalPalPerShift[sku] || 0) * nightShiftFrac * remDays);
+          const satPal    = satSkuMap[sku] || 0;  // one Saturday single shift
+
+          forwardBreaches.push({
+            sku, breachWk: fwk, weeksAhead: i, projCover: cov, extraPal,
+            trajectory: trajectory.join(' → '), remDays, normalCap, unavoidable,
+            nightPal, satPal, dailyDem
+          });
+        }
+      });
+    }
+
+    // Surface one alert per SKU (earliest breach only), anchored to current week
+    forwardBreaches.forEach(b => {
+      const weekLabel = b.weeksAhead === 1 ? 'next week' : `in ${b.weeksAhead} weeks`;
+      const urgency   = b.weeksAhead <= 2 ? 'r' : 'a';
+
+      // ── Part A: Forward cover warning ────────────────────────────────────────
+      const trajNote = b.trajectory
+        ? ` Cover trajectory: [${b.trajectory}].`
+        : '';
+
+      let actionNote;
+      if (b.remDays <= 0) {
+        actionNote = ` No production days remain this week — escalation required.`;
+      } else if (b.unavoidable) {
+        actionNote = ` Producing at full normal capacity for ${b.remDays} remaining day${b.remDays!==1?'s':''} (${fmt(b.normalCap)} pal) is insufficient — escalation required.`;
+      } else {
+        actionNote = ` Producing an extra <strong>${fmt(b.extraPal)} pal</strong> at normal rate this week (${b.remDays} day${b.remDays!==1?'s':''} remaining) will prevent the breach.`;
+      }
+
+      alerts.push({t: urgency,
+        msg: `<strong>Forward cover alert — ${b.sku}:</strong> w/c ${fmtD(b.breachWk)} (${weekLabel}) projects <strong>${fmtF(Math.max(0, b.projCover))} days cover</strong> — below the ${STOCK_COVER.floor}-day floor.${trajNote}${actionNote}`
+      });
+
+      // ── Part B: Escalation options (when unavoidable or no days left) ────────
+      if (b.unavoidable || b.remDays <= 0) {
+        const opt1 = b.nightPal > 0
+          ? `Option 1 — Night shift extension (lower cost): 2 extra hours per shift pair × ${b.remDays} day${b.remDays!==1?'s':''} = approx <strong>${fmt(b.nightPal)} pal</strong>.`
+          : `Option 1 — Night shift extension: insufficient remaining days to calculate.`;
+
+        const opt2Note = b.sku === '10L Cask'
+          ? `Option 2 — Saturday run (higher cost): EP Line A&B only (HMPS does not run Saturday) = approx <strong>${fmt(b.satPal)} pal</strong> per Saturday shift. Note: a weekday night shift is the preferred route for 10L.`
+          : `Option 2 — Saturday run (higher cost): EP lines single shift = approx <strong>${fmt(b.satPal)} pal</strong>. HMPS does not run Saturday.`;
+
+        alerts.push({t: 'r',
+          msg: `<strong>⚠ Escalation required — ${b.sku}:</strong> Normal rate production this week cannot prevent the w/c ${fmtD(b.breachWk)} floor breach. Two options (do NOT auto-action — review with Aaron):<br>`
+             + `&nbsp;&nbsp;${opt1}<br>`
+             + `&nbsp;&nbsp;${opt2Note}<br>`
+             + `&nbsp;&nbsp;Build stock earlier in the horizon at normal rates if next week allows.`
+        });
+      }
+    });
   }
 
   return alerts;
