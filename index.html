@@ -3724,6 +3724,14 @@ function parseActuals(xmlText, fname) {
     document.getElementById('actualsContent').style.display = 'block';
     renderActuals();
 
+    // Sync parsed runs to Supabase — upsert on (production_date, sku, location, shift).
+    // Merged from runtime monkey-patch (H5 fix 11/07/2026). sbPushUpsert is fire-and-forget async.
+    const sbActualRows = (rawActualsData || []).map(r => ({
+      production_date: r.date, sku: r.sku, pallets: r.pallets,
+      location: r.loc || '', shift: r.shift || ''
+    }));
+    sbPushUpsert('actuals', sbActualRows, fname);
+
   } catch(err) {
     setStat('Actuals', '❌ Parse error: ' + err.message, false);
   }
@@ -6326,22 +6334,6 @@ function loadFallbackHolidays() {
     publicHolidayNames[date] = name;
   });
 }
-
-
-
-
-const _origParseActuals = parseActuals;
-parseActuals = function(xmlText, fname) {
-  _origParseActuals(xmlText, fname);
-  if (!actualsData) return;
-  const rows = (rawActualsData || []).map(r => ({
-    production_date: r.date, sku: r.sku, pallets: r.pallets,
-    location: r.loc || '', shift: r.shift || '',
-    updated_at: new Date().toISOString()
-  }));
-  // Actuals uses UPSERT — unique constraint on (production_date, sku, location, shift)
-  sbPushUpsert('actuals', rows, fname);
-};
 
 // Sticky nav: pin tab bar just below the sticky header
 function updateNavTop(){
