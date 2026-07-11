@@ -5919,7 +5919,14 @@ async function sbPull() {
     const rCo  = await sbFetch(`coles_forecast?${forecastQuery}`);    if (rCo  && rCo.length)  { applyColesFromSB(rCo);    loaded.push('Coles'); }
     const rMc  = await sbFetch(`metcash_forecast?${forecastQuery}`);  if (rMc  && rMc.length)  { applyMetcashFromSB(rMc);  loaded.push('Metcash'); }
     const rAct = await sbFetch('actuals');           if (rAct && rAct.length) { applyActualsFromSB(rAct); loaded.push('Actuals'); }
-    const rNSA = await sbFetch('ops_sales_actuals_weekly?fy_year=eq.2027&select=week_start,sku,channel,pallets'); if (rNSA && rNSA.length) { applyNSSalesActualsFromSB(rNSA); }
+    // H1 fix (11/07/2026): derive FY year from current date instead of hardcoding 2027.
+    // ABH FY = Jul-Jun. Year number = calendar year in which FY ends.
+    // e.g. 11/07/2026 → month 7 >= 7 → FY 2026+1 = 2027. 30/06/2027 → month 6 < 7 → FY 2027. 07/07/2027 → FY 2028.
+    const _fyNow = localToday(), _fyMM = parseInt(_fyNow.slice(5,7)), _fyYYYY = parseInt(_fyNow.slice(0,4));
+    const _fyYear = _fyMM >= 7 ? _fyYYYY + 1 : _fyYYYY;
+    const _browserYear = new Date().getFullYear();
+    if (_fyYear < _browserYear - 1 || _fyYear > _browserYear + 2) console.warn('[H1] FY year out of expected range — check localToday(). Derived:', _fyYear, 'Browser year:', _browserYear);
+    const rNSA = await sbFetch(`ops_sales_actuals_weekly?fy_year=eq.${_fyYear}&select=week_start,sku,channel,pallets`); if (rNSA && rNSA.length) { applyNSSalesActualsFromSB(rNSA); }
     const rSt  = await sbFetch('stock');             if (rSt  && rSt.length)  { applyStockFromSB(rSt);   loaded.push('Stock'); }
     const rPH  = await sbFetch('public_holidays');   if (rPH  && rPH.length)  { applyPublicHolidays(rPH); loaded.push('Holidays'); }
     const rOO  = await sbFetch('open_order_lines');   if (rOO  && rOO.length)  { applyOpenOrdersFromSB(rOO); loaded.push('OpenOrders'); }
