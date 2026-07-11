@@ -560,14 +560,6 @@ let rawActualsData = null;  // all runs from uploaded file (unfiltered)
 let NS_ACTUALS_DATA = {};   // NS shipped sales (invoiced) for FY27 — week→sku→channel→pallets
 
 // Planned pallets per shift by line config (matches planning engine)
-const PLAN_TARGETS = {
-  'Line A':        {'10L Cask': 40},
-  'Line B':        {'5L Cask': 44, '10L Cask': 40},  // combined Line A&B 5L output = 44 pal/shift (updated 05/06/2026)
-  'SM Bottle line':{'2L Bottle': 52},
-  'HMPS - Dual':   {'10L Cask': 90},
-  'HMPS - Single': {'10L Cask': 45},
-  'EP new line':   {'600ml 12pk': 34, '600ml 6pk': 32},
-};
 const SKU_MAP_NS = {
   'Pureau 10L cask':      '10L Cask',
   'Pureau 5L cask':       '5L Cask',
@@ -816,106 +808,7 @@ function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, mi
 }
 
 
-// Schedules each shift by checking which 600ml SKU has the tighter stock
-// position against deliveries due that day. Priority: meeting deliveries on time.
-// FIX: Changeover time is deducted from shift output when SKU switches.
-// A changeover between 12pk and 6pk on the EP New Line loses approx 45 mins
-// of runtime (collator, carton former settings, first-off approval).
-// This is configurable via epChangeoverMins state variable.
-// excludeDates: Set of date strings (YYYY-MM-DD) on which EP New Line cannot run.
-// Used to enforce the 600ml/2L same-day constraint — 2L Bottle and 600ml share
-// production resources and cannot run on the same calendar day.
-// LEGACY — superseded by scheduleBottleLine() (19/06/2026). Retained for reference.
-function scheduleEPNewLine(weekStart, opDays, eff, openStock12, openStock6, minShifts12=0, minShifts6=0, excludeDates=new Set()) {
-  const shiftMins = 450;  // standard shift runtime in minutes
-  const coMins    = epChangeoverMins;
-  const coFrac    = Math.max(0, 1 - coMins / shiftMins);
-  const tgt12Full = Math.floor(34 * eff);
-  const tgt6Full  = Math.floor(32 * eff);
-  let s12 = openStock12;
-  let s6  = openStock6;
-  const shifts = [];
-  let prevDaySku = null;
-  let shifts12 = 0, shifts6 = 0;  // track shifts run per SKU for min enforcement
 
-  // Only schedule remaining working days — past days are already in live NS stock.
-  const workDays = workingDaysInWeek(weekStart).filter(dt => dt >= localToday());
-
-  for (let d = 0; d < workDays.length; d++) {
-    const date = workDays[d];
-    // 600ml cannot run on the same day as 2L Bottle (shared production resource constraint)
-    if (excludeDates.has(date)) {
-      // Consume any deliveries due today but produce nothing
-      const due  = DAILY_REQUIRED[date] || {};
-      s12 -= (due['600ml 12pk'] || 0);
-      s6  -= (due['600ml 6pk']  || 0);
-      continue;
-    }
-    const due  = DAILY_REQUIRED[date] || {};
-    const due12 = due['600ml 12pk'] || 0;
-    const due6  = due['600ml 6pk']  || 0;
-
-    // Decide which SKU gets the FULL DAY (both shifts) — lowest cover gets priority
-    const need12now = (s12 - due12) < 0;
-    const need6now  = (s6  - due6)  < 0;
-    const shiftsLeft = (workDays.length - d) * 2;
-    const must6  = shifts6  < minShifts6  && shiftsLeft <= (minShifts6  - shifts6)  * 1;
-    const must12 = shifts12 < minShifts12 && shiftsLeft <= (minShifts12 - shifts12) * 1;
-
-    let sku;
-    if (must6 && !must12) {
-      sku = '600ml 6pk';
-    } else if (must12 && !must6) {
-      sku = '600ml 12pk';
-    } else if (need12now && need6now) {
-      sku = (s12 - due12) <= (s6 - due6) ? '600ml 12pk' : '600ml 6pk';
-    } else if (need12now) {
-      sku = '600ml 12pk';
-    } else if (need6now) {
-      sku = '600ml 6pk';
-    } else {
-      const weekDem12 = getDemand(weekStart)['600ml 12pk'].total || 1;
-      const weekDem6  = getDemand(weekStart)['600ml 6pk'].total  || 1;
-      const cover12 = s12 / weekDem12;
-      const cover6  = s6  / weekDem6;
-      sku = cover12 <= cover6 ? '600ml 12pk' : '600ml 6pk';
-    }
-
-    // Changeover penalty applies once per day on the first shift if SKU changed from previous day
-    const dayChangeover = prevDaySku !== null && prevDaySku !== sku;
-
-    for (let sh = 0; sh < 2; sh++) {
-      const shiftName = sh === 0 ? 'Day' : 'Aft';
-      // Changeover only on first shift of the day when SKU switched
-      const hasChangeover = sh === 0 && dayChangeover;
-      const pallets = sku === '600ml 12pk'
-        ? (hasChangeover ? Math.floor(tgt12Full * coFrac) : tgt12Full)
-        : (hasChangeover ? Math.floor(tgt6Full  * coFrac) : tgt6Full);
-
-      if (sku === '600ml 12pk') s12 += pallets;
-      else                       s6  += pallets;
-
-      const riskFlag = (sku === '600ml 12pk' && s12 - due12 < 0) ||
-                       (sku === '600ml 6pk'  && s6  - due6  < 0);
-
-      shifts.push({
-        day: d, shift: shiftName, sku, pallets,
-        target: sku === '600ml 12pk' ? tgt12Full : tgt6Full,
-        cls: sku === '600ml 12pk' ? 'ep12' : 'ep6',
-        riskFlag, date,
-        stockAfter12: Math.round(s12), stockAfter6: Math.round(s6)
-      });
-    }
-
-    prevDaySku = sku;
-    if (sku === '600ml 12pk') shifts12 += 2; else shifts6 += 2;
-    // Consume today's deliveries at end of day
-    s12 -= due12;
-    s6  -= due6;
-  }
-
-  return {shifts, endStock12: Math.round(s12), endStock6: Math.round(s6)};
-}
 
 // ══ BOTTLE LINE SCHEDULER — 4-day 2L / 6-day 600ml production cycle ══════════
 // Rules per Rob Harris 20/06/2026:
@@ -3320,73 +3213,6 @@ function dzL(r){document.getElementById('dz'+r)?.classList.remove('drag-over')}
 function dzD(e,r){e.preventDefault();dzL(r);const f=e.dataTransfer.files[0];if(f)handleFile(f,r)}
 
 
-function parseMetcash(text, fname) {
-  const ITEM_MAP = {363830:'2L Bottle', 415205:'5L Cask', 887389:'10L Cask'};
-  const UPP_LOCAL = {'10L Cask':96,'5L Cask':60,'2L Bottle':64,'600ml 12pk':126,'600ml 6pk':252};
-  const lines = text.split('\n');
-  const headers = lines[0].split(',').map(h=>h.replace(/"/g,'').trim());
-  const itemIdx    = headers.findIndex(h=>h==='*ITEM');
-  const qtyIdx     = headers.findIndex(h=>h==='QTY');
-  const shipIdx    = headers.findIndex(h=>h==='NEEDSHIPDATE');
-  const arrivIdx   = headers.findIndex(h=>h==='NEEDARRIVDATE');
-  if(itemIdx<0||qtyIdx<0){setStat('Metcash','❌ Unrecognised format',false);return;}
-  const weekly={};const daily={};const orders=[];let cnt=0;
-  const weeklyUnits={};                 // accumulate units per (week,sku) for unit-first ceiling
-  const unmatched={};                   // {itemCode: count}
-  for(let i=1;i<lines.length;i++){
-    const cols=lines[i].split(',').map(c=>c.replace(/"/g,'').trim());
-    if(!cols[itemIdx])continue;
-    const item=parseInt(cols[itemIdx]);
-    const sku=ITEM_MAP[item];
-    if(!sku){ if(!isNaN(item)) unmatched[item]=(unmatched[item]||0)+1; continue; }
-    const qty=parseFloat((cols[qtyIdx]||'0').replace(/,/g,''))||0;if(!qty)continue;
-    const shipRaw=cols[shipIdx]||'';
-    const arrivRaw=cols[arrivIdx]||'';
-    // Parse DD.MM.YYYY
-    const parseDate=s=>{const p=s.split('.');if(p.length!==3)return null;return `${p[2]}-${p[1].padStart(2,'0')}-${p[0].padStart(2,'0')}`;};
-    const ship=parseDate(shipRaw);
-    const arriv=parseDate(arrivRaw);
-    if(!ship||!arriv)continue;
-    // Week = Monday of need_arrival week — use local date arithmetic, not toISOString (UTC)
-    const d=new Date(arriv+'T00:00:00');
-    const mon=new Date(d);mon.setDate(d.getDate()-d.getDay()+(d.getDay()===0?-6:1));
-    const week=`${mon.getFullYear()}-${String(mon.getMonth()+1).padStart(2,'0')}-${String(mon.getDate()).padStart(2,'0')}`;
-    // Accumulate units at week granularity — ceiling applied once at the end.
-    if(!weeklyUnits[week])weeklyUnits[week]={};
-    weeklyUnits[week][sku]=(weeklyUnits[week][sku]||0)+qty;
-    // Daily stays per-cell (each ship date is its own dispatch event).
-    const dayPallets=Math.ceil(qty/UPP_LOCAL[sku]);
-    if(!daily[ship])daily[ship]={};
-    daily[ship][sku]=(daily[ship][sku]||0)+dayPallets;
-    orders.push({sku,order_date:ship,need_arrival:arriv,dispatch_by:ship,
-      units:Math.round(qty),pallets:dayPallets});
-    cnt++;
-  }
-  // Finalise weekly with units-first ceiling — prevents fractional inflation
-  Object.entries(weeklyUnits).forEach(([wk,skus])=>{
-    weekly[wk]={};
-    Object.entries(skus).forEach(([sku,u])=>{ weekly[wk][sku]=Math.ceil(u/UPP_LOCAL[sku]); });
-  });
-  metcashOvr={weekly,daily,orders};
-  rebuildData();
-  const unmatchedKeys=Object.keys(unmatched);
-  let msg=`✓ ${fname} — ${cnt} lines, ${Object.keys(weekly).length} weeks`;
-  if(unmatchedKeys.length){
-    const total=Object.values(unmatched).reduce((a,b)=>a+b,0);
-    msg+=` ⚠ ${total} rows skipped (unknown items: ${unmatchedKeys.slice(0,5).join(', ')}${unmatchedKeys.length>5?'…':''})`;
-    console.warn('[Metcash] unmatched items:',unmatched);
-  }
-  setStat('Metcash',msg,true);
-  // Push to Supabase
-  if (metcashOvr) {
-    const sbRows = [];
-    Object.entries(metcashOvr.weekly).forEach(([week_date, skus]) => {
-      Object.entries(skus).forEach(([sku, pallets]) => sbRows.push({ week_date, sku, pallets }));
-    });
-    sbPushUpsert('metcash_forecast', sbRows, fname);
-  }
-}
-
 
 // ══ OPEN ORDERS ═══════════════════════════════════════════════════════════════
 // NetSuite SpreadsheetML export: ABH Open Sales Orders Cust & Sku
@@ -4486,8 +4312,7 @@ function detectRetailer(wb, fname, hintRetailer) {
   return hintRetailer || null;
 }
 
-// ── Metcash workbook parser (SheetJS path — replaces CSV text parser) ──────────
-// Same logic as parseMetcash() but reads from a SheetJS workbook instead of raw CSV text
+// ── Metcash workbook parser (SheetJS) ─────────────────────────────────────────
 function parseMetcashWB(wb, fname) {
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws, { defval: null, header: 1 });
@@ -4998,12 +4823,40 @@ function renderHoldGrid() {
 
 function renderOCGrid() {
   const g=document.getElementById('ocGrid');if(!g)return;
-  g.innerHTML=SKUS.map(s=>`<div class="oc-cell">
+  // Thu/Fri note (Item 2): dayOfWeek uses 0=Mon basis matching getAdjustedDemand
+  const _today=localToday(), _curMon=monOf(_today);
+  const _dow=Math.round((new Date(_today+'T00:00:00')-new Date(_curMon+'T00:00:00'))/86400000);
+  const _thuFriNote=_dow>=3
+    ?`<p style="font-size:11px;color:var(--amber);margin:0 0 8px 0">Thu/Fri: WW, Coles and Metcash forecast is zeroed this week — orders are confirmed and dispatched. Only "Other customers" demand below is active.</p>`
+    :'';
+  // otherDemand staleness check (Item 7): compare manual input against non-major NS open orders this week
+  const _MAJOR=new Set(['Woolworths','Coles','Metcash/IGA']);
+  const _wkEnd=addDays(_curMon,6);
+  const _ooOther={};
+  SKUS.forEach(s=>_ooOther[s]=0);
+  if(openOrdersData){
+    openOrdersData.forEach(r=>{
+      if(!SKUS.includes(r.sku)||_MAJOR.has(r.retailer))return;
+      if(r.date>=_curMon&&r.date<=_wkEnd)_ooOther[r.sku]=(_ooOther[r.sku]||0)+(r.pallets||0);
+    });
+  }
+  g.innerHTML=_thuFriNote+SKUS.map(s=>{
+    const _inp=otherDemand[s]||0, _oo=_ooOther[s];
+    const _gap=Math.abs(_inp-_oo), _pct=_oo>0?_gap/_oo:0;
+    const _stale=openOrdersData&&_oo>0&&(_gap>5||_pct>0.2);
+    const _hint=openOrdersData
+      ?(_stale
+        ?`<span style="font-size:10px;color:var(--amber)" title="NS open orders show ${_oo} pal from non-major customers this week">&#9888; NS OO: ${_oo} pal</span>`
+        :(_oo>0?`<span style="font-size:10px;color:var(--muted)">NS OO: ${_oo} pal</span>`:''))
+      :'';
+    return `<div class="oc-cell">
     <span class="chip ${CHIP[s]}" style="margin-bottom:4px">${s}</span>
     <label>Other customers (pal/wk)</label>
-    <input type="number" min="0" value="${otherDemand[s]||0}"
+    <input type="number" min="0" value="${_inp}"
       onchange="otherDemand['${s}']=parseFloat(this.value)||0;onWeekChange()">
-  </div>`).join('');
+    ${_hint}
+  </div>`;
+  }).join('');
 }
 
 // ══ CONTROLS ══════════════════════════════════════════════════════════════════
@@ -6241,18 +6094,12 @@ function applyOpenOrdersFromSB(rows) {
     if (r.updated_at && (!latestTs || r.updated_at > latestTs)) latestTs = r.updated_at;
   });
 
-  // Standard sell prices per unit (ex-GST) — used to fill amount if missing
-  const OPEN_ORDER_PRICE_LOCAL = {
-    '10L Cask': 13.08, '5L Cask': 6.70, '2L Bottle': 2.17,
-    '600ml 12pk': 9.14, '600ml 6pk': 4.84,
-  };
-
   const orders = rows
     .filter(r => SKUS.includes(r.sku))
     .map(r => {
       const units  = parseInt(r.units_ordered) || 0;
       const pallets = Math.ceil(units / (UPP[r.sku] || 1));
-      const amount = parseFloat(r.amount) || (units * (OPEN_ORDER_PRICE_LOCAL[r.sku] || 0));
+      const amount = parseFloat(r.amount) || (units * (OPEN_ORDER_PRICE[r.sku] || 0));
       return {
         date:     r.ship_date ? r.ship_date.slice(0, 10) : '',
         sku:      r.sku,
