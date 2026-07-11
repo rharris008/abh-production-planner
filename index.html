@@ -2979,9 +2979,10 @@ function buildAllAlerts() {
     const hmpsTgt = hmpsConfig === 'Dual' ? 90 : 45;
 
     // Per-SKU normal-rate pallets per shift (base × efficiency)
+    // EP cask capacities match scheduleEPCaskLines(): dual 10L=60, dual 5L=50
     const normalPalPerShift = {
-      '10L Cask':    Math.floor((hmpsTgt + 40) * eff),  // HMPS + Line A (one line)
-      '5L Cask':     Math.floor(44 * eff),
+      '10L Cask':    Math.floor((hmpsTgt + 60) * eff),  // HMPS + EP Line A&B (dual)
+      '5L Cask':     Math.floor(50 * eff),               // EP Line A&B dual
       '2L Bottle':   Math.floor(52 * eff),
       '600ml 12pk':  Math.floor(34 * eff),
       '600ml 6pk':   Math.floor(32 * eff),
@@ -2990,11 +2991,11 @@ function buildAllAlerts() {
     const nightShiftFrac = 2 / 7.5;
     // Saturday: single shift on EP lines only (HMPS never runs Saturday)
     const satSkuMap = {
-      '5L Cask':    Math.floor(44 * eff),    // EP Line A&B — 1 shift
+      '5L Cask':    Math.floor(50 * eff),    // EP Line A&B dual — 1 shift
       '2L Bottle':  Math.floor(52 * eff),    // Bottle line — 1 shift
       '600ml 12pk': Math.floor(34 * eff),    // EP New Line — 1 shift
       '600ml 6pk':  Math.floor(32 * eff),    // EP New Line — 1 shift
-      '10L Cask':   Math.floor(40 * eff),    // EP Line A&B only (HMPS not available Sat)
+      '10L Cask':   Math.floor(60 * eff),    // EP Line A&B dual only (HMPS not available Sat)
     };
 
     // Collect forward breach info per SKU — only earliest breach per SKU
@@ -3965,14 +3966,8 @@ function renderReplan(pr, skuPlan, skuActual, completedDaysLoop) {
   });
   document.getElementById('replanTable').innerHTML = rt + '</tbody>';
 
-  // Saturday capacity — EP lines only (HMPS never runs Saturday — double time cost)
-  const satCap = {
-    '10L Cask':   0,                        // HMPS not available Saturday — use night shift instead
-    '5L Cask':    lineBTgt * eff,           // EP Line A or B single shift (whichever is running)
-    '2L Bottle':  52 * eff,                 // Bottle line single shift
-    '600ml 12pk': 34 * eff,
-    '600ml 6pk':  32 * eff,
-  };
+  // satCap removed (H3 fix 11/07/2026) — was dead code (never read after definition)
+  // and referenced lineBTgt which is no longer defined in this function.
 
   // Note explaining today estimate and Saturday
   const noteEl = document.createElement('div');
