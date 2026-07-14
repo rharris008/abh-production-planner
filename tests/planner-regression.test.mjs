@@ -10,6 +10,30 @@
  *
  * STANDING RULE (added CLAUDE.md 14/07/2026): this suite must pass before any
  * commit that touches planning logic in index.html.
+ *
+ * ── KNOWN GAP — numeric calculation correctness ────────────────────────────
+ * The index.html planning engine (planWeek, scheduleEPCaskLines, buildAllAlerts,
+ * coverDays formula) is entangled with browser APIs (DOM, fetch, Supabase).
+ * Extracting and running those functions in Node would require a full DOM shim
+ * and Supabase stub — not done here.
+ *
+ * As a result, the C2 and H3 tests are STRUCTURE-ONLY:
+ *
+ *   C2: confirms STOCK_COVER.floor/target are REFERENCED in renderStockTable
+ *       and buildAllAlerts — does NOT execute them and verify that a known
+ *       stock/demand input produces the correct cover-days number.
+ *
+ *   H3: confirms pr.plannedProd is READ in renderReplan and capPerDay is not
+ *       DEFINED there — does NOT call scheduleEPCaskLines() with a fixed input
+ *       and assert that renderReplan displays the same capacity figure.
+ *
+ * "43 tests passing" does NOT mean calculation correctness is verified for
+ * these two items. It means the structural fix (correct source referenced,
+ * banned pattern absent) has not been reverted.
+ *
+ * To close this gap properly: extract the pure numeric functions into a
+ * separate module (no DOM dependency) and add input→output tests there.
+ * ────────────────────────────────────────────────────────────────────────────
  */
 
 import { readFileSync } from 'node:fs';
