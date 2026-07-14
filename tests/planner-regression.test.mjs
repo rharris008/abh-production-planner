@@ -472,3 +472,147 @@ describe('M6: Batch cleanup structural checks', () => {
   });
 
 });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// LM — Logic Map tripwires
+// Registry: PLANNER_LOGIC_MAP.md (read before adding any new calculation)
+//
+// PURPOSE: Catch new duplicate implementations of calculations that already have
+// a canonical source. The pattern behind C2 (cover thresholds), H3 (capacity),
+// and H4 (stock-minus-OO) was: multiple independent copies silently diverged.
+//
+// TRIPWIRE APPROACH:
+// - "Count has not increased" tests: known-justified duplicates are documented
+//   at a baseline count. If a new copy is added, the count goes above baseline
+//   and the test fails. This catches the obvious drift pattern.
+// - "Still defined" tests: canonical functions have not been deleted or renamed.
+//
+// KNOWN GAP (same as C2/H3 above):
+// These are STRUCTURE-ONLY checks. A new duplication using different variable
+// names or different literal values (e.g. 80 instead of 90) evades detection.
+// Code review remains the backstop for those cases.
+// ══════════════════════════════════════════════════════════════════════════════
+describe('LM: Logic Map tripwires', () => {
+
+  // ── Canonical functions still exist ────────────────────────────────────────
+
+  test('LM — availPal() still defined at module level', () => {
+    assert.ok(
+      SRC.includes('let availPal') || SRC.includes('const availPal'),
+      'FAIL LM: availPal not defined — canonical available-stock function was removed or renamed'
+    );
+  });
+
+  test('LM — getDemand() still defined', () => {
+    assert.ok(
+      SRC.includes('function getDemand('),
+      'FAIL LM: getDemand() not found — demand pipeline source was removed or renamed'
+    );
+  });
+
+  test('LM — getAdjustedDemand() still defined', () => {
+    assert.ok(
+      SRC.includes('function getAdjustedDemand('),
+      'FAIL LM: getAdjustedDemand() not found — mid-week demand scaling function was removed or renamed'
+    );
+  });
+
+  test('LM — planWeek() still defined', () => {
+    assert.ok(
+      SRC.includes('function planWeek('),
+      'FAIL LM: planWeek() not found — master planning engine was removed or renamed'
+    );
+  });
+
+  test('LM — scheduleEPCaskLines() still defined', () => {
+    assert.ok(
+      SRC.includes('function scheduleEPCaskLines('),
+      'FAIL LM: scheduleEPCaskLines() not found — EP cask scheduler was removed or renamed'
+    );
+  });
+
+  test('LM — scheduleBottleLine() still defined', () => {
+    assert.ok(
+      SRC.includes('function scheduleBottleLine('),
+      'FAIL LM: scheduleBottleLine() not found — bottle line scheduler was removed or renamed'
+    );
+  });
+
+  test('LM — rebuildData() still defined', () => {
+    assert.ok(
+      SRC.includes('function rebuildData('),
+      'FAIL LM: rebuildData() not found — demand rebuild function was removed or renamed'
+    );
+  });
+
+  // ── availPal formula not inlined elsewhere ──────────────────────────────────
+  // The formula `(stockPal[s]||0)-(onHoldPal[s]||0)` must appear exactly once
+  // (inside the availPal definition). A count of 2+ means someone wrote an
+  // inline copy instead of calling availPal().
+
+  test('LM — availPal formula appears exactly once (no inline copies)', () => {
+    const count = (SRC.match(/\(stockPal\[s\]\|\|0\)-\(onHoldPal\[s\]\|\|0\)/g) || []).length;
+    assert.equal(
+      count, 1,
+      `FAIL LM: availPal formula found ${count} times — expected 1. An inline copy of availPal() was added outside its definition. Use availPal() instead.`
+    );
+  });
+
+  // ── Known-justified duplications: count must not increase ──────────────────
+  // Each documented baseline in PLANNER_LOGIC_MAP.md Tier 3.
+  // Fail if count > baseline (a new copy was added without updating the registry).
+
+  test('LM — HMPS capacity pattern (Dual?90:45) count has not increased beyond 4', () => {
+    const count = (SRC.match(/'Dual'\s*\?\s*90\s*:\s*45/g) || []).length;
+    assert.ok(
+      count <= 4,
+      `FAIL LM: HMPS capacity pattern "'Dual' ? 90 : 45" found ${count} times — baseline is 4. ` +
+      `A new duplicate was added. Either call planWeek() instead, or add it to PLANNER_LOGIC_MAP.md Tier 3.`
+    );
+    assert.ok(
+      count >= 1,
+      'FAIL LM: HMPS capacity pattern completely removed — was the HMPS scheduler deleted?'
+    );
+  });
+
+  test('LM — EP 10L cask rate pattern (?30:60) count has not increased beyond 3', () => {
+    const count = (SRC.match(/\?\s*30\s*:\s*60/g) || []).length;
+    assert.ok(
+      count <= 3,
+      `FAIL LM: EP 10L rate pattern "? 30 : 60" found ${count} times — baseline is 3. ` +
+      `A new duplicate was added. Check PLANNER_LOGIC_MAP.md Tier 3 and either consolidate or document the reason.`
+    );
+    assert.ok(
+      count >= 1,
+      'FAIL LM: EP 10L rate pattern completely removed — was scheduleEPCaskLines deleted?'
+    );
+  });
+
+  test('LM — EP 5L cask rate pattern (?27:50) count has not increased beyond 4', () => {
+    const count = (SRC.match(/\?\s*27\s*:\s*50/g) || []).length;
+    assert.ok(
+      count <= 4,
+      `FAIL LM: EP 5L rate pattern "? 27 : 50" found ${count} times — baseline is 4. ` +
+      `A new duplicate was added. Check PLANNER_LOGIC_MAP.md Tier 3 and either consolidate or document the reason.`
+    );
+    assert.ok(
+      count >= 1,
+      'FAIL LM: EP 5L rate pattern completely removed — was scheduleEPCaskLines deleted?'
+    );
+  });
+
+  // ── ALL_WEEKS is dynamic, not a static array ────────────────────────────────
+
+  test('LM — ALL_WEEKS is a dynamic IIFE, not a static array', () => {
+    assert.ok(
+      SRC.includes('const ALL_WEEKS = (()') || SRC.includes('const ALL_WEEKS=(()'),
+      'FAIL LM: ALL_WEEKS IIFE not found — the dynamic week list was replaced with a static array. ' +
+      'Static arrays expire; the IIFE self-extends to today + 18 months.'
+    );
+    assert.ok(
+      !SRC.includes('const ALL_WEEKS      = ["2026-03-16"'),
+      'FAIL LM: static ALL_WEEKS array literal found — revert to the IIFE at line 502.'
+    );
+  });
+
+});
