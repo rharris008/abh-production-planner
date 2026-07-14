@@ -203,15 +203,15 @@ tr.risk-a td{background:#FEF9F0}
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
           <div class="oc-cell">
             <label>WW dispatch offset (days)</label>
-            <input type="number" min="0" max="5" value="2" onchange="wwDispatchOffset=parseInt(this.value)||2;renderDispatch()">
+            <input type="number" min="0" max="5" value="2" onchange="wwDispatchOffset=Math.min(5,Math.max(0,parseInt(this.value)||2));this.value=wwDispatchOffset;renderDispatch()">
           </div>
           <div class="oc-cell">
             <label>Coles dispatch offset (days)</label>
-            <input type="number" min="0" max="5" value="1" onchange="colesDispatchOffset=parseInt(this.value)||1;renderDispatch()">
+            <input type="number" min="0" max="5" value="1" onchange="colesDispatchOffset=Math.min(5,Math.max(0,parseInt(this.value)||1));this.value=colesDispatchOffset;renderDispatch()">
           </div>
           <div class="oc-cell">
             <label>EP changeover (mins)</label>
-            <input type="number" min="0" max="120" value="45" onchange="epChangeoverMins=parseInt(this.value)||0;onWeekChange()">
+            <input type="number" min="0" max="120" value="45" onchange="epChangeoverMins=Math.min(120,Math.max(0,parseInt(this.value)||0));this.value=epChangeoverMins;onWeekChange()">
           </div>
         </div>
         <div style="margin-top:10px">
@@ -220,16 +220,17 @@ tr.risk-a td{background:#FEF9F0}
             <div class="oc-cell">
               <label>Target cover (days)</label>
               <input id="coverTargetInput" type="number" min="1" max="14" value="5"
-                onchange="STOCK_COVER.target=Math.max(1,parseInt(this.value)||5);planWeekCache={};onWeekChange();renderAlerts();"
+                onchange="STOCK_COVER.target=Math.max(1,parseInt(this.value)||5);planWeekCache={};onWeekChange();renderAlerts();checkCoverConfig();"
                 title="Planning goal — all SKUs aim to reach this cover at normal shift rates">
             </div>
             <div class="oc-cell">
               <label>Floor cover (days)</label>
               <input id="coverFloorInput" type="number" min="1" max="10" value="3"
-                onchange="STOCK_COVER.floor=Math.max(1,parseInt(this.value)||3);var lbl=document.getElementById('satFloorLabel');if(lbl)lbl.textContent=STOCK_COVER.floor;planWeekCache={};onWeekChange();renderAlerts();"
+                onchange="STOCK_COVER.floor=Math.max(1,parseInt(this.value)||3);var lbl=document.getElementById('satFloorLabel');if(lbl)lbl.textContent=STOCK_COVER.floor;planWeekCache={};onWeekChange();renderAlerts();checkCoverConfig();"
                 title="Hard minimum — breach triggers escalation alert">
             </div>
           </div>
+          <div id="coverConfigWarn" style="font-size:11px;color:var(--amber);margin-top:5px;min-height:14px"></div>
         </div>
       </div>
     </div>
@@ -498,7 +499,18 @@ const COMBINED       = {};
 // Update this date whenever BUDGET_DATA is replaced. Drives the staleness badge in renderBudget().
 const BUDGET_DATA_UPDATED = '2026-06-22';
 const BUDGET_DATA = {"2026-07-06":{"10L Cask":{"ww":507.0,"coles":322.3,"metcash":91.0},"2L Bottle":{"ww":64.7,"coles":67.1,"metcash":7.6},"5L Cask":{"ww":73.7,"coles":58.8,"metcash":14.0},"600ml 6pk":{"ww":19.3,"coles":64.8,"metcash":10.0}},"2026-07-13":{"10L Cask":{"ww":507.0,"coles":322.3,"metcash":91.0},"2L Bottle":{"ww":64.7,"coles":67.1,"metcash":7.6},"5L Cask":{"ww":73.7,"coles":58.8,"metcash":14.0},"600ml 6pk":{"ww":19.3,"coles":64.8,"metcash":10.0}},"2026-07-20":{"10L Cask":{"ww":507.0,"coles":322.3,"metcash":91.0},"2L Bottle":{"ww":64.7,"coles":67.1,"metcash":7.6},"5L Cask":{"ww":73.7,"coles":58.8,"metcash":14.0},"600ml 6pk":{"ww":19.3,"coles":64.8,"metcash":10.0}},"2026-07-27":{"10L Cask":{"ww":507.0,"coles":322.3,"metcash":91.0},"2L Bottle":{"ww":64.7,"coles":67.1,"metcash":7.6},"5L Cask":{"ww":73.7,"coles":58.8,"metcash":14.0},"600ml 6pk":{"ww":19.3,"coles":64.8,"metcash":10.0}},"2026-08-03":{"10L Cask":{"ww":369.2,"coles":234.8,"metcash":66.3},"2L Bottle":{"ww":47.1,"coles":48.9,"metcash":5.5},"5L Cask":{"ww":53.7,"coles":42.8,"metcash":10.2},"600ml 6pk":{"ww":14.1,"coles":47.2,"metcash":7.3}},"2026-08-10":{"10L Cask":{"ww":369.2,"coles":234.8,"metcash":66.3},"2L Bottle":{"ww":47.1,"coles":48.9,"metcash":5.5},"5L Cask":{"ww":53.7,"coles":42.8,"metcash":10.2},"600ml 6pk":{"ww":14.1,"coles":47.2,"metcash":7.3}},"2026-08-17":{"10L Cask":{"ww":369.2,"coles":234.8,"metcash":66.3},"2L Bottle":{"ww":47.1,"coles":48.9,"metcash":5.5},"5L Cask":{"ww":53.7,"coles":42.8,"metcash":10.2},"600ml 6pk":{"ww":14.1,"coles":47.2,"metcash":7.3}},"2026-08-24":{"10L Cask":{"ww":369.2,"coles":234.8,"metcash":66.3},"2L Bottle":{"ww":47.1,"coles":48.9,"metcash":5.5},"5L Cask":{"ww":53.7,"coles":42.8,"metcash":10.2},"600ml 6pk":{"ww":14.1,"coles":47.2,"metcash":7.3}},"2026-08-31":{"10L Cask":{"ww":369.2,"coles":234.8,"metcash":66.3},"2L Bottle":{"ww":47.1,"coles":48.9,"metcash":5.5},"5L Cask":{"ww":53.7,"coles":42.8,"metcash":10.2},"600ml 6pk":{"ww":14.1,"coles":47.2,"metcash":7.3}},"2026-09-07":{"10L Cask":{"ww":369.2,"coles":234.8,"metcash":66.3},"2L Bottle":{"ww":47.1,"coles":48.9,"metcash":5.5},"5L Cask":{"ww":53.7,"coles":42.8,"metcash":10.2},"600ml 6pk":{"ww":14.1,"coles":47.2,"metcash":7.3}},"2026-09-14":{"10L Cask":{"ww":369.2,"coles":234.8,"metcash":66.3},"2L Bottle":{"ww":47.1,"coles":48.9,"metcash":5.5},"5L Cask":{"ww":53.7,"coles":42.8,"metcash":10.2},"600ml 6pk":{"ww":14.1,"coles":47.2,"metcash":7.3}},"2026-09-21":{"10L Cask":{"ww":369.2,"coles":234.8,"metcash":66.3},"2L Bottle":{"ww":47.1,"coles":48.9,"metcash":5.5},"5L Cask":{"ww":53.7,"coles":42.8,"metcash":10.2},"600ml 6pk":{"ww":14.1,"coles":47.2,"metcash":7.3}},"2026-09-28":{"10L Cask":{"ww":369.2,"coles":234.8,"metcash":66.3},"2L Bottle":{"ww":47.1,"coles":48.9,"metcash":5.5},"5L Cask":{"ww":53.7,"coles":42.8,"metcash":10.2},"600ml 6pk":{"ww":14.1,"coles":47.2,"metcash":7.3}},"2026-10-05":{"10L Cask":{"ww":581.1,"coles":369.3,"metcash":104.3},"2L Bottle":{"ww":74.2,"coles":76.9,"metcash":8.7},"5L Cask":{"ww":84.4,"coles":67.4,"metcash":16.0},"600ml 6pk":{"ww":22.1,"coles":74.5,"metcash":11.5}},"2026-10-12":{"10L Cask":{"ww":581.1,"coles":369.3,"metcash":104.3},"2L Bottle":{"ww":74.2,"coles":76.9,"metcash":8.7},"5L Cask":{"ww":84.4,"coles":67.4,"metcash":16.0},"600ml 6pk":{"ww":22.1,"coles":74.5,"metcash":11.5}},"2026-10-19":{"10L Cask":{"ww":158.7,"coles":100.8,"metcash":28.5},"2L Bottle":{"ww":20.2,"coles":21.0,"metcash":2.4},"5L Cask":{"ww":23.0,"coles":18.4,"metcash":4.4},"600ml 6pk":{"ww":6.1,"coles":20.3,"metcash":3.1}},"2026-10-26":{"10L Cask":{"ww":158.7,"coles":100.8,"metcash":28.5},"2L Bottle":{"ww":20.2,"coles":21.0,"metcash":2.4},"5L Cask":{"ww":23.0,"coles":18.4,"metcash":4.4},"600ml 6pk":{"ww":6.1,"coles":20.3,"metcash":3.1}},"2026-11-02":{"10L Cask":{"ww":115.2,"coles":73.2,"metcash":20.7},"2L Bottle":{"ww":14.7,"coles":15.2,"metcash":1.7},"5L Cask":{"ww":16.7,"coles":13.3,"metcash":3.2},"600ml 6pk":{"ww":4.4,"coles":14.8,"metcash":2.3}},"2026-11-09":{"10L Cask":{"ww":115.2,"coles":73.2,"metcash":20.7},"2L Bottle":{"ww":14.7,"coles":15.2,"metcash":1.7},"5L Cask":{"ww":16.7,"coles":13.3,"metcash":3.2},"600ml 6pk":{"ww":4.4,"coles":14.8,"metcash":2.3}},"2026-11-16":{"10L Cask":{"ww":115.2,"coles":73.2,"metcash":20.7},"2L Bottle":{"ww":14.7,"coles":15.2,"metcash":1.7},"5L Cask":{"ww":16.7,"coles":13.3,"metcash":3.2},"600ml 6pk":{"ww":4.4,"coles":14.8,"metcash":2.3}},"2026-11-23":{"10L Cask":{"ww":115.2,"coles":73.2,"metcash":20.7},"2L Bottle":{"ww":14.7,"coles":15.2,"metcash":1.7},"5L Cask":{"ww":16.7,"coles":13.3,"metcash":3.2},"600ml 6pk":{"ww":4.4,"coles":14.8,"metcash":2.3}},"2026-11-30":{"10L Cask":{"ww":115.2,"coles":73.2,"metcash":20.7},"2L Bottle":{"ww":14.7,"coles":15.2,"metcash":1.7},"5L Cask":{"ww":16.7,"coles":13.3,"metcash":3.2},"600ml 6pk":{"ww":4.4,"coles":14.8,"metcash":2.3}},"2026-12-07":{"10L Cask":{"ww":198.1,"coles":125.9,"metcash":35.6},"2L Bottle":{"ww":25.3,"coles":26.2,"metcash":3.0},"5L Cask":{"ww":28.7,"coles":22.9,"metcash":5.5},"600ml 6pk":{"ww":7.6,"coles":25.4,"metcash":3.9}},"2026-12-14":{"10L Cask":{"ww":198.1,"coles":125.9,"metcash":35.6},"2L Bottle":{"ww":25.3,"coles":26.2,"metcash":3.0},"5L Cask":{"ww":28.7,"coles":22.9,"metcash":5.5},"600ml 6pk":{"ww":7.6,"coles":25.4,"metcash":3.9}},"2026-12-21":{"10L Cask":{"ww":198.1,"coles":125.9,"metcash":35.6},"2L Bottle":{"ww":25.3,"coles":26.2,"metcash":3.0},"5L Cask":{"ww":28.7,"coles":22.9,"metcash":5.5},"600ml 6pk":{"ww":7.6,"coles":25.4,"metcash":3.9}},"2026-12-28":{"10L Cask":{"ww":198.1,"coles":125.9,"metcash":35.6},"2L Bottle":{"ww":25.3,"coles":26.2,"metcash":3.0},"5L Cask":{"ww":28.7,"coles":22.9,"metcash":5.5},"600ml 6pk":{"ww":7.6,"coles":25.4,"metcash":3.9}},"2027-01-04":{"10L Cask":{"ww":460.3,"coles":292.5,"metcash":82.6},"2L Bottle":{"ww":58.8,"coles":60.9,"metcash":6.9},"5L Cask":{"ww":66.7,"coles":53.3,"metcash":12.6},"600ml 6pk":{"ww":17.6,"coles":59.2,"metcash":9.2}},"2027-01-11":{"10L Cask":{"ww":460.3,"coles":292.5,"metcash":82.6},"2L Bottle":{"ww":58.8,"coles":60.9,"metcash":6.9},"5L Cask":{"ww":66.7,"coles":53.3,"metcash":12.6},"600ml 6pk":{"ww":17.6,"coles":59.2,"metcash":9.2}},"2027-01-18":{"10L Cask":{"ww":460.3,"coles":292.5,"metcash":82.6},"2L Bottle":{"ww":58.8,"coles":60.9,"metcash":6.9},"5L Cask":{"ww":66.7,"coles":53.3,"metcash":12.6},"600ml 6pk":{"ww":17.6,"coles":59.2,"metcash":9.2}},"2027-01-25":{"10L Cask":{"ww":460.3,"coles":292.5,"metcash":82.6},"2L Bottle":{"ww":58.8,"coles":60.9,"metcash":6.9},"5L Cask":{"ww":66.7,"coles":53.3,"metcash":12.6},"600ml 6pk":{"ww":17.6,"coles":59.2,"metcash":9.2}},"2027-02-01":{"10L Cask":{"ww":460.3,"coles":292.5,"metcash":82.6},"2L Bottle":{"ww":58.8,"coles":60.9,"metcash":6.9},"5L Cask":{"ww":66.7,"coles":53.3,"metcash":12.6},"600ml 6pk":{"ww":17.6,"coles":59.2,"metcash":9.2}},"2027-02-08":{"10L Cask":{"ww":460.3,"coles":292.5,"metcash":82.6},"2L Bottle":{"ww":58.8,"coles":60.9,"metcash":6.9},"5L Cask":{"ww":66.7,"coles":53.3,"metcash":12.6},"600ml 6pk":{"ww":17.6,"coles":59.2,"metcash":9.2}},"2027-02-15":{"10L Cask":{"ww":460.3,"coles":292.5,"metcash":82.6},"2L Bottle":{"ww":58.8,"coles":60.9,"metcash":6.9},"5L Cask":{"ww":66.7,"coles":53.3,"metcash":12.6},"600ml 6pk":{"ww":17.6,"coles":59.2,"metcash":9.2}},"2027-02-22":{"10L Cask":{"ww":460.3,"coles":292.5,"metcash":82.6},"2L Bottle":{"ww":58.8,"coles":60.9,"metcash":6.9},"5L Cask":{"ww":66.7,"coles":53.3,"metcash":12.6},"600ml 6pk":{"ww":17.6,"coles":59.2,"metcash":9.2}},"2027-03-01":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-03-08":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-03-15":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-03-22":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-03-29":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-04-05":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-04-12":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-04-19":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-04-26":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-05-03":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-05-10":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-05-17":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-05-24":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-05-31":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-06-07":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-06-14":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}},"2027-06-21":{"10L Cask":{"ww":549.0,"coles":348.8,"metcash":98.5},"2L Bottle":{"ww":70.1,"coles":72.6,"metcash":8.2},"5L Cask":{"ww":79.5,"coles":63.5,"metcash":15.1},"600ml 6pk":{"ww":20.9,"coles":70.4,"metcash":10.9}}};
-const ALL_WEEKS      = ["2026-03-16", "2026-03-23", "2026-03-30", "2026-04-06", "2026-04-13", "2026-04-20", "2026-04-27", "2026-05-04", "2026-05-11", "2026-05-18", "2026-05-25", "2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22", "2026-06-29", "2026-07-06", "2026-07-13", "2026-07-20", "2026-07-27", "2026-08-03", "2026-08-10", "2026-08-17", "2026-08-24", "2026-08-31", "2026-09-07", "2026-09-14", "2026-09-21", "2026-09-28", "2026-10-05", "2026-10-12", "2026-10-19", "2026-10-26", "2026-11-02", "2026-11-09", "2026-11-16", "2026-11-23", "2026-11-30", "2026-12-07", "2026-12-14", "2026-12-21", "2026-12-28", "2027-01-04", "2027-01-11", "2027-01-18", "2027-01-25", "2027-02-01", "2027-02-08", "2027-02-15", "2027-02-22", "2027-03-01", "2027-03-08", "2027-03-15", "2027-03-22", "2027-03-29", "2027-04-05", "2027-04-12", "2027-04-19", "2027-04-26", "2027-05-03", "2027-05-10", "2027-05-17", "2027-05-24", "2027-05-31", "2027-06-07", "2027-06-14", "2027-06-21", "2027-06-28", "2027-07-05", "2027-07-12", "2027-07-19", "2027-07-26", "2027-08-02", "2027-08-09", "2027-08-16", "2027-08-23", "2027-08-30", "2027-09-06"];
+const ALL_WEEKS = (() => {
+  const weeks = [];
+  // Start: 2026-03-16 — first Monday in the dataset. Do not change without auditing BUDGET_DATA keys and actuals.
+  const d = new Date(2026, 2, 16); // month is 0-indexed; 2026-03-16 is a confirmed Monday
+  // Rolling 18-month horizon so the week selector never runs out of runway.
+  const end = new Date(); end.setMonth(end.getMonth() + 18);
+  while (d <= end) {
+    weeks.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`);
+    d.setDate(d.getDate() + 7);
+  }
+  return weeks;
+})();
 const STOCK_PAL      = {"10L Cask": 0, "2L Bottle": 0, "5L Cask": 0, "600ml 12pk": 0, "600ml 6pk": 0};
 const STOCK_UNITS    = {"10L Cask": 0, "2L Bottle": 0, "5L Cask": 0, "600ml 12pk": 0, "600ml 6pk": 0};
 const DAILY_REQUIRED = {};
@@ -3339,7 +3351,16 @@ function parseOpenOrders(xmlText, fname) {
 
     renderOpenOrders(reportDate, fname);
     onWeekChange();  // refresh all planning tabs with open orders factored in
-    setStat('OpenOrders', `✓ ${fname} — ${orders.length} lines, ${[...new Set(orders.map(o=>o.docNum))].length} orders`, true);
+    let _ooMsg = `✓ ${fname} — ${orders.length} lines, ${[...new Set(orders.map(o=>o.docNum))].length} orders`;
+    if (orders.length) {
+      const _ooDates = [...new Set(orders.map(o=>o.date).filter(Boolean))].sort();
+      if (_ooDates.length) {
+        _ooMsg += ` | ${fmtD(_ooDates[0])}–${fmtD(_ooDates[_ooDates.length-1])}`;
+        if (currentWeek && _ooDates[_ooDates.length-1] < currentWeek)
+          _ooMsg += ` ⚠ all orders are before current week (${fmtD(currentWeek)}) — file may be stale`;
+      }
+    }
+    setStat('OpenOrders', _ooMsg, true);
   } catch(e) {
     setStat('OpenOrders', '❌ Parse error: ' + e.message, false);
   }
@@ -4161,12 +4182,16 @@ function renderStockDetail(stockPalLocal, stockUnitsLocal, reportDate) {
 function renderManualStockGrid() {
   const g = document.getElementById('manualStockGrid');
   if (!g) return;
-  g.innerHTML = SKUS.map(s => `<div class="oc-cell">
+  g.innerHTML = SKUS.map(s => {
+    const _sv = Math.round(stockPal[s]||0);
+    return `<div class="oc-cell">
     <span class="chip ${CHIP[s]}" style="margin-bottom:4px">${s}</span>
     <label>Stock (pallets)</label>
-    <input type="number" min="0" value="${Math.round(stockPal[s]||0)}"
-      onchange="stockPal['${s}']=parseFloat(this.value)||0;STOCK_UNITS['${s}']=Math.round((parseFloat(this.value)||0)*UPP['${s}']);onWeekChange();renderStockDetail(null,null,'Manual')">
-  </div>`).join('');
+    <input type="number" min="0" value="${_sv}"
+      onchange="var _v=parseFloat(this.value)||0;stockPal['${s}']=_v;STOCK_UNITS['${s}']=Math.round(_v*UPP['${s}']);var _w=document.getElementById('stockWarn_${s}');if(_w)_w.textContent=_v>500?'High — verify':'';onWeekChange();renderStockDetail(null,null,'Manual')">
+    <span id="stockWarn_${s}" style="font-size:10px;color:var(--amber)">${_sv>500?'High — verify':''}</span>
+  </div>`;
+  }).join('');
 }
 
 // Per-retailer file fingerprint: size + name, used to detect re-uploads of same file
@@ -4382,6 +4407,12 @@ function parseMetcashWB(wb, fname) {
     msg += ` ⚠ ${total} rows skipped (unknown items: ${unmatchedKeys.slice(0,5).join(', ')}${unmatchedKeys.length>5?'…':''})`;
     console.warn('[Metcash] unmatched items:', unmatched);
   }
+  const _wksMc = Object.keys(weekly).sort();
+  if (_wksMc.length) {
+    msg += ` | ${fmtD(_wksMc[0])}–${fmtD(_wksMc[_wksMc.length-1])}`;
+    if (currentWeek && !_wksMc.includes(currentWeek))
+      msg += ` ⚠ current week (${fmtD(currentWeek)}) not in file`;
+  }
   setStat('Metcash', msg, true);
   const sbRows = [];
   Object.entries(metcashOvr.weekly).forEach(([week_date, skus]) => {
@@ -4487,6 +4518,12 @@ function parseWW(wb,fname) {
     const total = Object.values(unmatched).reduce((a,b)=>a+b,0);
     msgWW += ` ⚠ ${total} rows skipped (unknown pack groups: ${unmatchedKeysWW.slice(0,5).join(', ')}${unmatchedKeysWW.length>5?'…':''})`;
     console.warn('[WW] unmatched pack groups:', unmatched);
+  }
+  const _wksWW = Object.keys(weekly).sort();
+  if (_wksWW.length) {
+    msgWW += ` | ${fmtD(_wksWW[0])}–${fmtD(_wksWW[_wksWW.length-1])}`;
+    if (currentWeek && !_wksWW.includes(currentWeek))
+      msgWW += ` ⚠ current week (${fmtD(currentWeek)}) not in file`;
   }
   setStat('WW', msgWW, true);
   // Push to Supabase — always use Planned orders sheet for line-item detail
@@ -4623,6 +4660,12 @@ function parseColes(wb,fname) {
     const total=Object.values(unmatched).reduce((a,b)=>a+b,0);
     msg+=` ⚠ ${total} rows skipped (unknown items: ${unmatchedKeys.slice(0,5).join(', ')}${unmatchedKeys.length>5?'…':''})`;
     console.warn('[Coles] unmatched items:',unmatched);
+  }
+  const _wksCo = Object.keys(weekly).sort();
+  if (_wksCo.length) {
+    msg += ` | ${fmtD(_wksCo[0])}–${fmtD(_wksCo[_wksCo.length-1])}`;
+    if (currentWeek && !_wksCo.includes(currentWeek))
+      msg += ` ⚠ current week (${fmtD(currentWeek)}) not in file`;
   }
   setStat('Coles',msg,true);
   // Push to Supabase — aggregate by week_date+sku to match UNIQUE(week_date, sku) constraint
@@ -4811,14 +4854,26 @@ function setStat(r,msg,ok){
 }
 
 // ══ OTHER CUSTOMERS ═══════════════════════════════════════════════════════════
+function checkCoverConfig() {
+  const el = document.getElementById('coverConfigWarn');
+  if (!el) return;
+  el.textContent = STOCK_COVER.floor >= STOCK_COVER.target
+    ? `⚠ Floor (${STOCK_COVER.floor}d) >= target (${STOCK_COVER.target}d) — every SKU will always appear below-floor regardless of actual stock.`
+    : '';
+}
+
 function renderHoldGrid() {
   const g=document.getElementById('holdGrid');if(!g)return;
-  g.innerHTML=SKUS.map(s=>`<div class="oc-cell">
+  g.innerHTML=SKUS.map(s=>{
+    const _hv=onHoldPal[s]||0;
+    return `<div class="oc-cell">
     <span class="chip ${CHIP[s]}" style="margin-bottom:4px">${s}</span>
     <label>On hold (pal)</label>
-    <input type="number" min="0" value="${onHoldPal[s]||0}"
-      onchange="onHoldPal['${s}']=parseFloat(this.value)||0;onWeekChange()">
-  </div>`).join('');
+    <input type="number" min="0" value="${_hv}"
+      onchange="var _v=parseFloat(this.value)||0;onHoldPal['${s}']=_v;var _w=document.getElementById('holdWarn_${s}');if(_w)_w.textContent=_v>200?'High — verify':'';onWeekChange()">
+    <span id="holdWarn_${s}" style="font-size:10px;color:var(--amber)">${_hv>200?'High — verify':''}</span>
+  </div>`;
+  }).join('');
 }
 
 function renderOCGrid() {
@@ -4849,11 +4904,15 @@ function renderOCGrid() {
         ?`<span style="font-size:10px;color:var(--amber)" title="NS open orders show ${_oo} pal from non-major customers this week">&#9888; NS OO: ${_oo} pal</span>`
         :(_oo>0?`<span style="font-size:10px;color:var(--muted)">NS OO: ${_oo} pal</span>`:''))
       :'';
+    const _valHint = _inp > 50
+      ? `<span id="ocWarn_${s}" style="font-size:10px;color:var(--amber)">High — verify</span>`
+      : `<span id="ocWarn_${s}" style="font-size:10px;color:var(--amber)"></span>`;
     return `<div class="oc-cell">
     <span class="chip ${CHIP[s]}" style="margin-bottom:4px">${s}</span>
     <label>Other customers (pal/wk)</label>
     <input type="number" min="0" value="${_inp}"
-      onchange="otherDemand['${s}']=parseFloat(this.value)||0;onWeekChange()">
+      onchange="var _v=parseFloat(this.value)||0;otherDemand['${s}']=_v;var _w=document.getElementById('ocWarn_${s}');if(_w)_w.textContent=_v>50?'High — verify':'';onWeekChange()">
+    ${_valHint}
     ${_hint}
   </div>`;
   }).join('');
