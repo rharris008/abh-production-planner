@@ -2048,6 +2048,11 @@ function renderSkuStrips(pr) {
     '600ml 12pk': Math.round(satUsed && satStock['600ml 12pk']!= null ? satStock['600ml 12pk']: (pr.ep?.endStock12 ?? 0)),
     '600ml 6pk':  Math.round(satUsed && satStock['600ml 6pk'] != null ? satStock['600ml 6pk'] : (pr.ep?.endStock6  ?? 0)),
   };
+  // For future weeks, the "Stock (Today)" tile would show current live NS stock — which
+  // does not yet include current-week remaining production (Fri/Sat shifts etc.) that
+  // rolls forward into next week. Use pr.avail[s] (the rolled-forward opening) instead,
+  // which is what the closing-stock and cover-days calculations are already using.
+  const isFutureWeek = currentWeek > calendarMon;
   let html = '';
   SKUS.forEach(s => {
     // Retailer allocation: when a specific retailer is selected, scale stock and
@@ -2088,7 +2093,7 @@ function renderSkuStrips(pr) {
     const ooCls  = oopal > 0 ? 'red' : 'grey';
     html += `<div class="sku-strip ${cls}">
       <div class="sku-label"><span class="chip ${CHIP[s]}">${s}</span></div>
-      <div class="ktile blue"><div class="kv">${fmt(todayStk)}</div><div class="kl">Stock (Today)</div></div>
+      <div class="ktile blue"><div class="kv">${fmt(isFutureWeek ? projOpen : todayStk)}</div><div class="kl">${isFutureWeek ? 'Proj. Opening' : 'Stock (Today)'}</div></div>
       <div class="ktile ${ooCls}"><div class="kv">${oopal>0?`-${fmt(oopal)}`:'0'}</div><div class="kl">Open Orders</div></div>
       <div class="ktile navy"><div class="kv">${demDisplayVal>0?'-':''}${fmt(demDisplayVal)}</div><div class="kl">Demand (pal)</div></div>
       <div class="ktile navy"><div class="kv">${planned>0?fmt(Math.round(planned)):'—'}</div><div class="kl">Planned Production</div></div>
