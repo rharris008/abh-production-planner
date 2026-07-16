@@ -5134,7 +5134,7 @@ function renderBudget() {
       const lbl = st === 'past' ? 'Actual' : st === 'current' ? 'Act/Fcst' : 'Forecast';
       th += `<th class="num" style="${bg}padding:5px 8px;min-width:60px">${fmtD(wk).slice(0,5)}<br><span style="font-size:9px;opacity:.85">${lbl}</span></th>`;
     });
-    th += `<th class="num" style="${GN}padding:5px 8px;min-width:85px;border-left:3px solid rgba(255,255,255,.35)">Actuals<br><span style="font-size:9px;opacity:.85">(pal)</span></th>
+    th += `<th class="num" style="${GN}padding:5px 8px;min-width:85px;border-left:3px solid rgba(255,255,255,.35)">Act MTD<br><span style="font-size:9px;opacity:.85">(pal)</span></th>
            <th class="num" style="${NK}padding:5px 8px;min-width:85px">Fcst rem.<br><span style="font-size:9px;opacity:.85">(pal)</span></th>
            <th class="num" style="${BL}padding:5px 8px;min-width:85px;border-left:3px solid rgba(255,255,255,.35)">Outturn<br><span style="font-size:9px;opacity:.85">(pal)</span></th>
            <th class="num" style="${NK}padding:5px 8px;min-width:75px">Budget<br><span style="font-size:9px;opacity:.85">(pal)</span></th>
@@ -5327,7 +5327,7 @@ function renderBudget() {
       : 'NS shipped sales not yet received for this month — all weeks use retailer forecast as outturn estimate. Actuals will populate as NS invoice data arrives weekly.';
     monthHtml = `<div class="panel">
       <div class="ph navy">${_monthName} — Outturn vs Budget
-        <span style="font-size:10px;opacity:.7;margin-left:8px">Actuals = NS invoiced pallets. Fcst rem. = retailer forecast for remaining weeks. Outturn = Actuals + Fcst rem.</span>
+        <span style="font-size:10px;opacity:.7;margin-left:8px">Act MTD = NS invoiced pallets to date. Fcst rem. = retailer forecast for remaining weeks. Outturn = Act MTD + Fcst rem.</span>
       </div>
       <div style="font-size:11px;color:var(--muted);padding:8px 16px 4px">${_actNote}</div>
       <div class="tscroll">${buildMonthOutturn(currentMonthWeeks)}</div>
