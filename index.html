@@ -567,6 +567,8 @@ let activeRetailer = 'All';  // retailer filter for SKU strip — 'All', 'WW', '
 // Tracks the last week with live retailer data per channel (set by forwardFillDemand).
 // Weeks beyond this are forward-filled projections, not live forecast rows.
 let forecastHorizonWeek = { ww: null, coles: null, metcash: null };
+// Weeks already auto-saved or confirmed-present this session (avoids repeat DB checks)
+const _autoSavedWeeks = new Set();
 let actualsData    = null;  // parsed NetSuite runs filtered to current week
 let rawActualsData = null;  // all runs from uploaded file (unfiltered)
 let NS_ACTUALS_DATA = {};   // NS shipped sales (invoiced) for FY27 — week→sku→channel→pallets
@@ -5451,6 +5453,9 @@ function onWeekChange() {
     }
   }
   if(actualsData){renderActuals();}
+  // Auto-save the generated plan to Supabase on first view of any future week with no rows.
+  // Ensures the Sunday snapshot always has data to capture, independent of the Lock button.
+  sbAutoSave(currentWeek, pr);
 }
 
 function init() {
@@ -5786,8 +5791,51 @@ async function sbPushUpsert(dataset, rows, filename = '') {
 }
 
 
+// Silent background save — fires once per session per future week that has no DB rows.
+// Captures the auto-generated plan as the start-of-week baseline.
+// The Sunday 20:00 snapshot reads from production_plan_daily and writes to
+// production_plan_snapshot (write-once). This means a mid-week Lock cannot
+// overwrite the Sunday capture — production_plan_snapshot is the immutable record.
+async function sbAutoSave(week, pr) {
+  const currentMon = monOf(localToday());
+  if (week < currentMon) return;           // never touch past weeks
+  if (_autoSavedWeeks.has(week)) return;   // already checked this session
+  try {
+    const checkRes = await sbFetchTimeout(
+      `${SB_URL}/rest/v1/production_plan_daily?week_start=eq.${week}&select=id&limit=1`,
+      { headers: sbHeaders() }, SB_TIMEOUT_MS
+    );
+    if (!checkRes.ok) return;
+    const existing = await checkRes.json();
+    _autoSavedWeeks.add(week);
+    if (existing.length > 0) return;  // rows already exist — nothing to do
+    const sched = buildSchedule(week, pr);
+    const rows = sched
+      .filter(s => s.sku && s.sku !== 'Maintenance')
+      .map(s => ({
+        week_start:      week,
+        plan_date:       s.date,
+        line:            s.label,
+        sku:             s.sku,
+        shift:           s.shift,
+        planned_pallets: s.pallets,
+        target_pallets:  getMaxPal(s)
+      }));
+    if (!rows.length) return;
+    const saveRes = await sbFetchTimeout(
+      `${SB_URL}/rest/v1/production_plan_daily`,
+      { method: 'POST', headers: { ...sbHeaders(), 'Prefer': 'return=minimal' }, body: JSON.stringify(rows) },
+      SB_TIMEOUT_MS
+    );
+    if (saveRes.ok) {
+      console.log(`[AutoSave] Plan auto-saved for w/c ${week} (${rows.length} shifts)`);
+    }
+  } catch(e) {
+    console.warn('[AutoSave] Non-fatal:', e.message);
+  }
+}
+
 async function lockPlanToSupabase(week) {
-  if (!CONFIRMED_SCHEDULES[week]) { alert('No confirmed plan for w/c ' + week + '. Add it to CONFIRMED_SCHEDULES first.'); return; }
   const btn = document.getElementById('lockPlanBtn');
   if (btn) { btn.textContent = 'SAVING...'; btn.disabled = true; }
   try {
