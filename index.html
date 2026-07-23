@@ -505,9 +505,9 @@ tr.risk-a td{background:#FEF9F0}
           <select id="mfMachine" required onchange="maintMachineChange()" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--navy)">
             <option value="">-- select --</option>
             <option value="HMPS">HMPS</option>
-            <option value="Bottle Line 1">Bottle Line 1</option>
-            <option value="Bottle Line 2">Bottle Line 2</option>
-            <option value="Bottle Line 3">Bottle Line 3</option>
+            <option value="EP Cask Line A">EP Cask Line A</option>
+            <option value="EP Cask Line B">EP Cask Line B</option>
+            <option value="EP Bottle Line">EP Bottle Line</option>
             <option value="Anne Street Lines">Anne Street Lines</option>
           </select>
         </div>
@@ -660,10 +660,32 @@ let epChangeoverMins    = 45; // EP New Line changeover time loss in minutes
 // Week 15/06: Line B out → run Line A only
 // Week 22/06: Line A out → run Line B only
 
-// Returns {single: bool, out: 'A'|'B'|null} for a given week date string.
+// Returns {single: bool, out: 'A'|'B'|null, bothDown: bool} for a given week date string.
 // 'single' = true when only one EP cask line is running; 'out' = which line is down.
-// Both EP Cask Lines (A & B) are running — no outage logic required.
-function lineOutageForWeek(wk) { return {single: false, out: null}; }
+// 'bothDown' = true when both EP Cask Lines are under maintenance (zero cask capacity).
+// Reads live from Maintenance Calendar (localStorage) — no hardcoded dates.
+function lineOutageForWeek(wk) {
+  const wkFri = maintAddDays(wk, 4);
+  const entries = maintLoadEntries();
+  const aOut = entries.some(e => e.machine === 'EP Cask Line A' && e.startDate <= wkFri && e.endDate >= wk);
+  const bOut = entries.some(e => e.machine === 'EP Cask Line B' && e.startDate <= wkFri && e.endDate >= wk);
+  if (aOut && bOut) return {single: false, out: null, bothDown: true};
+  if (aOut) return {single: true, out: 'A'};
+  if (bOut) return {single: true, out: 'B'};
+  return {single: false, out: null, bothDown: false};
+}
+
+// Returns true if HMPS is under maintenance for any day in week wk.
+function hmpsOutageForWeek(wk) {
+  const wkFri = maintAddDays(wk, 4);
+  return maintLoadEntries().some(e => e.machine === 'HMPS' && e.startDate <= wkFri && e.endDate >= wk);
+}
+
+// Returns true if EP Bottle Line is under maintenance for any day in week wk.
+function bottleOutageForWeek(wk) {
+  const wkFri = maintAddDays(wk, 4);
+  return maintLoadEntries().some(e => e.machine === 'EP Bottle Line' && e.startDate <= wkFri && e.endDate >= wk);
+}
 
 // ══ HELPERS ══════════════════════════════════════════════════════════════════
 const fmt  = n => n==null||isNaN(n) ? '—' : Number(n).toLocaleString('en-AU');
@@ -819,9 +841,9 @@ function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, mi
   // Base capacities (before efficiency factor): single line: 10L=30, 5L=27; Combined A+B: 10L=60, 5L=50.
   // At default 75% efficiency: single-line 10L=44/day, 5L=40/day; combined 10L=90/day, 5L=74/day.
   // Per Aaron Mattin (Operations Manager) 13/06/2026.
-  const {single: lineAOnly} = lineOutageForWeek(weekStart);
-  const tgt10 = Math.floor((lineAOnly ? 30 : 60) * eff);
-  const tgt5  = Math.floor((lineAOnly ? 27 : 50) * eff);
+  const {single: lineAOnly, bothDown: caskBothDown} = lineOutageForWeek(weekStart);
+  const tgt10 = caskBothDown ? 0 : Math.floor((lineAOnly ? 30 : 60) * eff);
+  const tgt5  = caskBothDown ? 0 : Math.floor((lineAOnly ? 27 : 50) * eff);
   let s10 = openStock10;
   let s5  = openStock5;
   const shifts = [];
@@ -1444,9 +1466,11 @@ function planWeek(week) {
   const s10   = avail['10L Cask'] || 0;
   const d10   = demand['10L Cask'].total;
   // HMPS always runs 2 shifts every available working day. No throttle. (Rule per Rob Harris 20/06/2026)
+  // Exception: when a Maintenance Calendar entry covers this week, HMPS capacity = 0.
   const hmpsShifts = 2;
   const hmpsTgtLabel = `EP HMPS (${hmpsConfig})`;
-  const days10hmps = opDays;
+  const hmpsDown = hmpsOutageForWeek(week);
+  const days10hmps = hmpsDown ? 0 : opDays;
   const hmps = makeLine(hmpsTgtLabel, 'EP', '10L Cask', hmpsTgt, days10hmps, hmpsShifts);
 
   // ── Pre-build scan: look ahead and bias EP Line A&B scheduler toward SKUs facing future deficits
@@ -1473,9 +1497,9 @@ function planWeek(week) {
   }
 
   // ── Pre-build scan: calculate minimum days needed per SKU on EP Line A&B
-  const {single: lineAOnlyNow, out: lineOutNow} = lineOutageForWeek(week);
-  const cap10shift = Math.floor((lineAOnlyNow ? 30 : 60) * eff);
-  const cap5shift  = Math.floor((lineAOnlyNow ? 27 : 50) * eff);
+  const {single: lineAOnlyNow, out: lineOutNow, bothDown: caskBothDownNow} = lineOutageForWeek(week);
+  const cap10shift = caskBothDownNow ? 0 : Math.floor((lineAOnlyNow ? 30 : 60) * eff);
+  const cap5shift  = caskBothDownNow ? 0 : Math.floor((lineAOnlyNow ? 27 : 50) * eff);
 
   // EP Line A&B rules (Rob Harris 20/06/2026):
   // - Always 2 shifts, every working day — no throttle.
@@ -1558,7 +1582,9 @@ function planWeek(week) {
   // ── Bottle Line: unified 2L / 600ml cycle scheduler ─────────────────────────
   // Confirmed algorithm (Rob Harris 19/06/2026): cycle between 2L → lower-cover 600ml
   // → other 600ml → back to 2L, triggered by 8 days cover threshold.
-  const bottleResult = scheduleBottleLine(week, eff,
+  // Exception: when EP Bottle Line has a Maintenance Calendar entry this week, skip scheduling.
+  const bottleDown = bottleOutageForWeek(week);
+  const bottleResult = bottleDown ? {shifts:[], endStock2L:avail['2L Bottle']||0, endStock12:avail['600ml 12pk']||0, endStock6:avail['600ml 6pk']||0} : scheduleBottleLine(week, eff,
     avail['2L Bottle']   || 0,
     avail['600ml 12pk']  || 0,
     avail['600ml 6pk']   || 0,
@@ -2157,6 +2183,39 @@ function buildSchedule(week, pr) {
         pallets:sl.satAlloc, target:Math.floor(sl.tgt*eff), cls:sl.cls+' sat', site:'EP'});
     });
   }
+
+  // ── Maintenance placeholder rows ─────────────────────────────────────────────
+  // For each machine under maintenance this week, inject visual rows into the
+  // shift schedule so it is immediately clear a line is down and when it returns.
+  const {bothDown: caskBothDownSched} = lineOutageForWeek(week);
+  const wkDaysSched = workingDaysInWeek(week);
+  const maintEntries = maintLoadEntries();
+  const wkFriSched = maintAddDays(week, 4);
+
+  const MAINT_LINES = [
+    { machine: 'HMPS',           label: 'EP HMPS — MAINTENANCE',        cls: 'ep10', site: 'EP' },
+    { machine: 'EP Cask Line A', label: 'EP Cask Line A — MAINTENANCE', cls: 'ep5',  site: 'EP' },
+    { machine: 'EP Cask Line B', label: 'EP Cask Line B — MAINTENANCE', cls: 'ep5',  site: 'EP' },
+    { machine: 'EP Bottle Line', label: 'EP Bottle Line — MAINTENANCE', cls: 'as2',  site: 'EP' },
+    { machine: 'Anne Street Lines', label: 'Anne Street — MAINTENANCE', cls: 'as2',  site: 'AS' },
+  ];
+
+  MAINT_LINES.forEach(ml => {
+    const entry = maintEntries.find(e => e.machine === ml.machine && e.startDate <= wkFriSched && e.endDate >= week);
+    if (!entry) return;
+    // One row per working day that falls within the maintenance window
+    wkDaysSched.forEach((date, d) => {
+      if (date < entry.startDate || date > entry.endDate) return;
+      // Day shift only — maintenance doesn't run 2 shifts, just mark once per day
+      schedule.push({
+        day: d, date, shift: 'Day',
+        label: ml.label + ` (back ${maintFmtDate(entry.backOperational)})`,
+        sku: 'Maintenance', pallets: 0, target: 0,
+        cls: ml.cls, site: ml.site
+      });
+    });
+  });
+
   return schedule;
 }
 
@@ -2907,6 +2966,29 @@ function buildAllAlerts() {
   let nightShiftConsec = 0;
   let nightShiftFirstWk = null;
   let nightShiftAlertFired = false;
+
+  // ── MAINTENANCE ALERTS (not week-specific — scan all upcoming entries) ────────
+  {
+    const horizonEnd = ALL_WEEKS[Math.min(todayIdx + LOOKAHEAD_WEEKS, ALL_WEEKS.length - 1)];
+    const maintAlerts = maintLoadEntries().filter(e => e.endDate >= today && e.startDate <= horizonEnd);
+    const isThisWeek = e => e.startDate <= addDays(todayMon, 6) && e.endDate >= today;
+    const isNextWeek = e => {
+      const nw = ALL_WEEKS[todayIdx + 1];
+      return nw && e.startDate <= addDays(nw, 6) && e.endDate >= nw;
+    };
+    maintAlerts.forEach(e => {
+      const dateRange = `${maintFmtDate(e.startDate)}–${maintFmtDate(e.endDate)}`;
+      const backNote = e.backOperational ? ` Back operational: <strong>${maintFmtDate(e.backOperational)}</strong>.` : '';
+      const typeNote = e.maintenanceType ? ` (${e.maintenanceType})` : '';
+      if (isThisWeek(e)) {
+        alerts.push({t:'r', msg:`<strong>${e.machine} MAINTENANCE THIS WEEK</strong>${typeNote}: ${dateRange}.${backNote}`});
+      } else if (isNextWeek(e)) {
+        alerts.push({t:'a', msg:`<strong>${e.machine} maintenance next week</strong>${typeNote}: ${dateRange}.${backNote}`});
+      } else {
+        alerts.push({t:'a', msg:`<strong>${e.machine} maintenance scheduled</strong>${typeNote}: ${dateRange}.${backNote}`});
+      }
+    });
+  }
 
   // ── STOCK-LEVEL (not week-specific) ─────────────────────────────────────────
   if ((stockPal['600ml 12pk'] || 0) < 5) {
@@ -6480,7 +6562,7 @@ const MAINT_KEY = 'abh_maintenance_events';
 
 // Machines that trigger the 3-day post-service recovery rule
 function maintHasRecovery(machine, scholleInScope) {
-  if (machine === 'Bottle Line 1' || machine === 'Bottle Line 2' || machine === 'Bottle Line 3') return true;
+  if (machine === 'EP Bottle Line') return true;
   if (machine === 'HMPS' && scholleInScope === 'yes') return true;
   return false;
 }
@@ -6597,7 +6679,7 @@ function renderMaintenance() {
   const today = localToday();
 
   // -- Summary: next upcoming per machine --
-  const machines = ['HMPS','Bottle Line 1','Bottle Line 2','Bottle Line 3','Anne Street Lines'];
+  const machines = ['HMPS','EP Cask Line A','EP Cask Line B','EP Bottle Line','Anne Street Lines'];
   let sumHtml = '<div style="display:flex;flex-wrap:wrap;gap:10px">';
   for (const m of machines) {
     const upcoming = entries.filter(e => e.machine === m && e.endDate >= today).sort((a,b) => a.startDate.localeCompare(b.startDate));
