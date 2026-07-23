@@ -6722,6 +6722,7 @@ function maintDeleteEntry(id) {
   entries = entries.filter(x => x.id !== id);
   maintSaveEntries(entries);
   renderMaintenance();
+  rebuildData();
 }
 
 function saveMaintEntry(evt) {
@@ -6746,6 +6747,7 @@ function saveMaintEntry(evt) {
   maintSaveEntries(entries);
   maintClearForm();
   renderMaintenance();
+  rebuildData();
 }
 
 function renderMaintenance() {
