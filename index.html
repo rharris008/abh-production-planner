@@ -504,12 +504,20 @@ tr.risk-a td{background:#FEF9F0}
           <label style="font-size:10px;font-weight:700;color:var(--muted);display:block;margin-bottom:3px">MACHINE</label>
           <select id="mfMachine" required onchange="maintMachineChange()" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--navy)">
             <option value="">-- select --</option>
-            <option value="HMPS">HMPS</option>
-            <option value="EP Cask Line A Filler">EP Cask Line A — Filler (3-day test hold)</option>
-            <option value="EP Cask Line A Recopak">EP Cask Line A — Recopak Carton Erector (back next day)</option>
-            <option value="EP Cask Line B">EP Cask Line B</option>
-            <option value="EP Bottle Line">EP Bottle Line</option>
-            <option value="Anne Street Lines">Anne Street Lines</option>
+            <option value="Scholle filler A">Scholle filler A (Line A filler — 3-day test hold)</option>
+            <option value="Scholle filler B">Scholle filler B (Line B filler — 3-day test hold)</option>
+            <option value="Scholle filler 1">Scholle filler 1 (HMPS line 1 — 3-day test hold)</option>
+            <option value="Scholle filler 2">Scholle filler 2 (HMPS line 2 — 3-day test hold)</option>
+            <option value="Recopak A">Recopak A (Line A carton erector — back next day)</option>
+            <option value="Recopak B">Recopak B (Line B carton erector — back next day)</option>
+            <option value="HMPS">HMPS (full system — back next day)</option>
+            <option value="EP Bottle line filler">EP Bottle line filler (3-day test hold)</option>
+            <option value="Descrambler">Descrambler (back next day)</option>
+            <option value="Rinser">Rinser (back next day)</option>
+            <option value="Shrink tunnel">Shrink tunnel (back next day)</option>
+            <option value="Labeller">Labeller (back next day)</option>
+            <option value="2L over packer">2L over packer (back next day)</option>
+            <option value="5L over packer">5L over packer (back next day)</option>
           </select>
         </div>
         <div>
@@ -664,28 +672,54 @@ let epChangeoverMins    = 45; // EP New Line changeover time loss in minutes
 // Returns {single: bool, out: 'A'|'B'|null, bothDown: bool} for a given week date string.
 // 'single' = true when only one EP cask line is running; 'out' = which line is down.
 // 'bothDown' = true when both EP Cask Lines are under maintenance (zero cask capacity).
+// Line A = Scholle filler A or Recopak A. Line B = Scholle filler B or Recopak B.
 // Reads live from Maintenance Calendar (localStorage) — no hardcoded dates.
 function lineOutageForWeek(wk) {
   const wkFri = maintAddDays(wk, 4);
   const entries = maintLoadEntries();
-  const aOut = entries.some(e => (e.machine === 'EP Cask Line A Filler' || e.machine === 'EP Cask Line A Recopak') && e.startDate <= wkFri && e.endDate >= wk);
-  const bOut = entries.some(e => e.machine === 'EP Cask Line B' && e.startDate <= wkFri && e.endDate >= wk);
+  const lineA = ['Scholle filler A', 'Recopak A'];
+  const lineB = ['Scholle filler B', 'Recopak B'];
+  const aOut = entries.some(e => lineA.includes(e.machine) && e.startDate <= wkFri && e.endDate >= wk);
+  const bOut = entries.some(e => lineB.includes(e.machine) && e.startDate <= wkFri && e.endDate >= wk);
   if (aOut && bOut) return {single: false, out: null, bothDown: true};
   if (aOut) return {single: true, out: 'A'};
   if (bOut) return {single: true, out: 'B'};
   return {single: false, out: null, bothDown: false};
 }
 
-// Returns true if HMPS is under maintenance for any day in week wk.
+// Returns true if HMPS is fully down: 'HMPS' whole system entered, or both Scholle filler 1 and 2 down.
 function hmpsOutageForWeek(wk) {
   const wkFri = maintAddDays(wk, 4);
-  return maintLoadEntries().some(e => e.machine === 'HMPS' && e.startDate <= wkFri && e.endDate >= wk);
+  const entries = maintLoadEntries();
+  const inWk = e => e.startDate <= wkFri && e.endDate >= wk;
+  if (entries.some(e => e.machine === 'HMPS' && inWk(e))) return true;
+  const f1 = entries.some(e => e.machine === 'Scholle filler 1' && inWk(e));
+  const f2 = entries.some(e => e.machine === 'Scholle filler 2' && inWk(e));
+  return f1 && f2;
+}
+
+// Returns true if HMPS should run in single-filler mode (one filler down, not both, whole system not down).
+function hmpsSingleModeForWeek(wk) {
+  if (hmpsOutageForWeek(wk)) return false;
+  const wkFri = maintAddDays(wk, 4);
+  const entries = maintLoadEntries();
+  const inWk = e => e.startDate <= wkFri && e.endDate >= wk;
+  return entries.some(e => (e.machine === 'Scholle filler 1' || e.machine === 'Scholle filler 2') && inWk(e));
 }
 
 // Returns true if EP Bottle Line is under maintenance for any day in week wk.
+// Any single bottle-line component down = whole line down.
 function bottleOutageForWeek(wk) {
   const wkFri = maintAddDays(wk, 4);
-  return maintLoadEntries().some(e => e.machine === 'EP Bottle Line' && e.startDate <= wkFri && e.endDate >= wk);
+  const bottleMachines = ['EP Bottle line filler', 'Descrambler', 'Rinser', 'Shrink tunnel', 'Labeller', '2L over packer'];
+  return maintLoadEntries().some(e => bottleMachines.includes(e.machine) && e.startDate <= wkFri && e.endDate >= wk);
+}
+
+// Returns true if the 5L over packer is under maintenance for any day in week wk.
+// When true: EP Lines A&B cannot produce 5L Cask (capacity still runs on 10L Cask).
+function fiveLOverpackerForWeek(wk) {
+  const wkFri = maintAddDays(wk, 4);
+  return maintLoadEntries().some(e => e.machine === '5L over packer' && e.startDate <= wkFri && e.endDate >= wk);
 }
 
 // ══ HELPERS ══════════════════════════════════════════════════════════════════
@@ -843,8 +877,9 @@ function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, mi
   // At default 75% efficiency: single-line 10L=44/day, 5L=40/day; combined 10L=90/day, 5L=74/day.
   // Per Aaron Mattin (Operations Manager) 13/06/2026.
   const {single: lineAOnly, bothDown: caskBothDown} = lineOutageForWeek(weekStart);
+  const fiveDown = fiveLOverpackerForWeek(weekStart);
   const tgt10 = caskBothDown ? 0 : Math.floor((lineAOnly ? 30 : 60) * eff);
-  const tgt5  = caskBothDown ? 0 : Math.floor((lineAOnly ? 27 : 50) * eff);
+  const tgt5  = (caskBothDown || fiveDown) ? 0 : Math.floor((lineAOnly ? 27 : 50) * eff);
   let s10 = openStock10;
   let s5  = openStock5;
   const shifts = [];
@@ -1251,7 +1286,8 @@ function planWeek(week) {
   if (planWeekCache[week] && planWeekCache[week]._full) return planWeekCache[week]._full;
 
   const eff      = getEff();
-  const hmpsTgt  = hmpsConfig === 'Dual' ? 90 : 45;
+  const hmpsForceSingle = hmpsSingleModeForWeek(week);
+  const hmpsTgt  = (hmpsConfig === 'Dual' && !hmpsForceSingle) ? 90 : 45;
 
   // Roll stock forward from today to the selected week using actual scheduler output.
   // Memoised per-run to avoid recursion: planWeekCache is reset at onWeekChange start.
@@ -1469,7 +1505,7 @@ function planWeek(week) {
   // HMPS always runs 2 shifts every available working day. No throttle. (Rule per Rob Harris 20/06/2026)
   // Exception: when a Maintenance Calendar entry covers this week, HMPS capacity = 0.
   const hmpsShifts = 2;
-  const hmpsTgtLabel = `EP HMPS (${hmpsConfig})`;
+  const hmpsTgtLabel = `EP HMPS (${hmpsForceSingle ? 'Single — filler maint.' : hmpsConfig})`;
   const hmpsDown = hmpsOutageForWeek(week);
   const days10hmps = hmpsDown ? 0 : opDays;
   const hmps = makeLine(hmpsTgtLabel, 'EP', '10L Cask', hmpsTgt, days10hmps, hmpsShifts);
@@ -2194,12 +2230,20 @@ function buildSchedule(week, pr) {
   const wkFriSched = maintAddDays(week, 4);
 
   const MAINT_LINES = [
-    { machine: 'HMPS',           label: 'EP HMPS — MAINTENANCE',        cls: 'ep10', site: 'EP' },
-    { machine: 'EP Cask Line A Filler',  label: 'EP Cask Line A Filler — MAINTENANCE', cls: 'ep5', site: 'EP' },
-    { machine: 'EP Cask Line A Recopak', label: 'EP Cask Line A Recopak — MAINTENANCE', cls: 'ep5', site: 'EP' },
-    { machine: 'EP Cask Line B', label: 'EP Cask Line B — MAINTENANCE', cls: 'ep5',  site: 'EP' },
-    { machine: 'EP Bottle Line', label: 'EP Bottle Line — MAINTENANCE', cls: 'as2',  site: 'EP' },
-    { machine: 'Anne Street Lines', label: 'Anne Street — MAINTENANCE', cls: 'as2',  site: 'AS' },
+    { machine: 'Scholle filler A',    label: 'Scholle filler A — MAINTENANCE',    cls: 'ep5',  site: 'EP' },
+    { machine: 'Scholle filler B',    label: 'Scholle filler B — MAINTENANCE',    cls: 'ep5',  site: 'EP' },
+    { machine: 'Scholle filler 1',    label: 'Scholle filler 1 — MAINTENANCE',    cls: 'ep10', site: 'EP' },
+    { machine: 'Scholle filler 2',    label: 'Scholle filler 2 — MAINTENANCE',    cls: 'ep10', site: 'EP' },
+    { machine: 'Recopak A',           label: 'Recopak A — MAINTENANCE',           cls: 'ep5',  site: 'EP' },
+    { machine: 'Recopak B',           label: 'Recopak B — MAINTENANCE',           cls: 'ep5',  site: 'EP' },
+    { machine: 'HMPS',                label: 'EP HMPS — MAINTENANCE',             cls: 'ep10', site: 'EP' },
+    { machine: 'EP Bottle line filler', label: 'EP Bottle line filler — MAINTENANCE', cls: 'as2', site: 'EP' },
+    { machine: 'Descrambler',         label: 'Descrambler — MAINTENANCE',         cls: 'as2',  site: 'EP' },
+    { machine: 'Rinser',              label: 'Rinser — MAINTENANCE',              cls: 'as2',  site: 'EP' },
+    { machine: 'Shrink tunnel',       label: 'Shrink tunnel — MAINTENANCE',       cls: 'as2',  site: 'EP' },
+    { machine: 'Labeller',            label: 'Labeller — MAINTENANCE',            cls: 'as2',  site: 'EP' },
+    { machine: '2L over packer',      label: '2L over packer — MAINTENANCE',      cls: 'as2',  site: 'EP' },
+    { machine: '5L over packer',      label: '5L over packer — MAINTENANCE',      cls: 'ep5',  site: 'EP' },
   ];
 
   MAINT_LINES.forEach(ml => {
@@ -6562,12 +6606,15 @@ function loadFallbackHolidays() {
 // Storage key for localStorage persistence
 const MAINT_KEY = 'abh_maintenance_events';
 
-// Machines that trigger the 3-day post-service recovery rule
-function maintHasRecovery(machine, scholleInScope) {
-  if (machine === 'EP Bottle Line') return true;
-  if (machine === 'EP Cask Line A Filler') return true;  // 3-day test-result hold before production resumes
-  if (machine === 'HMPS' && scholleInScope === 'yes') return true;
-  return false;  // EP Cask Line A Recopak, EP Cask Line B, Anne Street: back next day
+// Machines that trigger the 3-day post-service recovery rule (test results before production resumes).
+// All Scholle fillers and the EP Bottle line filler require 3-day hold.
+// All other machines are back next day.
+function maintHasRecovery(machine) {
+  return machine === 'Scholle filler A' ||
+         machine === 'Scholle filler B' ||
+         machine === 'Scholle filler 1' ||
+         machine === 'Scholle filler 2' ||
+         machine === 'EP Bottle line filler';
 }
 
 function maintAddDays(dateStr, days) {
@@ -6600,8 +6647,7 @@ function maintSaveEntries(arr) {
 }
 
 function maintMachineChange() {
-  const m = document.getElementById('mfMachine').value;
-  document.getElementById('mfScholleRow').style.display = m === 'HMPS' ? 'block' : 'none';
+  document.getElementById('mfScholleRow').style.display = 'none';
 }
 
 function maintCalcDuration() {
@@ -6655,21 +6701,20 @@ function maintDeleteEntry(id) {
 function saveMaintEntry(evt) {
   evt.preventDefault();
   const machine = document.getElementById('mfMachine').value;
-  const scholle = machine === 'HMPS' ? document.getElementById('mfScholle').value : 'no';
   const startDate = document.getElementById('mfStart').value;
   const endDate = document.getElementById('mfEnd').value;
   if (endDate < startDate) { alert('End date must be on or after start date.'); return; }
-  const recovery = maintHasRecovery(machine, scholle);
+  const recovery = maintHasRecovery(machine);
   const backOp = recovery ? maintAddDays(endDate, 3) : maintAddDays(endDate, 1);
   const editId = document.getElementById('mfEditId').value;
   let entries = maintLoadEntries();
   if (editId) {
     const idx = entries.findIndex(x => x.id === editId);
     if (idx >= 0) {
-      entries[idx] = { id: editId, machine, maintenanceType: document.getElementById('mfType').value, startDate, endDate, scholleInScope: scholle, productionImpact: document.getElementById('mfImpact').value, notes: document.getElementById('mfNotes').value, backOperational: backOp, hasRecovery: recovery };
+      entries[idx] = { id: editId, machine, maintenanceType: document.getElementById('mfType').value, startDate, endDate, productionImpact: document.getElementById('mfImpact').value, notes: document.getElementById('mfNotes').value, backOperational: backOp, hasRecovery: recovery };
     }
   } else {
-    entries.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), machine, maintenanceType: document.getElementById('mfType').value, startDate, endDate, scholleInScope: scholle, productionImpact: document.getElementById('mfImpact').value, notes: document.getElementById('mfNotes').value, backOperational: backOp, hasRecovery: recovery });
+    entries.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), machine, maintenanceType: document.getElementById('mfType').value, startDate, endDate, productionImpact: document.getElementById('mfImpact').value, notes: document.getElementById('mfNotes').value, backOperational: backOp, hasRecovery: recovery });
   }
   entries.sort((a,b) => a.startDate.localeCompare(b.startDate));
   maintSaveEntries(entries);
@@ -6682,7 +6727,12 @@ function renderMaintenance() {
   const today = localToday();
 
   // -- Summary: next upcoming per machine --
-  const machines = ['HMPS','EP Cask Line A Filler','EP Cask Line A Recopak','EP Cask Line B','EP Bottle Line','Anne Street Lines'];
+  const machines = [
+    'Scholle filler A','Scholle filler B','Scholle filler 1','Scholle filler 2',
+    'Recopak A','Recopak B','HMPS',
+    'EP Bottle line filler','Descrambler','Rinser','Shrink tunnel','Labeller',
+    '2L over packer','5L over packer'
+  ];
   let sumHtml = '<div style="display:flex;flex-wrap:wrap;gap:10px">';
   for (const m of machines) {
     const upcoming = entries.filter(e => e.machine === m && e.endDate >= today).sort((a,b) => a.startDate.localeCompare(b.startDate));
