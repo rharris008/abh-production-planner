@@ -505,7 +505,8 @@ tr.risk-a td{background:#FEF9F0}
           <select id="mfMachine" required onchange="maintMachineChange()" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:4px;font-size:12px;color:var(--navy)">
             <option value="">-- select --</option>
             <option value="HMPS">HMPS</option>
-            <option value="EP Cask Line A">EP Cask Line A</option>
+            <option value="EP Cask Line A Filler">EP Cask Line A — Filler (3-day test hold)</option>
+            <option value="EP Cask Line A Recopak">EP Cask Line A — Recopak Carton Erector (back next day)</option>
             <option value="EP Cask Line B">EP Cask Line B</option>
             <option value="EP Bottle Line">EP Bottle Line</option>
             <option value="Anne Street Lines">Anne Street Lines</option>
@@ -667,7 +668,7 @@ let epChangeoverMins    = 45; // EP New Line changeover time loss in minutes
 function lineOutageForWeek(wk) {
   const wkFri = maintAddDays(wk, 4);
   const entries = maintLoadEntries();
-  const aOut = entries.some(e => e.machine === 'EP Cask Line A' && e.startDate <= wkFri && e.endDate >= wk);
+  const aOut = entries.some(e => (e.machine === 'EP Cask Line A Filler' || e.machine === 'EP Cask Line A Recopak') && e.startDate <= wkFri && e.endDate >= wk);
   const bOut = entries.some(e => e.machine === 'EP Cask Line B' && e.startDate <= wkFri && e.endDate >= wk);
   if (aOut && bOut) return {single: false, out: null, bothDown: true};
   if (aOut) return {single: true, out: 'A'};
@@ -2194,7 +2195,8 @@ function buildSchedule(week, pr) {
 
   const MAINT_LINES = [
     { machine: 'HMPS',           label: 'EP HMPS — MAINTENANCE',        cls: 'ep10', site: 'EP' },
-    { machine: 'EP Cask Line A', label: 'EP Cask Line A — MAINTENANCE', cls: 'ep5',  site: 'EP' },
+    { machine: 'EP Cask Line A Filler',  label: 'EP Cask Line A Filler — MAINTENANCE', cls: 'ep5', site: 'EP' },
+    { machine: 'EP Cask Line A Recopak', label: 'EP Cask Line A Recopak — MAINTENANCE', cls: 'ep5', site: 'EP' },
     { machine: 'EP Cask Line B', label: 'EP Cask Line B — MAINTENANCE', cls: 'ep5',  site: 'EP' },
     { machine: 'EP Bottle Line', label: 'EP Bottle Line — MAINTENANCE', cls: 'as2',  site: 'EP' },
     { machine: 'Anne Street Lines', label: 'Anne Street — MAINTENANCE', cls: 'as2',  site: 'AS' },
@@ -6563,8 +6565,9 @@ const MAINT_KEY = 'abh_maintenance_events';
 // Machines that trigger the 3-day post-service recovery rule
 function maintHasRecovery(machine, scholleInScope) {
   if (machine === 'EP Bottle Line') return true;
+  if (machine === 'EP Cask Line A Filler') return true;  // 3-day test-result hold before production resumes
   if (machine === 'HMPS' && scholleInScope === 'yes') return true;
-  return false;
+  return false;  // EP Cask Line A Recopak, EP Cask Line B, Anne Street: back next day
 }
 
 function maintAddDays(dateStr, days) {
@@ -6679,7 +6682,7 @@ function renderMaintenance() {
   const today = localToday();
 
   // -- Summary: next upcoming per machine --
-  const machines = ['HMPS','EP Cask Line A','EP Cask Line B','EP Bottle Line','Anne Street Lines'];
+  const machines = ['HMPS','EP Cask Line A Filler','EP Cask Line A Recopak','EP Cask Line B','EP Bottle Line','Anne Street Lines'];
   let sumHtml = '<div style="display:flex;flex-wrap:wrap;gap:10px">';
   for (const m of machines) {
     const upcoming = entries.filter(e => e.machine === m && e.endDate >= today).sort((a,b) => a.startDate.localeCompare(b.startDate));
