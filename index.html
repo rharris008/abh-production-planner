@@ -518,6 +518,15 @@ tr.risk-a td{background:#FEF9F0}
             <option value="Labeller">Labeller (back next day)</option>
             <option value="2L over packer">2L over packer (back next day)</option>
             <option value="5L over packer">5L over packer (back next day)</option>
+            <option value="RO1">RO1 (back next day)</option>
+            <option value="RO2">RO2 (back next day)</option>
+            <option value="RO3">RO3 (back next day)</option>
+            <option value="Boiler">Boiler (back next day)</option>
+            <option value="Pallet Wrapper 1">Pallet Wrapper 1 (back next day)</option>
+            <option value="Pallet Wrapper 2">Pallet Wrapper 2 (back next day)</option>
+            <option value="Pallet Wrapper 3">Pallet Wrapper 3 (back next day)</option>
+            <option value="Ink Jets">Ink Jets (back next day)</option>
+            <option value="Glue Guns">Glue Guns (back next day)</option>
           </select>
         </div>
         <div>
@@ -2244,6 +2253,15 @@ function buildSchedule(week, pr) {
     { machine: 'Labeller',            label: 'Labeller — MAINTENANCE',            cls: 'as2',  site: 'EP' },
     { machine: '2L over packer',      label: '2L over packer — MAINTENANCE',      cls: 'as2',  site: 'EP' },
     { machine: '5L over packer',      label: '5L over packer — MAINTENANCE',      cls: 'ep5',  site: 'EP' },
+    { machine: 'RO1',                 label: 'RO1 — MAINTENANCE',                 cls: 'ep10', site: 'EP' },
+    { machine: 'RO2',                 label: 'RO2 — MAINTENANCE',                 cls: 'ep10', site: 'EP' },
+    { machine: 'RO3',                 label: 'RO3 — MAINTENANCE',                 cls: 'ep10', site: 'EP' },
+    { machine: 'Boiler',              label: 'Boiler — MAINTENANCE',              cls: 'ep10', site: 'EP' },
+    { machine: 'Pallet Wrapper 1',    label: 'Pallet Wrapper 1 — MAINTENANCE',    cls: 'ep10', site: 'EP' },
+    { machine: 'Pallet Wrapper 2',    label: 'Pallet Wrapper 2 — MAINTENANCE',    cls: 'ep10', site: 'EP' },
+    { machine: 'Pallet Wrapper 3',    label: 'Pallet Wrapper 3 — MAINTENANCE',    cls: 'ep10', site: 'EP' },
+    { machine: 'Ink Jets',            label: 'Ink Jets — MAINTENANCE',            cls: 'ep10', site: 'EP' },
+    { machine: 'Glue Guns',           label: 'Glue Guns — MAINTENANCE',           cls: 'ep5',  site: 'EP' },
   ];
 
   MAINT_LINES.forEach(ml => {
@@ -6731,7 +6749,10 @@ function renderMaintenance() {
     'Scholle filler A','Scholle filler B','Scholle filler 1','Scholle filler 2',
     'Recopak A','Recopak B','HMPS',
     'EP Bottle line filler','Descrambler','Rinser','Shrink tunnel','Labeller',
-    '2L over packer','5L over packer'
+    '2L over packer','5L over packer',
+    'RO1','RO2','RO3','Boiler',
+    'Pallet Wrapper 1','Pallet Wrapper 2','Pallet Wrapper 3',
+    'Ink Jets','Glue Guns'
   ];
   let sumHtml = '<div style="display:flex;flex-wrap:wrap;gap:10px">';
   for (const m of machines) {
