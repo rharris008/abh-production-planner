@@ -2168,10 +2168,28 @@ function buildSchedule(week, pr) {
   // the shift card numerator updates when the user changes the efficiency selector.
   if (CONFIRMED_SCHEDULES[week]) {
     const eff = getEff();
-    return CONFIRMED_SCHEDULES[week].map(s => ({
-      ...s,
-      pallets: Math.floor(getMaxPal(s) * eff),
-    })).filter(s => !(s.shift === 'Day' && s.date === localToday() && isPastDayShift()));
+    const {single: lineAOnlyCS, out: lineOutCS, bothDown: caskBothDownCS} = lineOutageForWeek(week);
+    const runLineCS = lineOutCS === 'B' ? 'A' : lineOutCS === 'A' ? 'B' : 'A&B';
+    return CONFIRMED_SCHEDULES[week].map(s => {
+      const isCaskLine = s.label === 'EP Line A&B (10L)' || s.label === 'EP Line A&B (5L)' ||
+                         s.label === 'EP Line A only (10L)' || s.label === 'EP Line A only (5L)' ||
+                         s.label === 'EP Line B only (10L)' || s.label === 'EP Line B only (5L)';
+      const is10L = s.sku === '10L Cask';
+      let label = s.label;
+      let pallets = Math.floor(getMaxPal(s) * eff);
+      if (isCaskLine) {
+        if (caskBothDownCS) {
+          label = is10L ? 'EP Line A&B (10L)' : 'EP Line A&B (5L)';
+          pallets = 0;
+        } else if (lineAOnlyCS) {
+          label = `EP Line ${runLineCS} only (${is10L ? '10L' : '5L'})`;
+          pallets = Math.floor((is10L ? 30 : 27) * eff);
+        } else {
+          label = is10L ? 'EP Line A&B (10L)' : 'EP Line A&B (5L)';
+        }
+      }
+      return {...s, label, pallets, target: pallets};
+    }).filter(s => !(s.shift === 'Day' && s.date === localToday() && isPastDayShift()));
   }
 
   const eff = getEff();
