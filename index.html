@@ -518,9 +518,9 @@ tr.risk-a td{background:#FEF9F0}
             <option value="Labeller">Labeller (back next day)</option>
             <option value="2L over packer">2L over packer (back next day)</option>
             <option value="5L over packer">5L over packer (back next day)</option>
+            <option value="Sirion Mega SF 110x3 RO Unit 1">Sirion Mega SF 110x3 RO Unit 1 (back next day)</option>
             <option value="Sirion Mega SF 110x3 RO Unit 2">Sirion Mega SF 110x3 RO Unit 2 (back next day)</option>
             <option value="Sirion Mega SF 110x3 RO Unit 3">Sirion Mega SF 110x3 RO Unit 3 (back next day)</option>
-            <option value="RO3">RO3 (back next day)</option>
             <option value="Boiler">Boiler (back next day)</option>
             <option value="Pallet Wrapper 1">Pallet Wrapper 1 (back next day)</option>
             <option value="Pallet Wrapper 2">Pallet Wrapper 2 (back next day)</option>
@@ -528,8 +528,7 @@ tr.risk-a td{background:#FEF9F0}
             <option value="Line A Date Coder">Line A Date Coder (back next day)</option>
             <option value="Line B Date Coder">Line B Date Coder (back next day)</option>
             <option value="HMPS Date Coder">HMPS Date Coder (back next day)</option>
-            <option value="600ml Date Coder">600ml Date Coder (back next day)</option>
-            <option value="2 Litre Date Coder">2 Litre Date Coder (back next day)</option>
+            <option value="EP Bottle line date coder">EP Bottle line date coder (back next day)</option>
             <option value="Line A Glue Guns">Line A Glue Guns (back next day)</option>
             <option value="Line B Glue Guns">Line B Glue Guns (back next day)</option>
           </select>
@@ -725,7 +724,7 @@ function hmpsSingleModeForWeek(wk) {
 // Any single bottle-line component down = whole line down.
 function bottleOutageForWeek(wk) {
   const wkFri = maintAddDays(wk, 4);
-  const bottleMachines = ['EP Bottle line filler', 'Descrambler', 'Rinser', 'Shrink tunnel', 'Labeller', '2L over packer', '600ml Date Coder', '2 Litre Date Coder'];
+  const bottleMachines = ['EP Bottle line filler', 'Descrambler', 'Rinser', 'Shrink tunnel', 'Labeller', '2L over packer', 'EP Bottle line date coder'];
   return maintLoadEntries().some(e => bottleMachines.includes(e.machine) && e.startDate <= wkFri && e.endDate >= wk);
 }
 
@@ -2258,9 +2257,9 @@ function buildSchedule(week, pr) {
     { machine: 'Labeller',            label: 'Labeller — MAINTENANCE',            cls: 'as2',  site: 'EP' },
     { machine: '2L over packer',      label: '2L over packer — MAINTENANCE',      cls: 'as2',  site: 'EP' },
     { machine: '5L over packer',      label: '5L over packer — MAINTENANCE',      cls: 'ep5',  site: 'EP' },
+    { machine: 'Sirion Mega SF 110x3 RO Unit 1', label: 'Sirion Mega SF 110x3 RO Unit 1 — MAINTENANCE', cls: 'ep10', site: 'EP' },
     { machine: 'Sirion Mega SF 110x3 RO Unit 2', label: 'Sirion Mega SF 110x3 RO Unit 2 — MAINTENANCE', cls: 'ep10', site: 'EP' },
     { machine: 'Sirion Mega SF 110x3 RO Unit 3', label: 'Sirion Mega SF 110x3 RO Unit 3 — MAINTENANCE', cls: 'ep10', site: 'EP' },
-    { machine: 'RO3',                 label: 'RO3 — MAINTENANCE',                 cls: 'ep10', site: 'EP' },
     { machine: 'Boiler',              label: 'Boiler — MAINTENANCE',              cls: 'ep10', site: 'EP' },
     { machine: 'Pallet Wrapper 1',    label: 'Pallet Wrapper 1 — MAINTENANCE',    cls: 'ep10', site: 'EP' },
     { machine: 'Pallet Wrapper 2',    label: 'Pallet Wrapper 2 — MAINTENANCE',    cls: 'ep10', site: 'EP' },
@@ -2268,8 +2267,7 @@ function buildSchedule(week, pr) {
     { machine: 'Line A Date Coder',   label: 'Line A Date Coder — MAINTENANCE',   cls: 'ep5',  site: 'EP' },
     { machine: 'Line B Date Coder',   label: 'Line B Date Coder — MAINTENANCE',   cls: 'ep5',  site: 'EP' },
     { machine: 'HMPS Date Coder',     label: 'HMPS Date Coder — MAINTENANCE',     cls: 'ep10', site: 'EP' },
-    { machine: '600ml Date Coder',    label: '600ml Date Coder — MAINTENANCE',    cls: 'as2',  site: 'EP' },
-    { machine: '2 Litre Date Coder',  label: '2 Litre Date Coder — MAINTENANCE',  cls: 'as2',  site: 'EP' },
+    { machine: 'EP Bottle line date coder', label: 'EP Bottle line date coder — MAINTENANCE', cls: 'as2', site: 'EP' },
     { machine: 'Line A Glue Guns',    label: 'Line A Glue Guns — MAINTENANCE',    cls: 'ep5',  site: 'EP' },
     { machine: 'Line B Glue Guns',    label: 'Line B Glue Guns — MAINTENANCE',    cls: 'ep5',  site: 'EP' },
   ];
@@ -6760,9 +6758,9 @@ function renderMaintenance() {
     'Recopak A','Recopak B','HMPS',
     'EP Bottle line filler','Descrambler','Rinser','Shrink tunnel','Labeller',
     '2L over packer','5L over packer',
-    'Sirion Mega SF 110x3 RO Unit 2','Sirion Mega SF 110x3 RO Unit 3','RO3','Boiler',
+    'Sirion Mega SF 110x3 RO Unit 1','Sirion Mega SF 110x3 RO Unit 2','Sirion Mega SF 110x3 RO Unit 3','Boiler',
     'Pallet Wrapper 1','Pallet Wrapper 2','Pallet Wrapper 3',
-    'Line A Date Coder','Line B Date Coder','HMPS Date Coder','600ml Date Coder','2 Litre Date Coder',
+    'Line A Date Coder','Line B Date Coder','HMPS Date Coder','EP Bottle line date coder',
     'Line A Glue Guns','Line B Glue Guns'
   ];
   let sumHtml = '<div style="display:flex;flex-wrap:wrap;gap:10px">';
