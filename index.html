@@ -974,7 +974,7 @@ function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, mi
 // - No SKU ever falls below STOCK_COVER.floor days stock
 // Cycle spans 2 weeks (4+6=10 working days). Phase is inferred from opening stock each week.
 // Returns {shifts, endStock2L, endStock12, endStock6}
-function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6, weekIdx) {
+function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6, weekIdx, carry2L = 0, carry600 = 0) {
   const TARGET_2L_DAYS  = 4;   // working days on 2L per cycle
   const TARGET_600_DAYS = 6;   // working days on 600ml per cycle
   const TARGET_2L_COVER = 9;   // days — 2L runs until this is achieved
@@ -1105,15 +1105,18 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
   if (c6_open < STOCK_COVER.floor || (is12pkActive && c12_open < STOCK_COVER.floor && s12 < finalDem12)) {
     // 12pk emergency only fires when active AND stock is below the cap for the final prod week
     phase = (is12pkActive && c12_open < c6_open && s12 < finalDem12) ? '600ml 12pk' : '600ml 6pk';
-  } else if (c2L_open < TARGET_2L_COVER) {
+  } else if (c2L_open < TARGET_2L_COVER || carry600 >= TARGET_600_DAYS) {
+    // 2L below cover target OR prior week completed its 600ml cycle (carry600 hit the limit)
+    // — both cases mean the 2L phase should run next.
     phase = '2L Bottle';
   } else {
     phase = '600ml 6pk';  // 2L fine — produce 600ml, 6pk first
   }
 
-  // Day-count tracking within this week's run
-  let days2L  = 0;  // working days spent on 2L this week
-  let days600 = 0;  // working days spent on 600ml this week
+  // Day-count tracking — initialised from prior-week carry so the 10-day cycle
+  // (4d 2L + 6d 600ml) spans week boundaries correctly. Rob Harris 24/07/2026.
+  let days2L  = carry2L  || 0;
+  let days600 = carry600 || 0;
 
   for (let d = 0; d < workDays.length; d++) {
     _currentDay = d;  // expose current day to effectiveDailyDemand closure
@@ -1146,10 +1149,12 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
         phase = (is12pkActive && c12 < STOCK_COVER.target && c12 < c6 && (!isLastProdWk || s12 < finalDem12))
           ? '600ml 12pk'
           : '600ml 6pk';
+        days2L = 0;  // 2L cycle complete — fresh counter for next 2L run
       }
     } else if (phase === '600ml 6pk') {
       if (days600 >= TARGET_600_DAYS) {
         phase = '2L Bottle';         // completed 600ml cycle → back to 2L
+        days600 = 0;  // 600ml cycle complete — fresh counter for next 600ml run
       } else if (is12pkActive && c6 >= COV_6PK_TO_12PK && (!isLastProdWk || s12 < finalDem12)) {
         phase = '600ml 12pk';        // 6pk sufficiently stocked → switch to 12pk (capped in last prod wk)
         weekOpenedWith6pkEmergency = false;
@@ -1167,6 +1172,7 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
     } else if (phase === '600ml 12pk') {
       if (days600 >= TARGET_600_DAYS) {
         phase = '2L Bottle';         // completed 600ml cycle → back to 2L
+        days600 = 0;  // 600ml cycle complete — fresh counter for next 600ml run
       } else if (c6 < c12 && c6 < COV_6PK_TO_12PK) {
         phase = '600ml 6pk';         // 6pk fell back below 12pk → revert priority
       } else if (isLastProdWk && s12 >= finalDem12) {
@@ -1232,6 +1238,8 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
     endStock2L: Math.round(s2L),
     endStock12: Math.round(s12),
     endStock6:  Math.round(s6),
+    endDays2L:  days2L,   // carry for next week's 2L phase position
+    endDays600: days600,  // carry for next week's 600ml phase position
   };
 }
 
@@ -1498,6 +1506,9 @@ function planWeek(week) {
     if (!planWeekCache[week]) planWeekCache[week] = {};
     planWeekCache[week]._full = resultC;
     planWeekCache[week].closingStock = {...stockEnd};
+    // Confirmed schedule bypasses scheduleBottleLine — carry resets so next dynamic week starts clean.
+    planWeekCache[week].endDays2L  = 0;
+    planWeekCache[week].endDays600 = 0;
     return resultC;
   }
   // ══ END CONFIRMED SCHEDULE BYPASS ══════════════════════════════════════════
@@ -1636,11 +1647,22 @@ function planWeek(week) {
   // → other 600ml → back to 2L, triggered by 8 days cover threshold.
   // Exception: when EP Bottle Line has a Maintenance Calendar entry this week, skip scheduling.
   const bottleDown = bottleOutageForWeek(week);
-  const bottleResult = bottleDown ? {shifts:[], endStock2L:avail['2L Bottle']||0, endStock12:avail['600ml 12pk']||0, endStock6:avail['600ml 6pk']||0} : scheduleBottleLine(week, eff,
-    avail['2L Bottle']   || 0,
-    avail['600ml 12pk']  || 0,
-    avail['600ml 6pk']   || 0,
-    weekIdx);
+
+  // Carry the 10-day cycle position forward from the prior week (Rob Harris 24/07/2026).
+  // Without this, days600 resets to 0 every week and the 6-day 600ml phase can never
+  // complete in a 5-day working week, leaving 2L perpetually unscheduled.
+  const prevWk4Carry  = weekIdx > 0 ? ALL_WEEKS[weekIdx - 1] : null;
+  const prevBotCache  = prevWk4Carry ? planWeekCache[prevWk4Carry] : null;
+  const botCarry2L    = (prevBotCache && prevBotCache.endDays2L)  || 0;
+  const botCarry600   = (prevBotCache && prevBotCache.endDays600) || 0;
+
+  const bottleResult = bottleDown
+    ? {shifts:[], endStock2L:avail['2L Bottle']||0, endStock12:avail['600ml 12pk']||0, endStock6:avail['600ml 6pk']||0, endDays2L: botCarry2L, endDays600: botCarry600}
+    : scheduleBottleLine(week, eff,
+        avail['2L Bottle']   || 0,
+        avail['600ml 12pk']  || 0,
+        avail['600ml 6pk']   || 0,
+        weekIdx, botCarry2L, botCarry600);
 
   // Extract 2L stats from bottle scheduler
   const s2      = avail['2L Bottle'] || 0;
@@ -1880,6 +1902,9 @@ function planWeek(week) {
   };
   if (!planWeekCache[week]) planWeekCache[week] = {};
   planWeekCache[week]._full = result;
+  // Store bottle-line cycle carry so the next week picks up where this week left off.
+  planWeekCache[week].endDays2L  = bottleResult.endDays2L  || 0;
+  planWeekCache[week].endDays600 = bottleResult.endDays600 || 0;
   // Use satStock as closing position when Saturday ran — this is what the next week starts from.
   // Using stockEnd here (pre-Saturday) would understate opening stock for all downstream weeks.
   const cs = result.satStock;
