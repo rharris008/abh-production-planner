@@ -1115,7 +1115,10 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
 
   // Day-count tracking — initialised from prior-week carry so the 10-day cycle
   // (4d 2L + 6d 600ml) spans week boundaries correctly. Rob Harris 24/07/2026.
-  let days2L  = carry2L  || 0;
+  // If carry600 >= TARGET_600_DAYS, the 600ml cycle completed at the prior week boundary
+  // and we are starting a fresh 2L run — any carry2L value is stale from the previous
+  // completed 2L run and must NOT be applied to the new run.
+  let days2L  = (carry600 >= TARGET_600_DAYS) ? 0 : (carry2L  || 0);
   let days600 = carry600 || 0;
 
   for (let d = 0; d < workDays.length; d++) {
@@ -1155,6 +1158,7 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
       if (days600 >= TARGET_600_DAYS) {
         phase = '2L Bottle';         // completed 600ml cycle → back to 2L
         days600 = 0;  // 600ml cycle complete — fresh counter for next 600ml run
+        days2L  = 0;  // stale carry from prior 2L run — reset so fresh 2L run starts at 0
       } else if (is12pkActive && c6 >= COV_6PK_TO_12PK && (!isLastProdWk || s12 < finalDem12)) {
         phase = '600ml 12pk';        // 6pk sufficiently stocked → switch to 12pk (capped in last prod wk)
         weekOpenedWith6pkEmergency = false;
@@ -1173,6 +1177,7 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
       if (days600 >= TARGET_600_DAYS) {
         phase = '2L Bottle';         // completed 600ml cycle → back to 2L
         days600 = 0;  // 600ml cycle complete — fresh counter for next 600ml run
+        days2L  = 0;  // stale carry from prior 2L run — reset so fresh 2L run starts at 0
       } else if (c6 < c12 && c6 < COV_6PK_TO_12PK) {
         phase = '600ml 6pk';         // 6pk fell back below 12pk → revert priority
       } else if (isLastProdWk && s12 >= finalDem12) {
