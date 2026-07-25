@@ -671,6 +671,50 @@ let RM_STOCK_ORDER    = {};   // {item_sku: qty_on_order}
 let RM_STOCK_PO_DATE  = {};   // {item_sku: next_po_date (YYYY-MM-DD)}
 let RM_NEXT_WEEK_PALS = {};   // {sku: pallets} for the upcoming forecast week
 let RM_STOCK_DATE     = null; // ISO timestamp of last NS sync
+
+// BOM qty per pallet for each tracked raw material (FY27, 25/07/2026)
+// Single source — used by computeRmCoverage(), renderRmStock(), and buildAllAlerts().
+const RM_BOM_PER_PAL = {
+  'Cask - 10L Glama Pak':           {'10L Cask': 97.44},
+  'Cask - 10L 2026 EXT GL':         {'10L Cask': 97.44},
+  'Cask - 10L Abbe':                {'10L Cask': 97.44},
+  'Bladder - 10L':                   {'10L Cask': 97.44},
+  'Cask - 5L Glama Pak':            {'5L Cask': 182.16},
+  'Bladder - 5L':                    {'5L Cask': 182.16},
+  'Shipper - 5L Pureau':             {'5L Cask': 60},
+  'Shipper - 2L Pureau':             {'2L Bottle': 64},
+  'Cap - Natural':                   {'2L Bottle': 384.77, '600ml 12pk': 1512, '600ml 6pk': 1512},
+  'Label - 2L Pureau':               {'2L Bottle': 384.77},
+  'Label - 600ml Pureau LAB110105':  {'600ml 12pk': 1512, '600ml 6pk': 1512},
+};
+const RM_DISPLAY_LABELS = {
+  'Cask - 10L Glama Pak':           'Cask 10L (HMPS)',
+  'Cask - 10L 2026 EXT GL':         'Cask 10L Visy (A&B)',
+  'Cask - 10L Abbe':                'Cask 10L Abbe (A&B)',
+  'Bladder - 10L':                  'Bladder 10L',
+  'Cask - 5L Glama Pak':           'Cask 5L',
+  'Bladder - 5L':                   'Bladder 5L',
+  'Shipper - 5L Pureau':            'Shipper 5L',
+  'Shipper - 2L Pureau':            'Shipper 2L',
+  'Cap - Natural':                  'Cap (all bottles)',
+  'Label - 2L Pureau':              'Label 2L',
+  'Label - 600ml Pureau LAB110105': 'Label 600ml',
+};
+
+// Returns coverage rows for all tracked raw materials. Single source for
+// renderRmStock() and buildAllAlerts() — do not duplicate this logic inline.
+function computeRmCoverage() {
+  return Object.entries(RM_BOM_PER_PAL).map(([itemSku, skuQties]) => {
+    const soh     = RM_STOCK_SOH[itemSku]   || 0;
+    const onOrder = RM_STOCK_ORDER[itemSku] || 0;
+    const nextPO  = RM_STOCK_PO_DATE[itemSku] || null;
+    const weekReq = Object.entries(skuQties).reduce((acc, [sku, qpp]) =>
+      acc + (RM_NEXT_WEEK_PALS[sku] || 0) * qpp, 0);
+    const wks    = weekReq > 0 ? soh / weekReq : null;
+    const status = wks === null ? 'none' : wks < 1 ? 'red' : wks < 3 ? 'amber' : 'green';
+    return {itemSku, label: RM_DISPLAY_LABELS[itemSku], soh, onOrder, nextPO, weekReq, wks, status};
+  });
+}
 let activeRetailer = 'All';  // retailer filter for SKU strip — 'All', 'WW', 'Coles', 'Metcash'
 // Tracks the last week with live retailer data per channel (set by forwardFillDemand).
 // Weeks beyond this are forward-filled projections, not live forecast rows.
@@ -3377,6 +3421,19 @@ function buildAllAlerts() {
     });
   }
 
+  // Raw material coverage alerts — only when NS sync data is loaded
+  if (Object.keys(RM_STOCK_SOH).length) {
+    computeRmCoverage().forEach(r => {
+      if (r.wks === null || r.wks >= 3) return;
+      const wksStr  = r.wks.toFixed(1);
+      const poStr   = r.onOrder > 0
+        ? ` · ${Math.round(r.onOrder).toLocaleString('en-AU')} on order${r.nextPO ? ', due ' + r.nextPO.split('-').reverse().join('/') : ''}`
+        : ' · <strong>NO PO on order</strong>';
+      const tier = r.wks < 1 ? 'r' : 'a';
+      alerts.push({t: tier, msg: `<strong>Raw material ${r.wks < 1 ? 'critical' : 'low'}: ${r.label}</strong> — ${wksStr} wks cover${poStr}`});
+    });
+  }
+
   return alerts;
 }
 
@@ -4569,47 +4626,7 @@ function renderRmStock() {
   const el = document.getElementById('rmStockTable');
   if (!el) return;
 
-  // BOM qty per pallet for each tracked raw material (from BOM snapshot FY27, 25/07/2026)
-  // Format: item_sku → {sku: qty_per_pallet, ...}
-  const BOM_PER_PAL = {
-    'Cask - 10L Glama Pak':           {'10L Cask': 97.44},  // HMPS primary
-    'Cask - 10L 2026 EXT GL':         {'10L Cask': 97.44},  // Line A&B
-    'Cask - 10L Abbe':                {'10L Cask': 97.44},  // Line A&B
-    'Bladder - 10L':                   {'10L Cask': 97.44},
-    'Cask - 5L Glama Pak':            {'5L Cask': 182.16},
-    'Bladder - 5L':                    {'5L Cask': 182.16},
-    'Shipper - 5L Pureau':             {'5L Cask': 60},
-    'Shipper - 2L Pureau':             {'2L Bottle': 64},
-    'Cap - Natural':                   {'2L Bottle': 384.77, '600ml 12pk': 1512, '600ml 6pk': 1512},
-    'Label - 2L Pureau':               {'2L Bottle': 384.77},
-    'Label - 600ml Pureau LAB110105':  {'600ml 12pk': 1512, '600ml 6pk': 1512},
-  };
-  const RM_LABELS = {
-    'Cask - 10L Glama Pak':           'Cask 10L (HMPS)',
-    'Cask - 10L 2026 EXT GL':         'Cask 10L Visy (A&B)',
-    'Cask - 10L Abbe':                'Cask 10L Abbe (A&B)',
-    'Bladder - 10L':                  'Bladder 10L',
-    'Cask - 5L Glama Pak':           'Cask 5L',
-    'Bladder - 5L':                   'Bladder 5L',
-    'Shipper - 5L Pureau':            'Shipper 5L',
-    'Shipper - 2L Pureau':            'Shipper 2L',
-    'Cap - Natural':                  'Cap (all bottles)',
-    'Label - 2L Pureau':              'Label 2L',
-    'Label - 600ml Pureau LAB110105': 'Label 600ml',
-  };
-
-  const rows = Object.entries(BOM_PER_PAL).map(([itemSku, skuQties]) => {
-    const soh     = RM_STOCK_SOH[itemSku]   || 0;
-    const onOrder = RM_STOCK_ORDER[itemSku] || 0;
-    const nextPO  = RM_STOCK_PO_DATE[itemSku] || null;
-    const weekReq = Object.entries(skuQties).reduce((acc, [sku, qpp]) => {
-      return acc + (RM_NEXT_WEEK_PALS[sku] || 0) * qpp;
-    }, 0);
-    const wks = weekReq > 0 ? soh / weekReq : null;
-    // GREEN >= 3 wks, AMBER 1-3 wks, RED < 1 wk
-    const status = wks === null ? 'none' : wks < 1 ? 'red' : wks < 3 ? 'amber' : 'green';
-    return {itemSku, label: RM_LABELS[itemSku], soh, onOrder, nextPO, weekReq, wks, status};
-  });
+  const rows = computeRmCoverage();
 
   const fmtN = n => Math.round(n).toLocaleString('en-AU');
   const fmtW = w => w === null ? '—' : w.toFixed(1) + ' wks';
