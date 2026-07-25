@@ -401,6 +401,14 @@ tr.risk-a td{background:#FEF9F0}
       <span style="font-size:10px;opacity:.7">Edit individual SKUs if inventory file is not available</span></div>
     <div class="oc-grid" id="manualStockGrid" style="padding:12px"></div>
   </div>
+
+  <div class="panel">
+    <div class="ph navy">Raw Material Coverage
+      <span id="rmStockDate" style="font-size:10px;opacity:.7;margin-left:12px"></span>
+      <span style="font-size:10px;opacity:.7;margin-left:16px">vs next week forecast &nbsp;&#9679;&nbsp;<span style="color:#27AE60">&#9679; &ge;3 wks</span> &nbsp;<span style="color:#E67E22">&#9679; 1&ndash;3 wks</span> &nbsp;<span style="color:#C0392B">&#9679; &lt;1 wk</span></span>
+    </div>
+    <div class="tscroll"><table id="rmStockTable" style="width:100%;border-collapse:collapse"></table></div>
+  </div>
 </div>
 
 <!-- OPEN ORDERS -->
@@ -656,6 +664,11 @@ const weekSkuOverride = new Map([
 const lineBSku = '5L';            // used for actuals label normalisation only — Line A and Line B always run combined
 let colesOvr    = null;
 let metcashOvr  = null;
+
+// Raw material coverage state (populated by sbPull → renderRmStock)
+let RM_STOCK_SOH      = {};   // {item_sku: qty_on_hand}
+let RM_NEXT_WEEK_PALS = {};   // {sku: pallets} for the upcoming forecast week
+let RM_STOCK_DATE     = null; // ISO timestamp of last NS sync
 let activeRetailer = 'All';  // retailer filter for SKU strip — 'All', 'WW', 'Coles', 'Metcash'
 // Tracks the last week with live retailer data per channel (set by forwardFillDemand).
 // Weeks beyond this are forward-filled projections, not live forecast rows.
@@ -4550,6 +4563,78 @@ function renderManualStockGrid() {
   }).join('');
 }
 
+function renderRmStock() {
+  const el = document.getElementById('rmStockTable');
+  if (!el) return;
+
+  // BOM qty per pallet for each tracked raw material (from BOM snapshot FY27, 20/07/2026)
+  // Format: item_sku → {sku: qty_per_pallet, ...}
+  const BOM_PER_PAL = {
+    'Cask - 10L 2026 EXT GL':         {'10L Cask': 97.44},
+    'Bladder - 10L':                   {'10L Cask': 97.44},
+    'Cask - 5L Glama Pak':            {'5L Cask': 182.16},
+    'Bladder - 5L':                    {'5L Cask': 182.16},
+    'Shipper - 5L Pureau':             {'5L Cask': 60},
+    'Shipper - 2L Pureau':             {'2L Bottle': 64},
+    'Cap - Natural':                   {'2L Bottle': 384.77, '600ml 12pk': 1512, '600ml 6pk': 1512},
+    'Label - 2L Pureau':               {'2L Bottle': 384.77},
+    'Label - 600ml Pureau LAB110105':  {'600ml 12pk': 1512, '600ml 6pk': 1512},
+  };
+  const RM_LABELS = {
+    'Cask - 10L 2026 EXT GL':        'Cask 10L',
+    'Bladder - 10L':                  'Bladder 10L',
+    'Cask - 5L Glama Pak':           'Cask 5L',
+    'Bladder - 5L':                   'Bladder 5L',
+    'Shipper - 5L Pureau':            'Shipper 5L',
+    'Shipper - 2L Pureau':            'Shipper 2L',
+    'Cap - Natural':                  'Cap (all bottles)',
+    'Label - 2L Pureau':              'Label 2L',
+    'Label - 600ml Pureau LAB110105': 'Label 600ml',
+  };
+
+  const rows = Object.entries(BOM_PER_PAL).map(([itemSku, skuQties]) => {
+    const soh = RM_STOCK_SOH[itemSku] || 0;
+    const weekReq = Object.entries(skuQties).reduce((acc, [sku, qpp]) => {
+      return acc + (RM_NEXT_WEEK_PALS[sku] || 0) * qpp;
+    }, 0);
+    const wks = weekReq > 0 ? soh / weekReq : null;
+    // GREEN >= 3 wks, AMBER 1-3 wks, RED < 1 wk
+    const status = wks === null ? 'none' : wks < 1 ? 'red' : wks < 3 ? 'amber' : 'green';
+    return {itemSku, label: RM_LABELS[itemSku], soh, weekReq, wks, status};
+  });
+
+  const fmtN = n => Math.round(n).toLocaleString('en-AU');
+  const fmtW = w => w === null ? '—' : w.toFixed(1) + ' wks';
+  const statusDot = s => s === 'red' ? '<span style="color:#C0392B;font-weight:700">&#9679;</span>' :
+                         s === 'amber' ? '<span style="color:#E67E22;font-weight:700">&#9679;</span>' :
+                         s === 'green' ? '<span style="color:#27AE60;font-weight:700">&#9679;</span>' : '';
+
+  const th = `<thead><tr style="background:#1B2A4A;color:#fff">
+    <th style="padding:6px 10px;text-align:left;font-weight:700">Material</th>
+    <th style="padding:6px 10px;text-align:right;font-weight:700">SOH (units)</th>
+    <th style="padding:6px 10px;text-align:right;font-weight:700">Next Week Req</th>
+    <th style="padding:6px 10px;text-align:center;font-weight:700">Cover</th>
+  </tr></thead>`;
+
+  const tbody = `<tbody>${rows.map((r, i) => `<tr style="background:${i%2?'var(--light)':'var(--bg)'}">
+    <td style="padding:5px 10px;font-size:12px">${r.label}</td>
+    <td style="padding:5px 10px;text-align:right;font-size:12px">${fmtN(r.soh)}</td>
+    <td style="padding:5px 10px;text-align:right;font-size:12px">${r.weekReq > 0 ? fmtN(r.weekReq) : '<span style="color:var(--muted)">—</span>'}</td>
+    <td style="padding:5px 10px;text-align:center;font-size:12px">${statusDot(r.status)} <strong style="color:${r.status==='red'?'#C0392B':r.status==='amber'?'#E67E22':r.status==='green'?'#27AE60':'var(--muted)'}">${fmtW(r.wks)}</strong></td>
+  </tr>`).join('')}</tbody>`;
+
+  el.innerHTML = th + tbody;
+
+  const dateEl = document.getElementById('rmStockDate');
+  if (dateEl && RM_STOCK_DATE) {
+    const d = new Date(RM_STOCK_DATE);
+    dateEl.textContent = 'NS sync: ' + d.toLocaleDateString('en-AU', {day:'2-digit',month:'2-digit',timeZone:'Australia/Brisbane'}) +
+      ' ' + d.toLocaleTimeString('en-AU', {hour:'2-digit',minute:'2-digit',timeZone:'Australia/Brisbane',hour12:false});
+  } else if (dateEl && !RM_STOCK_DATE) {
+    dateEl.textContent = 'No sync data yet';
+  }
+}
+
 // Per-retailer file fingerprint: size + name, used to detect re-uploads of same file
 const lastFileFingerprint = {};
 
@@ -6265,8 +6350,28 @@ async function sbPull() {
     const rPH  = await sbFetch('public_holidays');   if (rPH  && rPH.length)  { applyPublicHolidays(rPH); loaded.push('Holidays'); }
     const rOO  = await sbFetch('open_order_lines');   if (rOO  && rOO.length)  { applyOpenOrdersFromSB(rOO); loaded.push('OpenOrders'); }
 
+    // Raw material coverage: compute next-week forecast pallets per SKU from raw SB data
+    const _rmAllFc = [...(rWW||[]), ...(rCo||[]), ...(rMc||[])];
+    const _rmUpcoming = (() => {
+      const d = new Date(); const day = d.getDay();
+      d.setDate(d.getDate() + (day === 0 ? 1 : 8 - day));
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    })();
+    RM_NEXT_WEEK_PALS = {};
+    _rmAllFc.filter(r => r.week_date === _rmUpcoming).forEach(r => {
+      RM_NEXT_WEEK_PALS[r.sku] = (RM_NEXT_WEEK_PALS[r.sku] || 0) + (+r.pallets || 0);
+    });
+    const rRM = await sbFetch('raw_material_stock');
+    if (rRM && rRM.length) {
+      RM_STOCK_SOH = {};
+      rRM.forEach(r => { RM_STOCK_SOH[r.item_sku] = +r.qty_on_hand || 0; });
+      RM_STOCK_DATE = rRM.reduce((a, b) => (a > b.updated_at ? a : b.updated_at), '');
+      loaded.push('RawMaterials');
+    }
+
     if (loaded.length) {
       rebuildData();
+      renderRmStock();
       const ts = new Date().toLocaleString('en-AU', { timeZone: 'Australia/Brisbane', hour12: false });
       sbStatus(`✓ Live: ${loaded.join(', ')} — ${ts}`, 'ok');
       // Show upload audit from upload_log
