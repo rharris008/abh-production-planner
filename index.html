@@ -3422,8 +3422,11 @@ function buildAllAlerts() {
   }
 
   // Raw material coverage alerts — only when NS sync data is loaded
+  // Cask 10L Abbe excluded: on trial, not yet a production-critical item.
+  const RM_ALERT_EXCLUDED = new Set(['Cask - 10L Abbe']);
   if (Object.keys(RM_STOCK_SOH).length) {
     computeRmCoverage().forEach(r => {
+      if (RM_ALERT_EXCLUDED.has(r.itemSku)) return;
       if (r.wks === null || r.wks >= 3) return;
       const wksStr  = r.wks.toFixed(1);
       const poStr   = r.onOrder > 0
