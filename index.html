@@ -667,6 +667,8 @@ let metcashOvr  = null;
 
 // Raw material coverage state (populated by sbPull → renderRmStock)
 let RM_STOCK_SOH      = {};   // {item_sku: qty_on_hand}
+let RM_STOCK_ORDER    = {};   // {item_sku: qty_on_order}
+let RM_STOCK_PO_DATE  = {};   // {item_sku: next_po_date (YYYY-MM-DD)}
 let RM_NEXT_WEEK_PALS = {};   // {sku: pallets} for the upcoming forecast week
 let RM_STOCK_DATE     = null; // ISO timestamp of last NS sync
 let activeRetailer = 'All';  // retailer filter for SKU strip — 'All', 'WW', 'Coles', 'Metcash'
@@ -4567,10 +4569,12 @@ function renderRmStock() {
   const el = document.getElementById('rmStockTable');
   if (!el) return;
 
-  // BOM qty per pallet for each tracked raw material (from BOM snapshot FY27, 20/07/2026)
+  // BOM qty per pallet for each tracked raw material (from BOM snapshot FY27, 25/07/2026)
   // Format: item_sku → {sku: qty_per_pallet, ...}
   const BOM_PER_PAL = {
-    'Cask - 10L 2026 EXT GL':         {'10L Cask': 97.44},
+    'Cask - 10L Glama Pak':           {'10L Cask': 97.44},  // HMPS primary
+    'Cask - 10L 2026 EXT GL':         {'10L Cask': 97.44},  // Line A&B
+    'Cask - 10L Abbe':                {'10L Cask': 97.44},  // Line A&B
     'Bladder - 10L':                   {'10L Cask': 97.44},
     'Cask - 5L Glama Pak':            {'5L Cask': 182.16},
     'Bladder - 5L':                    {'5L Cask': 182.16},
@@ -4581,7 +4585,9 @@ function renderRmStock() {
     'Label - 600ml Pureau LAB110105':  {'600ml 12pk': 1512, '600ml 6pk': 1512},
   };
   const RM_LABELS = {
-    'Cask - 10L 2026 EXT GL':        'Cask 10L',
+    'Cask - 10L Glama Pak':           'Cask 10L (HMPS)',
+    'Cask - 10L 2026 EXT GL':         'Cask 10L Visy (A&B)',
+    'Cask - 10L Abbe':                'Cask 10L Abbe (A&B)',
     'Bladder - 10L':                  'Bladder 10L',
     'Cask - 5L Glama Pak':           'Cask 5L',
     'Bladder - 5L':                   'Bladder 5L',
@@ -4593,18 +4599,26 @@ function renderRmStock() {
   };
 
   const rows = Object.entries(BOM_PER_PAL).map(([itemSku, skuQties]) => {
-    const soh = RM_STOCK_SOH[itemSku] || 0;
+    const soh     = RM_STOCK_SOH[itemSku]   || 0;
+    const onOrder = RM_STOCK_ORDER[itemSku] || 0;
+    const nextPO  = RM_STOCK_PO_DATE[itemSku] || null;
     const weekReq = Object.entries(skuQties).reduce((acc, [sku, qpp]) => {
       return acc + (RM_NEXT_WEEK_PALS[sku] || 0) * qpp;
     }, 0);
     const wks = weekReq > 0 ? soh / weekReq : null;
     // GREEN >= 3 wks, AMBER 1-3 wks, RED < 1 wk
     const status = wks === null ? 'none' : wks < 1 ? 'red' : wks < 3 ? 'amber' : 'green';
-    return {itemSku, label: RM_LABELS[itemSku], soh, weekReq, wks, status};
+    return {itemSku, label: RM_LABELS[itemSku], soh, onOrder, nextPO, weekReq, wks, status};
   });
 
   const fmtN = n => Math.round(n).toLocaleString('en-AU');
   const fmtW = w => w === null ? '—' : w.toFixed(1) + ' wks';
+  const fmtPODate = d => {
+    if (!d) return '<span style="color:var(--muted)">—</span>';
+    // d is YYYY-MM-DD; display as DD/MM/YYYY
+    const parts = d.split('-');
+    return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d;
+  };
   const statusDot = s => s === 'red' ? '<span style="color:#C0392B;font-weight:700">&#9679;</span>' :
                          s === 'amber' ? '<span style="color:#E67E22;font-weight:700">&#9679;</span>' :
                          s === 'green' ? '<span style="color:#27AE60;font-weight:700">&#9679;</span>' : '';
@@ -4612,15 +4626,19 @@ function renderRmStock() {
   const th = `<thead><tr style="background:#1B2A4A;color:#fff">
     <th style="padding:6px 10px;text-align:left;font-weight:700">Material</th>
     <th style="padding:6px 10px;text-align:right;font-weight:700">SOH (units)</th>
+    <th style="padding:6px 10px;text-align:right;font-weight:700">On Order</th>
     <th style="padding:6px 10px;text-align:right;font-weight:700">Next Week Req</th>
     <th style="padding:6px 10px;text-align:center;font-weight:700">Cover</th>
+    <th style="padding:6px 10px;text-align:center;font-weight:700">Next Delivery</th>
   </tr></thead>`;
 
   const tbody = `<tbody>${rows.map((r, i) => `<tr style="background:${i%2?'var(--light)':'var(--bg)'}">
     <td style="padding:5px 10px;font-size:12px">${r.label}</td>
     <td style="padding:5px 10px;text-align:right;font-size:12px">${fmtN(r.soh)}</td>
+    <td style="padding:5px 10px;text-align:right;font-size:12px">${r.onOrder > 0 ? fmtN(r.onOrder) : '<span style="color:var(--muted)">—</span>'}</td>
     <td style="padding:5px 10px;text-align:right;font-size:12px">${r.weekReq > 0 ? fmtN(r.weekReq) : '<span style="color:var(--muted)">—</span>'}</td>
     <td style="padding:5px 10px;text-align:center;font-size:12px">${statusDot(r.status)} <strong style="color:${r.status==='red'?'#C0392B':r.status==='amber'?'#E67E22':r.status==='green'?'#27AE60':'var(--muted)'}">${fmtW(r.wks)}</strong></td>
+    <td style="padding:5px 10px;text-align:center;font-size:12px">${fmtPODate(r.nextPO)}</td>
   </tr>`).join('')}</tbody>`;
 
   el.innerHTML = th + tbody;
@@ -6364,7 +6382,13 @@ async function sbPull() {
     const rRM = await sbFetch('raw_material_stock');
     if (rRM && rRM.length) {
       RM_STOCK_SOH = {};
-      rRM.forEach(r => { RM_STOCK_SOH[r.item_sku] = +r.qty_on_hand || 0; });
+      RM_STOCK_ORDER = {};
+      RM_STOCK_PO_DATE = {};
+      rRM.forEach(r => {
+        RM_STOCK_SOH[r.item_sku]     = +r.qty_on_hand  || 0;
+        RM_STOCK_ORDER[r.item_sku]   = +r.qty_on_order || 0;
+        RM_STOCK_PO_DATE[r.item_sku] = r.next_po_date  || null;
+      });
       RM_STOCK_DATE = rRM.reduce((a, b) => (a > b.updated_at ? a : b.updated_at), '');
       loaded.push('RawMaterials');
     }
