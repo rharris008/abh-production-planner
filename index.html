@@ -2217,6 +2217,27 @@ const CONFIRMED_SCHEDULES = {
   // Planner calculates dynamically: single Line B, 10L only (5L only runs when A&B both up).
 };
 
+// ── 14-day lock window policy (Rob Harris 29/07/2026) ─────────────────────
+// Current week + following week are the "lock window". Their schedules must
+// be confirmed (added to CONFIRMED_SCHEDULES) by Wednesday of each week so
+// bottle orders can be placed in time. The algorithm runs freely for weeks 3+.
+//
+// Target plan from mid-September once buffer is sufficient (Rob 29/07/2026):
+//   HMPS:        10L Cask always
+//   Cask A&B:    alternate weekly — 5L one week, 10L next
+//   Bottle Line: alternate weekly — 6pk one week, 2L next
+//   Override:    if a SKU falls below 5d cover, extend that run to 7 days
+//                before switching. Minimise changeovers per week.
+const LOCK_WINDOW_WEEKS = 2;
+
+// Returns true if 'week' (YYYY-MM-DD Monday) is within the 14-day lock window:
+// i.e. it is the current week or the following week.
+function isInLockWindow(week) {
+  const cwMon = monOf(localToday());
+  const nwMon = addDays(cwMon, 7);
+  return week === cwMon || week === nwMon;
+}
+
 // ══ BUILD FULL SHIFT SCHEDULE ═════════════════════════════════════════════════
 function buildSchedule(week, pr) {
   // Confirmed plan override — Aaron's plan defines the line/SKU structure.
@@ -2848,6 +2869,18 @@ function renderSchedule(week, pr) {
   badge.textContent = isConfirmed ? 'CONFIRMED PLAN' : '';
   badge.style.display = isConfirmed ? 'inline' : 'none';
 
+  // Lock window badge — shown for unconfirmed weeks within the 14-day lock window
+  let lockWindowBadge = document.getElementById('lockWindowBadge');
+  if (!lockWindowBadge) {
+    lockWindowBadge = document.createElement('span');
+    lockWindowBadge.id = 'lockWindowBadge';
+    lockWindowBadge.style.cssText = 'background:#E67E22;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:3px;margin-left:8px;letter-spacing:.5px;vertical-align:middle';
+    document.getElementById('schedHdr').appendChild(lockWindowBadge);
+  }
+  const inLockWindow = isInLockWindow(week);
+  lockWindowBadge.textContent = (!isConfirmed && inLockWindow) ? 'LOCK WINDOW — CONFIRM BY WED' : '';
+  lockWindowBadge.style.display = (!isConfirmed && inLockWindow) ? 'inline' : 'none';
+
   // Lock Plan to Supabase button — only visible for confirmed weeks
   let lockBtn = document.getElementById('lockPlanBtn');
   if (!lockBtn) {
@@ -2980,11 +3013,18 @@ function renderHorizon() {
   const weeks=ALL_WEEKS.filter(w=>w>=currentWeek).slice(0,12);
   let h=`<thead><tr><th>Week</th>`;
   SKUS.forEach(s=>h+=`<th class="num">${s}</th>`);
-  h+=`<th class="num">Total</th><th>Sat?</th><th>Status</th></tr></thead><tbody>`;
+  h+=`<th class="num">Total</th><th>Sat?</th><th>Plan</th><th>Status</th></tr></thead><tbody>`;
   weeks.forEach(w=>{
     const pr=planWeek(w);
     const isCW=w===currentWeek;
     const anyShort=Object.values(pr.finalShortfall).some(v=>v>0.5);
+    const isConf=!!CONFIRMED_SCHEDULES[w];
+    const inLW=isInLockWindow(w);
+    const planBadge=isConf
+      ?'<span class="badge bg">CONFIRMED</span>'
+      :inLW
+        ?'<span class="badge" style="background:#E67E22;color:#fff">LOCK BY WED</span>'
+        :'<span class="badge" style="background:#0E7CCE;color:#fff">ALGORITHM</span>';
     h+=`<tr style="${isCW?'background:#EEF2F8':anyShort?'background:#FEF0F0':''};cursor:pointer"
       onclick="currentWeek='${w}';document.getElementById('weekSel').value='${w}';onWeekChange()">
       <td style="font-weight:${isCW?700:400};color:var(--blue)">${fmtD(w)}</td>`;
@@ -2995,6 +3035,7 @@ function renderHorizon() {
     });
     h+=`<td class="num"><strong>${fmt(pr.totalGross)}</strong></td>
       <td>${pr.satUsed?'<span class="badge bsat">YES</span>':''}</td>
+      <td>${planBadge}</td>
       <td>${anyShort?'<span class="badge br">SHORTFALL</span>':'<span class="badge bg">OK</span>'}</td>
     </tr>`;
   });
