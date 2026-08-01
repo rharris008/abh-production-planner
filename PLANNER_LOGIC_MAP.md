@@ -82,7 +82,7 @@ These are the ONE authoritative source for each calculation.
 | ID | Function | Line | Returns | Authoritative for |
 |----|----------|------|---------|-------------------|
 | F-17 | `rebuildData()` | 4787 | void | Merges uploaded forecasts (WW/Coles/Metcash) into COMBINED. Called after every file parse. |
-| F-18 | `forwardFillDemand()` | 4712 | void | Projects known demand forward past each retailer's live horizon. Called by `rebuildData`. |
+| F-18 | `forwardFillDemand()` | 4712 | void | Projects known demand forward past each retailer's live horizon. Called by `rebuildData`. Part-week guard (01/08/2026): if the last live week is partial (fewer than 5 delivery days OR lastFcstDate before Friday of that week), steps back to the previous full week as the roll-forward base. Partial week data stays in COMBINED unchanged. |
 
 ---
 

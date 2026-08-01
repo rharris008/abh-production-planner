@@ -5217,7 +5217,11 @@ function parseColes(wb,fname) {
     weekly[wk]={};
     Object.entries(skus).forEach(([sku,u])=>{ weekly[wk][sku]=Math.ceil(u/UPP[sku]); });
   });
-  colesOvr={weekly,daily};
+  // Store the last date present in the forecast file so forwardFillDemand()
+  // can detect a partial final week and step back to the last full week.
+  const allColDates = dateCols.map(d => d.date).filter(Boolean).sort();
+  const lastFcstDate = allColDates.length ? allColDates[allColDates.length - 1] : null;
+  colesOvr={weekly,daily,lastFcstDate};
   rebuildData();
   const unmatchedKeys=Object.keys(unmatched);
   let msg=`✓ ${fname} — ${cnt} lines`;
@@ -5296,41 +5300,57 @@ function forwardFillDemand() {
     }
     if (lastLiveIdx < 0) return; // no live data for this channel — nothing to project from
 
-    forecastHorizonWeek[ch] = ALL_WEEKS[lastLiveIdx];
-
-    // Capture last known value per SKU for this channel
-    const lastVals = {};
-    const lastLiveWk = ALL_WEEKS[lastLiveIdx];
-    SKUS.forEach(s => { lastVals[s] = COMBINED[lastLiveWk]?.[s]?.[ch] || 0; });
-
-    // Pro-rate partial final week: count delivery days for THIS channel using its own
-    // daily data. Coles/Metcash daily is keyed by arrival or ship date respectively.
-    // WW pivot format has no daily data (weekly planned quantities are already full-week
-    // amounts) — skip scaling for WW when daily is empty.
+    // Part-week guard: if the last live week is a partial week, step back to the
+    // previous full week as the roll-forward base. A partial final week — where the
+    // retailer's forecast file ends mid-week — carries an artificially low demand
+    // value that would otherwise be rolled forward into every projected week.
+    //
+    // The partial week's data is left in COMBINED unchanged (it correctly shows
+    // actual received orders for those days). Only the roll-forward base moves back.
+    //
+    // Detection methods:
+    //   (a) Daily-grain: if the last live week has data on fewer than 5 weekdays
+    //       (Mon–Fri), it is partial.
+    //   (b) lastFcstDate: if the source file's last forecast date falls before
+    //       Friday of the last live week, the week is partial.
+    //       Stored at parse time in chOvr.lastFcstDate (Coles only).
     const chOvr   = ch === 'ww' ? wwOverride : ch === 'coles' ? colesOvr : metcashOvr;
     const chDaily = chOvr?.daily || {};
     const chHasDaily = Object.keys(chDaily).length > 0;
-    // Skip partial-week scaling when daily data is weekly-grain (all keys are Mondays = week-start dates).
-    // Coles stores order_date = week_date (Monday), not actual delivery days — scaling would give 5x error.
+    // Weekly-grain: all daily keys are Mondays (e.g. Coles weekly export keyed by week_date).
     const chIsWeeklyGrain = chHasDaily && Object.keys(chDaily).every(d => monOf(d) === d);
-    if (chHasDaily && !chIsWeeklyGrain) {
-      const deliveryDays = [0,1,2,3,4].filter(d => {
-        const dt = addDays(lastLiveWk, d);
-        return SKUS.some(s => (chDaily[dt]?.[s] || 0) > 0);
-      }).length;
-      if (deliveryDays > 0 && deliveryDays < 5) {
-        const scale = 5 / deliveryDays;
-        SKUS.forEach(s => {
-          lastVals[s] = Math.round(lastVals[s] * scale);
-          if (COMBINED[lastLiveWk]?.[s]) {
-            COMBINED[lastLiveWk][s][ch] = lastVals[s];
-            COMBINED[lastLiveWk][s].total = (COMBINED[lastLiveWk][s].ww || 0) +
-                                            (COMBINED[lastLiveWk][s].coles || 0) +
-                                            (COMBINED[lastLiveWk][s].metcash || 0);
-          }
-        });
+
+    if (lastLiveIdx > todayIdx) {
+      let isPartial = false;
+      const candidateWkMon = ALL_WEEKS[lastLiveIdx];
+      const candidateWkFri = addDays(candidateWkMon, 4);
+
+      if (chHasDaily && !chIsWeeklyGrain) {
+        // Daily-grain: count weekdays with delivery data in the last live week.
+        const deliveryDays = [0,1,2,3,4].filter(d => {
+          const dt = addDays(candidateWkMon, d);
+          return SKUS.some(s => (chDaily[dt]?.[s] || 0) > 0);
+        }).length;
+        isPartial = deliveryDays > 0 && deliveryDays < 5;
+      }
+
+      if (!isPartial && chOvr?.lastFcstDate && chOvr.lastFcstDate < candidateWkFri) {
+        // The forecast file ends before Friday of the last live week — partial.
+        isPartial = true;
+      }
+
+      if (isPartial) {
+        // Step back: the previous week is the last confirmed-full forecast week.
+        lastLiveIdx -= 1;
       }
     }
+
+    forecastHorizonWeek[ch] = ALL_WEEKS[lastLiveIdx];
+
+    // Capture last known value per SKU from the confirmed full week.
+    const lastLiveWk = ALL_WEEKS[lastLiveIdx];
+    const lastVals = {};
+    SKUS.forEach(s => { lastVals[s] = COMBINED[lastLiveWk]?.[s]?.[ch] || 0; });
 
     // Forward-fill from the week after last live data through to the horizon
     for (let i = lastLiveIdx + 1; i <= endIdx; i++) {
@@ -6646,7 +6666,10 @@ function applyColesFromSB(rows) {
       });
     }
   });
-  colesOvr = { weekly, daily };
+  // Store the last order_date so forwardFillDemand() can detect a partial final week.
+  const allColesOD = rows.map(r => r.order_date).filter(Boolean).sort();
+  const lastFcstDate = allColesOD.length ? allColesOD[allColesOD.length - 1] : null;
+  colesOvr = { weekly, daily, lastFcstDate };
   // Replace COLES_ORDERS with live data if we have order lines
   if (orders.length) {
     COLES_ORDERS.length = 0;
