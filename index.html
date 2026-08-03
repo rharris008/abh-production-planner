@@ -5107,10 +5107,11 @@ function parseWW(wb,fname) {
         const delivDate  = isoD(r['Delivery Date']||null);
         const needArr    = isoD(r['Need Arrival Date']||null);
         const units      = parseInt(r['Planned Order OM']||r['Planned Order Units']||pal*UPP[sku])||0;
-        // Fall back to Week commencing Monday when Order Place Date is null
-        // (happens on occasional WW line items — drops them would lose pallets).
+        // Use delivery week (Week commencing Monday) as primary key — this is the
+        // week production must supply, not the week the order was placed.
+        // Fall back to order week only when the delivery week column is blank.
         const weekMon    = isoD(r['Week commencing Monday']||null);
-        const week_date  = orderDate ? monOf(orderDate) : weekMon;
+        const week_date  = weekMon || (orderDate ? monOf(orderDate) : null);
         if (!week_date) return;
         const key = `${week_date}|${sku}`;
         if (!aggMap[key]) aggMap[key] = { week_date, sku, pallets: 0, units: 0,
@@ -5739,8 +5740,10 @@ function renderBudget() {
           const useAct = st === 'past' || (st === 'current' && act > 0);
           const val = useAct ? act : fcst;
           if (useAct) actSum += act;
-          // Current week: add remaining forecast (full week fcst minus what's already invoiced)
-          if (st === 'current') fcstRem += Math.max(0, fcst - act);
+          // Current week: add remaining forecast (full week fcst minus what's already invoiced).
+          // If no retailer forecast is loaded for the current week (fcst=0), fall back to
+          // budget as an estimate so Outturn ≠ just today's actuals.
+          if (st === 'current') { const effFcst = fcst > 0 ? fcst : bgtPal(wk, sku, ch); fcstRem += Math.max(0, effFcst - act); }
           else if (st === 'future') fcstRem += fcst;
           bgt += bgtPal(wk, sku, ch);
           tb += `<td class="num" style="${rowBg}${useAct ? 'font-weight:600;' : 'opacity:.85;'}padding:4px 8px">${val > 0 ? val.toFixed(1) : '—'}</td>`;
@@ -5763,7 +5766,7 @@ function renderBudget() {
           const act=actPal(wk,sku,c), fcst=fcstPal(wk,sku,c);
           const useAct = st==='past'||(st==='current'&&act>0);
           if (useAct) wA+=act;
-          if (st === 'current') wF += Math.max(0, fcst - act);
+          if (st === 'current') { const effFcst = fcst > 0 ? fcst : bgtPal(wk, sku, c); wF += Math.max(0, effFcst - act); }
           else if (st === 'future') wF += fcst;
           wB += bgtPal(wk,sku,c);
         });
@@ -5788,7 +5791,7 @@ function renderBudget() {
         const act=actPal(wk,s,c), fcst=fcstPal(wk,s,c);
         const useAct = st==='past'||(st==='current'&&act>0);
         if (useAct) wA+=act;
-        if (st === 'current') wF += Math.max(0, fcst - act);
+        if (st === 'current') { const effFcst = fcst > 0 ? fcst : bgtPal(wk, s, c); wF += Math.max(0, effFcst - act); }
         else if (st === 'future') wF += fcst;
         wB += bgtPal(wk,s,c);
       }));
