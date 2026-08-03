@@ -5738,13 +5738,16 @@ function renderBudget() {
           const act = actPal(wk, sku, ch);
           const fcst = fcstPal(wk, sku, ch);
           const useAct = st === 'past' || (st === 'current' && act > 0);
-          const val = useAct ? act : fcst;
           if (useAct) actSum += act;
-          // Current week: add remaining forecast (full week fcst minus what's already invoiced).
-          // If no retailer forecast is loaded for the current week (fcst=0), fall back to
-          // budget as an estimate so Outturn ≠ just today's actuals.
-          if (st === 'current') { const effFcst = fcst > 0 ? fcst : bgtPal(wk, sku, ch); fcstRem += Math.max(0, effFcst - act); }
+          // Current week: blended cell = actual WTD + remaining forecast.
+          // Fall back to budget when no retailer forecast is loaded (fcst=0).
+          const effFcst = (st === 'current') ? (fcst > 0 ? fcst : bgtPal(wk, sku, ch)) : fcst;
+          if (st === 'current') fcstRem += Math.max(0, effFcst - act);
           else if (st === 'future') fcstRem += fcst;
+          // val: past weeks show actuals; current week shows blended (act + remaining fcst);
+          // future weeks show forecast. This makes the per-channel week cell consistent with
+          // the All channels subtotal row which already shows blended values.
+          const val = st === 'past' ? act : st === 'current' ? act + Math.max(0, effFcst - act) : fcst;
           bgt += bgtPal(wk, sku, ch);
           tb += `<td class="num" style="${rowBg}${useAct ? 'font-weight:600;' : 'opacity:.85;'}padding:4px 8px">${val > 0 ? val.toFixed(1) : '—'}</td>`;
         });
