@@ -5738,7 +5738,10 @@ function renderBudget() {
           const fcst = fcstPal(wk, sku, ch);
           const useAct = st === 'past' || (st === 'current' && act > 0);
           const val = useAct ? act : fcst;
-          if (useAct) actSum += act; else fcstRem += fcst;
+          if (useAct) actSum += act;
+          // Current week: add remaining forecast (full week fcst minus what's already invoiced)
+          if (st === 'current') fcstRem += Math.max(0, fcst - act);
+          else if (st === 'future') fcstRem += fcst;
           bgt += bgtPal(wk, sku, ch);
           tb += `<td class="num" style="${rowBg}${useAct ? 'font-weight:600;' : 'opacity:.85;'}padding:4px 8px">${val > 0 ? val.toFixed(1) : '—'}</td>`;
         });
@@ -5759,7 +5762,9 @@ function renderBudget() {
         CHANNELS.forEach(c => {
           const act=actPal(wk,sku,c), fcst=fcstPal(wk,sku,c);
           const useAct = st==='past'||(st==='current'&&act>0);
-          if (useAct) wA+=act; else wF+=fcst;
+          if (useAct) wA+=act;
+          if (st === 'current') wF += Math.max(0, fcst - act);
+          else if (st === 'future') wF += fcst;
           wB += bgtPal(wk,sku,c);
         });
         skAct+=wA; skFcst+=wF; skBgt+=wB;
@@ -5782,7 +5787,9 @@ function renderBudget() {
       BDG_SKUS.forEach(s => CHANNELS.forEach(c => {
         const act=actPal(wk,s,c), fcst=fcstPal(wk,s,c);
         const useAct = st==='past'||(st==='current'&&act>0);
-        if (useAct) wA+=act; else wF+=fcst;
+        if (useAct) wA+=act;
+        if (st === 'current') wF += Math.max(0, fcst - act);
+        else if (st === 'future') wF += fcst;
         wB += bgtPal(wk,s,c);
       }));
       gAct+=wA; gFcst+=wF; gBgt+=wB;
