@@ -1180,6 +1180,10 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
   // completed 2L run and must NOT be applied to the new run.
   let days2L  = (carry600 >= TARGET_600_DAYS) ? 0 : (carry2L  || 0);
   let days600 = carry600 || 0;
+  // Rob Harris 07/08/2026: max 1 changeover per week on the bottle line.
+  // Min 4-day run per SKU before switching. Emergency (stock < STOCK_COVER.floor) allowed
+  // but only once — once the week's change is used, phase locks for the rest of the week.
+  let weekChangesUsed = 0;
 
   for (let d = 0; d < workDays.length; d++) {
     _currentDay = d;  // expose current day to effectiveDailyDemand closure
@@ -1194,56 +1198,76 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
     const c6  = cov('600ml 6pk',  s6);
     const c12 = cov('600ml 12pk', s12);
 
-    // ── Priority 1: Emergency — any SKU below floor (STOCK_COVER.floor days) ──
-    // 600ml emergencies trump 2L (600ml cannot go OOS)
-    if (c6 < STOCK_COVER.floor && phase !== '600ml 6pk') {
-      phase = '600ml 6pk';
-    } else if (is12pkActive && c12 < STOCK_COVER.floor && phase !== '600ml 12pk' && s12 < finalDem12) {
-      phase = '600ml 12pk';
-    } else if (c2 < STOCK_COVER.floor && phase !== '2L Bottle') {
-      phase = '2L Bottle';
+    // ── Phase transitions gated at one change per week (Rob Harris 07/08/2026) ─
+    // Max 1 changeover per week on the bottle line. Once weekChangesUsed >= 1, the
+    // phase locks for the rest of the week. Emergency (stock below floor = stockout
+    // within 3 business days) is allowed but also consumes the single weekly change.
+    // This prevents the cascade pattern (2L→6pk→2L→6pk) that Rob identified.
+    if (weekChangesUsed < 1) {
 
-    // ── Priority 2: Normal cycle transitions ──────────────────────────────────
-    } else if (phase === '2L Bottle') {
-      // Leave 2L when: target cover reached OR 4-day cap hit
-      if (c2 >= TARGET_2L_COVER || days2L >= TARGET_2L_DAYS) {
-        // Rob Harris 02/07/2026: minimum target-cover rule. Pick the more urgent 600ml SKU.
-        // If 12pk is below target and lower than 6pk, run it first; otherwise default to 6pk.
-        phase = (is12pkActive && c12 < STOCK_COVER.target && c12 < c6 && (!isLastProdWk || s12 < finalDem12))
-          ? '600ml 12pk'
-          : '600ml 6pk';
-        days2L = 0;  // 2L cycle complete — fresh counter for next 2L run
-      }
-    } else if (phase === '600ml 6pk') {
-      if (days600 >= TARGET_600_DAYS) {
-        phase = '2L Bottle';         // completed 600ml cycle → back to 2L
-        days600 = 0;  // 600ml cycle complete — fresh counter for next 600ml run
-        days2L  = 0;  // stale carry from prior 2L run — reset so fresh 2L run starts at 0
-      } else if (is12pkActive && c6 >= COV_6PK_TO_12PK && (!isLastProdWk || s12 < finalDem12)) {
-        phase = '600ml 12pk';        // 6pk sufficiently stocked → switch to 12pk (capped in last prod wk)
-        weekOpenedWith6pkEmergency = false;
-      } else if (is12pkActive && c12 < STOCK_COVER.target && c12 < c6 && (!isLastProdWk || s12 < finalDem12)) {
-        phase = '600ml 12pk';        // 12pk below target cover and more urgent than 6pk (02/07/2026)
-        weekOpenedWith6pkEmergency = false;
-      } else if (weekOpenedWith6pkEmergency && c6 >= STOCK_COVER.floor && c2 < TARGET_2L_COVER) {
-        // 6pk recovered from opening emergency (below STOCK_COVER.floor) — pivot to 2L now.
-        // Don't insist on reaching 7 days (COV_6PK_TO_12PK) before letting 2L run.
-        // Without this, 6pk monopolises the line all week and 2L goes unproduced.
-        // Rob Harris 20/06/2026: NO SKU under floor days; 4 days on 2L is part of the cycle.
+      // Priority 1: Emergency — any SKU below floor (STOCK_COVER.floor days)
+      // 600ml emergencies trump 2L (600ml cannot go OOS)
+      if (c6 < STOCK_COVER.floor && phase !== '600ml 6pk') {
+        phase = '600ml 6pk';
+        weekChangesUsed++;
+      } else if (is12pkActive && c12 < STOCK_COVER.floor && phase !== '600ml 12pk' && s12 < finalDem12) {
+        phase = '600ml 12pk';
+        weekChangesUsed++;
+      } else if (c2 < STOCK_COVER.floor && phase !== '2L Bottle') {
         phase = '2L Bottle';
-        weekOpenedWith6pkEmergency = false;  // clear flag — pivot happened
+        weekChangesUsed++;
+
+      // Priority 2: Normal cycle transitions
+      } else if (phase === '2L Bottle') {
+        // Leave 2L when: target cover reached OR 4-day cap hit
+        if (c2 >= TARGET_2L_COVER || days2L >= TARGET_2L_DAYS) {
+          // Rob Harris 02/07/2026: minimum target-cover rule. Pick the more urgent 600ml SKU.
+          // If 12pk is below target and lower than 6pk, run it first; otherwise default to 6pk.
+          phase = (is12pkActive && c12 < STOCK_COVER.target && c12 < c6 && (!isLastProdWk || s12 < finalDem12))
+            ? '600ml 12pk'
+            : '600ml 6pk';
+          days2L = 0;  // 2L cycle complete — fresh counter for next 2L run
+          weekChangesUsed++;
+        }
+      } else if (phase === '600ml 6pk') {
+        if (days600 >= TARGET_600_DAYS) {
+          phase = '2L Bottle';         // completed 600ml cycle → back to 2L
+          days600 = 0;  // 600ml cycle complete — fresh counter for next 600ml run
+          days2L  = 0;  // stale carry from prior 2L run — reset so fresh 2L run starts at 0
+          weekChangesUsed++;
+        } else if (is12pkActive && c6 >= COV_6PK_TO_12PK && (!isLastProdWk || s12 < finalDem12)) {
+          phase = '600ml 12pk';        // 6pk sufficiently stocked → switch to 12pk (capped in last prod wk)
+          weekOpenedWith6pkEmergency = false;
+          weekChangesUsed++;
+        } else if (is12pkActive && c12 < STOCK_COVER.target && c12 < c6 && (!isLastProdWk || s12 < finalDem12)) {
+          phase = '600ml 12pk';        // 12pk below target cover and more urgent than 6pk (02/07/2026)
+          weekOpenedWith6pkEmergency = false;
+          weekChangesUsed++;
+        } else if (weekOpenedWith6pkEmergency && c6 >= STOCK_COVER.floor && c2 < TARGET_2L_COVER) {
+          // 6pk recovered from opening emergency (below STOCK_COVER.floor) — pivot to 2L now.
+          // Don't insist on reaching 7 days (COV_6PK_TO_12PK) before letting 2L run.
+          // Without this, 6pk monopolises the line all week and 2L goes unproduced.
+          // Rob Harris 20/06/2026: NO SKU under floor days; 4 days on 2L is part of the cycle.
+          phase = '2L Bottle';
+          weekOpenedWith6pkEmergency = false;  // clear flag — pivot happened
+          weekChangesUsed++;
+        }
+      } else if (phase === '600ml 12pk') {
+        if (days600 >= TARGET_600_DAYS) {
+          phase = '2L Bottle';         // completed 600ml cycle → back to 2L
+          days600 = 0;  // 600ml cycle complete — fresh counter for next 600ml run
+          days2L  = 0;  // stale carry from prior 2L run — reset so fresh 2L run starts at 0
+          weekChangesUsed++;
+        } else if (c6 < c12 && c6 < COV_6PK_TO_12PK) {
+          phase = '600ml 6pk';         // 6pk fell back below 12pk → revert priority
+          weekChangesUsed++;
+        } else if (isLastProdWk && s12 >= finalDem12) {
+          phase = '600ml 6pk';         // final prod week: stock already covers closure demand — stop producing
+          weekChangesUsed++;
+        }
       }
-    } else if (phase === '600ml 12pk') {
-      if (days600 >= TARGET_600_DAYS) {
-        phase = '2L Bottle';         // completed 600ml cycle → back to 2L
-        days600 = 0;  // 600ml cycle complete — fresh counter for next 600ml run
-        days2L  = 0;  // stale carry from prior 2L run — reset so fresh 2L run starts at 0
-      } else if (c6 < c12 && c6 < COV_6PK_TO_12PK) {
-        phase = '600ml 6pk';         // 6pk fell back below 12pk → revert priority
-      } else if (isLastProdWk && s12 >= finalDem12) {
-        phase = '600ml 6pk';         // final prod week: stock already covers closure demand — stop producing
-      }
-    }
+
+    } // end weekChangesUsed < 1 gate
 
     // Resolve SKU — 12pk only when line is still active (closes after w/c 20/07)
     const sku = phase === '2L Bottle'                      ? '2L Bottle'

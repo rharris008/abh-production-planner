@@ -615,4 +615,25 @@ describe('LM: Logic Map tripwires', () => {
     );
   });
 
+  // ── Min-run / max-one-changeover constraint (Rob Harris 07/08/2026) ──────────
+  // Tripwire: weekChangesUsed must exist inside scheduleBottleLine so the
+  // one-per-week changeover gate cannot be silently removed.
+
+  test('R1 — weekChangesUsed gate present inside scheduleBottleLine (max 1 changeover/week)', () => {
+    // weekChangesUsed must be declared AND incremented inside the function body.
+    const fnStart = SRC.indexOf('function scheduleBottleLine(');
+    const fnEnd   = SRC.indexOf('\nfunction ', fnStart + 1);
+    const body    = fnEnd > 0 ? SRC.slice(fnStart, fnEnd) : SRC.slice(fnStart);
+    assert.ok(
+      body.includes('weekChangesUsed'),
+      'FAIL R1: weekChangesUsed not found inside scheduleBottleLine — the max-1-changeover/week ' +
+      'constraint introduced 07/08/2026 per Rob Harris was removed. Restore the gate before committing.'
+    );
+    assert.ok(
+      body.includes('weekChangesUsed++'),
+      'FAIL R1: weekChangesUsed++ not found inside scheduleBottleLine — the gate variable exists ' +
+      'but is never incremented, making it a dead check. Restore the increment on each phase change.'
+    );
+  });
+
 });
