@@ -624,12 +624,12 @@ const CHIP   = {'10L Cask':'c10L','5L Cask':'c5L','2L Bottle':'c2L','600ml 12pk'
 const DAYS   = ['Mon','Tue','Wed','Thu','Fri','Sat'];
 
 // 12pk line closure extended to 31/08/2026 (Rob Harris 09/07/2026 — was 20/07/2026).
-// Last PRODUCTION week is w/c 24/08/2026 (Fri 28 Aug).
-// Last SALES week is w/c 31/08/2026 — demand present but no new production; existing stock depletes.
-// No 12pk demand or production from 07/09/2026. Bottle line reverts to 2L + 6pk only.
-// LAST_12PK_PROD_WEEK marks the closure boundary: production uses strict < (stops from 31/08),
-// demand uses strict > (zeroed from 07/09). Source: Rob Harris 09/07/2026.
-const LAST_12PK_PROD_WEEK = '2026-08-31';
+// EARLY CLOSE-OUT: Rob Harris confirmed 15/08/2026 — 12pk production has now finished.
+// Last PRODUCTION week: w/c 10/08/2026. Line closed early, ahead of the 31/08 plan.
+// No 12pk demand or production from w/c 17/08/2026. Bottle line reverts to 2L + 6pk only.
+// LAST_12PK_PROD_WEEK marks the closure boundary: production uses strict < (stops from 17/08),
+// demand uses strict > (zeroed from 17/08). Source: Rob Harris 15/08/2026.
+const LAST_12PK_PROD_WEEK = '2026-08-17';
 
 // ══ STOCK COVER RULE ══════════════════════════════════════════════════════════
 // Single source of truth for all cover thresholds (C2 fix — Rob Harris 11/07/2026).
