@@ -5067,7 +5067,12 @@ function parseMetcashWB(wb, fname) {
     const sku = ITEM_MAP[item];
     if (!sku) { if (!isNaN(item)) unmatched[item] = (unmatched[item]||0)+1; continue; }
     const qty = parseFloat(String(row[qtyIdx] || '0').replace(/,/g, '')) || 0; if (!qty) continue;
-    // Metcash sends individual units for 5L/2L; convert to shippers before UPP division
+    // Metcash sends individual consumer units for all SKUs.
+    // 5L and 2L are divided by their shipper qty first, then by UPP, giving effective divisors:
+    //   10L Cask: qty / 1 / 96  = qty / 96
+    //   5L Cask:  qty / 3 / 60  = qty / 180
+    //   2L Bottle: qty / 6 / 64 = qty / 384
+    // Confirmed correct by Jeremy Wheeler 17/08/2026. Do not change without ops sign-off.
     const _mcShip = { '5L Cask': 3, '2L Bottle': 6 };
     const effectiveQty = qty / (_mcShip[sku] || 1);
 

@@ -25,7 +25,7 @@ All consumers must reference the constant, never a hardcoded number.
 | C-01 | `STOCK_COVER` | 539 | `{target:5, floor:3}` — UI-editable | Every cover-days threshold and floor-breach alert |
 | C-02 | `LAST_12PK_PROD_WEEK` | 530 | `'2026-08-31'` | 12pk demand close-out and production cutoff |
 | C-03 | `BUDGET_DATA_UPDATED` | 500 | `'2026-06-22'` | Budget staleness badge (amber at >= 90 days) |
-| C-04 | `UPP` | 519 | `{10L:96, 5L:60, 2L:64, 12pk:126, 6pk:252}` | All unit-to-pallet conversions |
+| C-04 | `UPP` | 519 | `{10L:96, 5L:60, 2L:64, 12pk:126, 6pk:252}` | All unit-to-pallet conversions. **Metcash-specific:** Metcash sends individual consumer units. `parseMetcashWB` applies an intermediate shipper conversion (`_mcShip`: 5L/3, 2L/6) before dividing by UPP, giving effective Metcash divisors of 10L÷96, 5L÷180, 2L÷384. Confirmed correct by Jeremy Wheeler 17/08/2026. |
 | C-05 | `SKUS` | 520 | `['10L Cask','5L Cask','2L Bottle','600ml 12pk','600ml 6pk']` | Canonical SKU list; loop order matters |
 | C-06 | `ALL_WEEKS` | 502 | IIFE — rolling 18-month horizon from 2026-03-16 | Week selector and all time-indexed lookups |
 | C-07 | `OPEN_ORDER_PRICE` | 3234 | `{10L:13.08, 5L:6.70, ...}` | Open-order amount fallback when quantity is missing |
