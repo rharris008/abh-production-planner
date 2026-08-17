@@ -5067,6 +5067,9 @@ function parseMetcashWB(wb, fname) {
     const sku = ITEM_MAP[item];
     if (!sku) { if (!isNaN(item)) unmatched[item] = (unmatched[item]||0)+1; continue; }
     const qty = parseFloat(String(row[qtyIdx] || '0').replace(/,/g, '')) || 0; if (!qty) continue;
+    // Metcash sends individual units for 5L/2L; convert to shippers before UPP division
+    const _mcShip = { '5L Cask': 3, '2L Bottle': 6 };
+    const effectiveQty = qty / (_mcShip[sku] || 1);
 
     // Dates from SheetJS may be Date objects or DD.MM.YYYY strings
     const parseD = v => {
@@ -5087,11 +5090,11 @@ function parseMetcashWB(wb, fname) {
     const week = monOf(arriv);
     // Accumulate units at week granularity; ceiling applied once at finalise.
     if (!weeklyUnits[week]) weeklyUnits[week] = {};
-    weeklyUnits[week][sku] = (weeklyUnits[week][sku] || 0) + qty;
-    const dayPallets = Math.ceil(qty / UPP[sku]);
+    weeklyUnits[week][sku] = (weeklyUnits[week][sku] || 0) + effectiveQty;
+    const dayPallets = Math.ceil(effectiveQty / UPP[sku]);
     if (!daily[ship]) daily[ship] = {};
     daily[ship][sku] = (daily[ship][sku] || 0) + dayPallets;
-    orders.push({ sku, order_date: ship, need_arrival: arriv, dispatch_by: ship, units: Math.round(qty), pallets: dayPallets });
+    orders.push({ sku, order_date: ship, need_arrival: arriv, dispatch_by: ship, units: Math.round(effectiveQty), pallets: dayPallets });
     cnt++;
   }
   // Finalise weekly with units-first ceiling
