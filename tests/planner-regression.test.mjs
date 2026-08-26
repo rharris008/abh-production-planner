@@ -120,7 +120,7 @@ describe('H2: Budget staleness badge', () => {
 
   test('H2 — BUDGET_DATA_UPDATED constant present in source', () => {
     assert.ok(
-      SRC.includes("const BUDGET_DATA_UPDATED = '2026-06-22'"),
+      /const BUDGET_DATA_UPDATED = '\d{4}-\d{2}-\d{2}';/.test(SRC),
       "FAIL H2: BUDGET_DATA_UPDATED constant not found — was it removed or renamed?"
     );
   });
