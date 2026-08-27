@@ -133,6 +133,71 @@ tr:hover td{background:var(--light)}
 /* Delivery risk row */
 tr.risk-r td{background:#FEF0F0}
 tr.risk-a td{background:#FEF9F0}
+
+/* ── MOBILE / TABLET (added 27/08/2026) ─────────────────────────────────────
+   Root cause of "can't see the menus on mobile": #hdr is position:sticky and
+   wraps into 4-5 rows on a phone, and #nav is pinned at top:var(--nav-top)
+   which equals that wrapped header height. The tab bar was therefore parked
+   300px+ down the viewport, off screen. Fix: header scrolls away on small
+   screens, tab bar sticks at top:0, freshness chips move below the tabs so
+   the tab strip gets the full device width. */
+@media (max-width:820px){
+  html{-webkit-text-size-adjust:100%}
+  body{font-size:13px}
+
+  /* Header no longer sticky — it scrolls away and gives the screen back */
+  #hdr{position:static;top:auto;padding:8px 12px;gap:8px;flex-wrap:wrap;align-items:flex-start}
+  #hdr .title{font-size:15px}
+  #hdr>div:first-child{flex:1 1 100%;min-width:0}
+  /* Week / efficiency / HMPS / Saturday controls: one swipeable row */
+  #hdr>div:nth-child(2){flex:1 1 100%;flex-wrap:nowrap;overflow-x:auto;
+    -webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:4px;gap:12px}
+  #hdr>div:nth-child(2)::-webkit-scrollbar{display:none}
+  .ctrl-grp{flex-shrink:0}
+  .ctrl{font-size:16px;padding:6px 8px}   /* 16px stops iOS zooming on focus */
+  #weekSel{width:150px!important}
+  .tog button{padding:7px 10px;font-size:12px}
+
+  /* Tab bar: sticks to the very top, full width, thumb-friendly */
+  #nav{top:0;flex-direction:column;align-items:stretch}
+  #nav-tabs{padding-left:0;width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;
+    scrollbar-width:none;scroll-snap-type:x proximity}
+  #nav-tabs::-webkit-scrollbar{display:none}
+  .tab{padding:12px 14px;font-size:13px;scroll-snap-align:start}
+  #navFreshness{border-left:none;border-top:1px solid var(--border);
+    padding:6px 10px;overflow-x:auto;-webkit-overflow-scrolling:touch;
+    scrollbar-width:none;justify-content:flex-start}
+  #navFreshness::-webkit-scrollbar{display:none}
+  #navHolidays{padding:8px 12px;font-size:12px}
+
+  /* Content */
+  #main{padding:10px}
+  .panel{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .ph{padding:8px 10px;font-size:12px}
+  .tscroll{-webkit-overflow-scrolling:touch}
+  table{font-size:12px}
+  th{padding:7px 8px}
+  td{padding:7px 8px}
+
+  /* Grids collapse instead of squashing */
+  .sku-strip{grid-template-columns:repeat(2,1fr)}
+  .sku-strip .sku-label{grid-column:1/-1;padding:9px 12px}
+  .ktile{padding:9px 11px}
+  .ktile .kv{font-size:17px}
+  .sgrid.d5,.sgrid.d6{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+  .oc-grid{grid-template-columns:repeat(2,1fr);padding:10px}
+  .oc-cell input{font-size:16px}
+  .upload-row{grid-template-columns:1fr;padding:10px}
+  .drop-zone{padding:14px}
+}
+
+@media (max-width:480px){
+  #hdr .brand span{font-size:11px}
+  .sku-strip{grid-template-columns:1fr}
+  .sgrid.d5,.sgrid.d6{grid-template-columns:1fr}
+  .oc-grid{grid-template-columns:1fr}
+  .tab{padding:12px 12px}
+}
 </style>
 </head>
 <body>
