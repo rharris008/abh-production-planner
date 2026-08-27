@@ -334,7 +334,6 @@ tr.risk-a td{background:#FEF9F0}
       <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:var(--blue);border-radius:2px;display:inline-block"></span>EP Line A</span>
       <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:var(--green);border-radius:2px;display:inline-block"></span>EP Line B</span>
 
-      <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:var(--purple);border-radius:2px;display:inline-block"></span>EP New (12pk)</span>
       <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:#E91E8C;border-radius:2px;display:inline-block"></span>EP New (6pk)</span>
     </div>
     <div style="padding:12px"><div class="sgrid d5" id="dayGrid"></div></div>
@@ -684,17 +683,12 @@ const DAILY_REQUIRED = {};
 
 // ══ CONSTANTS ════════════════════════════════════════════════════════════════
 const UPP    = {'10L Cask':96,'5L Cask':60,'2L Bottle':64,'600ml 12pk':126,'600ml 6pk':252};
-const SKUS   = ['10L Cask','5L Cask','2L Bottle','600ml 12pk','600ml 6pk'];
+const SKUS   = ['10L Cask','5L Cask','2L Bottle','600ml 6pk'];
 const CHIP   = {'10L Cask':'c10L','5L Cask':'c5L','2L Bottle':'c2L','600ml 12pk':'c12pk','600ml 6pk':'c6pk'};
 const DAYS   = ['Mon','Tue','Wed','Thu','Fri','Sat'];
 
-// 12pk line closure extended to 31/08/2026 (Rob Harris 09/07/2026 — was 20/07/2026).
-// EARLY CLOSE-OUT: Rob Harris confirmed 15/08/2026 — 12pk production has now finished.
-// Last PRODUCTION week: w/c 10/08/2026. Line closed early, ahead of the 31/08 plan.
-// No 12pk demand or production from w/c 17/08/2026. Bottle line reverts to 2L + 6pk only.
-// LAST_12PK_PROD_WEEK marks the closure boundary: production uses strict < (stops from 17/08),
-// demand uses strict > (zeroed from 17/08). Source: Rob Harris 15/08/2026.
-const LAST_12PK_PROD_WEEK = '2026-08-17';
+// 600ml 12pk DISCONTINUED — Rob Harris 27/08/2026. ABH no longer produces this product.
+// SKU removed from SKUS, from the bottle-line scheduler, and from all demand/stock/plan views.
 
 // ══ STOCK COVER RULE ══════════════════════════════════════════════════════════
 // Single source of truth for all cover thresholds (C2 fix — Rob Harris 11/07/2026).
@@ -966,10 +960,6 @@ function getDemand(week) {
     const other   = otherDemand[s]       || 0;
     r[s] = {ww, coles, metcash, other, total: ww + coles + metcash + other};
   });
-  // 12pk close-out: clear all demand from 27/07/2026 so scheduler never sees a reason to produce.
-  if (week > LAST_12PK_PROD_WEEK) {
-    r['600ml 12pk'] = {ww:0, coles:0, metcash:0, other:0, total:0};
-  }
   return r;
 }
 
@@ -1118,42 +1108,25 @@ function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, mi
 // ══ BOTTLE LINE SCHEDULER — 4-day 2L / 6-day 600ml production cycle ══════════
 // Rules per Rob Harris 20/06/2026:
 // - 4 working days on 2L (target: reach 9 days stock)
-// - 6 working days on 600ml: 6pk FIRST, then 12pk
+// - 6 working days on 600ml (6pk)
 // - Emergency override (highest priority): any SKU < STOCK_COVER.floor days → switch to it now
 // - No SKU ever falls below STOCK_COVER.floor days stock
 // Cycle spans 2 weeks (4+6=10 working days). Phase is inferred from opening stock each week.
-// Returns {shifts, endStock2L, endStock12, endStock6}
-function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6, weekIdx, carry2L = 0, carry600 = 0) {
+// Returns {shifts, endStock2L, endStock6}
+function scheduleBottleLine(weekStart, eff, openStock2L, openStock6, weekIdx, carry2L = 0, carry600 = 0) {
   const TARGET_2L_DAYS  = 4;   // working days on 2L per cycle
   const TARGET_600_DAYS = 6;   // working days on 600ml per cycle
   const TARGET_2L_COVER = 9;   // days — 2L runs until this is achieved
   // EMERGENCY_FLOOR removed — use STOCK_COVER.floor (global config, C2 fix 11/07/2026)
-  const COV_6PK_TO_12PK = 7;   // days — switch within 600ml phase: 6pk→12pk when 6pk >= this
 
-  // 12pk production stops BEFORE the closure week (strict <).
-  // w/c 20/07 has real demand but no production — existing stock depletes to zero.
-  // From 27/07: demand also zeroed in getDemand(). Closing stock at 27/07 = 0.
-  // Guards below prevent any phase/sku selection for 12pk when inactive.
-  const is12pkActive = weekStart < LAST_12PK_PROD_WEEK;
-
-  // In the LAST production week (13/07), cap 12pk production at the closure-week demand.
-  // Without this cap the normal cycle would produce full shifts of 12pk (e.g. 6 days × 2 shifts × 34 pal)
-  // vastly exceeding the 20/07 demand, creating unsellable stock.
-  // addDays subtracts 7 days from the boundary to identify the last production Monday.
-  const isLastProdWk  = is12pkActive && weekStart >= addDays(LAST_12PK_PROD_WEEK, -7);
-  const finalDem12    = isLastProdWk
-    ? (getDemand(LAST_12PK_PROD_WEEK)['600ml 12pk']?.total || 0)
-    : Infinity;
 
   const shiftMins = 450;
   const coMins    = epChangeoverMins;
   const coFrac    = Math.max(0, 1 - coMins / shiftMins);
   const tgt2L = Math.floor(52 * eff);
-  const tgt12 = Math.floor(34 * eff);
   const tgt6  = Math.floor(32 * eff);
 
   let s2L = openStock2L;
-  let s12 = openStock12;
   let s6  = openStock6;
 
   const shifts = [];
@@ -1162,23 +1135,21 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
   let prevSku = null;
 
   // Far-future weeks (typically 4+ weeks out) have no confirmed DAILY_REQUIRED delivery entries.
-  // Without entries, s2L/s6/s12 never deplete, cover stays infinite, and the scheduler never
+  // Without entries, s2L/s6 never deplete, cover stays infinite, and the scheduler never
   // produces those SKUs. Fix: if the ENTIRE week has zero DAILY_REQUIRED for a SKU, spread the
   // getDemand() weekly total evenly across working days as the daily consumption fallback.
   // If ANY DAILY_REQUIRED entry exists for the week, use actual deliveries only (avoids double-counting).
-  const weeklyDR = {'2L Bottle': 0, '600ml 6pk': 0, '600ml 12pk': 0};
+  const weeklyDR = {'2L Bottle': 0, '600ml 6pk': 0};
   workDays.forEach(dt => {
     const dr = DAILY_REQUIRED[dt] || {};
     weeklyDR['2L Bottle']  += dr['2L Bottle']  || 0;
     weeklyDR['600ml 6pk']  += dr['600ml 6pk']  || 0;
-    weeklyDR['600ml 12pk'] += dr['600ml 12pk'] || 0;
   });
   const wdLen = workDays.length || 1;
   const wkDem = getDemand(weekStart);
   const fcDep = {  // daily forecast depletion rate (0 when DAILY_REQUIRED is present for that SKU)
     '2L Bottle':  weeklyDR['2L Bottle']  === 0 ? wkDem['2L Bottle'].total   / wdLen : 0,
     '600ml 6pk':  weeklyDR['600ml 6pk']  === 0 ? wkDem['600ml 6pk'].total   / wdLen : 0,
-    '600ml 12pk': weeklyDR['600ml 12pk'] === 0 ? wkDem['600ml 12pk'].total  / wdLen : 0,
   };
 
   // Tracks the current day index within the loop so effectiveDailyDemand can
@@ -1242,7 +1213,6 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
 
   // ── Initial phase decision ─────────────────────────────────────────────────
   const c6_open  = cov('600ml 6pk',  s6);
-  const c12_open = cov('600ml 12pk', s12);
   const c2L_open = cov('2L Bottle',  s2L);
 
   let phase;
@@ -1251,9 +1221,8 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
   // so 2L doesn't go an entire week without production.
   let weekOpenedWith6pkEmergency = c6_open < STOCK_COVER.floor;
 
-  if (c6_open < STOCK_COVER.floor || (is12pkActive && c12_open < STOCK_COVER.floor && s12 < finalDem12)) {
-    // 12pk emergency only fires when active AND stock is below the cap for the final prod week
-    phase = (is12pkActive && c12_open < c6_open && s12 < finalDem12) ? '600ml 12pk' : '600ml 6pk';
+  if (c6_open < STOCK_COVER.floor) {
+    phase = '600ml 6pk';
   } else if (c2L_open < TARGET_2L_COVER || carry600 >= TARGET_600_DAYS) {
     // 2L below cover target OR prior week completed its 600ml cycle (carry600 hit the limit)
     // — both cases mean the 2L phase should run next.
@@ -1279,13 +1248,11 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
     const date  = workDays[d];
     const due   = DAILY_REQUIRED[date] || {};
     const due2L = due['2L Bottle']   || 0;
-    const due12 = due['600ml 12pk'] || 0;
     const due6  = due['600ml 6pk']  || 0;
 
     // Cover at START of day (before today's production)
     const c2  = cov('2L Bottle',  s2L);
     const c6  = cov('600ml 6pk',  s6);
-    const c12 = cov('600ml 12pk', s12);
 
     // ── Phase transitions gated at one change per week (Rob Harris 07/08/2026) ─
     // Max 1 changeover per week on the bottle line. Once weekChangesUsed >= 1, the
@@ -1299,9 +1266,6 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
       if (c6 < STOCK_COVER.floor && phase !== '600ml 6pk') {
         phase = '600ml 6pk';
         weekChangesUsed++;
-      } else if (is12pkActive && c12 < STOCK_COVER.floor && phase !== '600ml 12pk' && s12 < finalDem12) {
-        phase = '600ml 12pk';
-        weekChangesUsed++;
       } else if (c2 < STOCK_COVER.floor && phase !== '2L Bottle') {
         phase = '2L Bottle';
         weekChangesUsed++;
@@ -1310,11 +1274,7 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
       } else if (phase === '2L Bottle') {
         // Leave 2L when: target cover reached OR 4-day cap hit
         if (c2 >= TARGET_2L_COVER || days2L >= TARGET_2L_DAYS) {
-          // Rob Harris 02/07/2026: minimum target-cover rule. Pick the more urgent 600ml SKU.
-          // If 12pk is below target and lower than 6pk, run it first; otherwise default to 6pk.
-          phase = (is12pkActive && c12 < STOCK_COVER.target && c12 < c6 && (!isLastProdWk || s12 < finalDem12))
-            ? '600ml 12pk'
-            : '600ml 6pk';
+          phase = '600ml 6pk';
           days2L = 0;  // 2L cycle complete — fresh counter for next 2L run
           weekChangesUsed++;
         }
@@ -1324,49 +1284,24 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
           days600 = 0;  // 600ml cycle complete — fresh counter for next 600ml run
           days2L  = 0;  // stale carry from prior 2L run — reset so fresh 2L run starts at 0
           weekChangesUsed++;
-        } else if (is12pkActive && c6 >= COV_6PK_TO_12PK && (!isLastProdWk || s12 < finalDem12)) {
-          phase = '600ml 12pk';        // 6pk sufficiently stocked → switch to 12pk (capped in last prod wk)
-          weekOpenedWith6pkEmergency = false;
-          weekChangesUsed++;
-        } else if (is12pkActive && c12 < STOCK_COVER.target && c12 < c6 && (!isLastProdWk || s12 < finalDem12)) {
-          phase = '600ml 12pk';        // 12pk below target cover and more urgent than 6pk (02/07/2026)
-          weekOpenedWith6pkEmergency = false;
-          weekChangesUsed++;
         } else if (weekOpenedWith6pkEmergency && c6 >= STOCK_COVER.floor && c2 < TARGET_2L_COVER) {
           // 6pk recovered from opening emergency (below STOCK_COVER.floor) — pivot to 2L now.
-          // Don't insist on reaching 7 days (COV_6PK_TO_12PK) before letting 2L run.
+          // Don't insist on full cover before letting 2L run.
           // Without this, 6pk monopolises the line all week and 2L goes unproduced.
           // Rob Harris 20/06/2026: NO SKU under floor days; 4 days on 2L is part of the cycle.
           phase = '2L Bottle';
           weekOpenedWith6pkEmergency = false;  // clear flag — pivot happened
           weekChangesUsed++;
         }
-      } else if (phase === '600ml 12pk') {
-        if (days600 >= TARGET_600_DAYS) {
-          phase = '2L Bottle';         // completed 600ml cycle → back to 2L
-          days600 = 0;  // 600ml cycle complete — fresh counter for next 600ml run
-          days2L  = 0;  // stale carry from prior 2L run — reset so fresh 2L run starts at 0
-          weekChangesUsed++;
-        } else if (c6 < c12 && c6 < COV_6PK_TO_12PK) {
-          phase = '600ml 6pk';         // 6pk fell back below 12pk → revert priority
-          weekChangesUsed++;
-        } else if (isLastProdWk && s12 >= finalDem12) {
-          phase = '600ml 6pk';         // final prod week: stock already covers closure demand — stop producing
-          weekChangesUsed++;
-        }
       }
 
     } // end weekChangesUsed < 1 gate
 
-    // Resolve SKU — 12pk only when line is still active (closes after w/c 20/07)
-    const sku = phase === '2L Bottle'                      ? '2L Bottle'
-              : (phase === '600ml 12pk' && is12pkActive)   ? '600ml 12pk'
-              : '600ml 6pk';
+    const sku = phase === '2L Bottle' ? '2L Bottle' : '600ml 6pk';
 
-    // Changeover penalty: between 12pk ↔ 6pk only (not when switching to/from 2L)
-    const is600Cur  = sku !== '2L Bottle';
-    const is600Prev = prevSku && prevSku !== '2L Bottle';
-    const changeover = is600Cur && is600Prev && prevSku !== sku;
+    // Changeover penalty applies only between different 600ml SKUs. With 12pk discontinued
+    // the 600ml phase is 6pk only, so no intra-600ml changeover can occur.
+    const changeover = false;
 
     for (let sh = 0; sh < 2; sh++) {
       if (sh === 0 && date === localToday() && isPastDayShift()) continue;
@@ -1377,10 +1312,6 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
       if (sku === '2L Bottle') {
         pallets = tgt2L; target = tgt2L; cls = 'as2';
         s2L += pallets;
-      } else if (sku === '600ml 12pk') {
-        pallets = hasCO ? Math.floor(tgt12 * coFrac) : tgt12;
-        target  = tgt12; cls = 'ep12';
-        s12 += pallets;
       } else {
         pallets = hasCO ? Math.floor(tgt6 * coFrac) : tgt6;
         target  = tgt6; cls = 'ep6';
@@ -1388,13 +1319,11 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
       }
 
       const riskFlag = (sku === '2L Bottle'  && s2L - due2L < 0) ||
-                       (sku === '600ml 12pk' && s12 - due12 < 0) ||
                        (sku === '600ml 6pk'  && s6  - due6  < 0);
 
       shifts.push({
         day: d, date, shift: shiftName, sku, pallets, target, cls, riskFlag,
         stockAfter2L: Math.round(s2L),
-        stockAfter12: Math.round(s12),
         stockAfter6:  Math.round(s6),
       });
     }
@@ -1407,14 +1336,12 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock12, openStock6
     // fcDep is non-zero only when the whole week has no DAILY_REQUIRED entries (far-future weeks).
     // This prevents stock from appearing frozen when no confirmed delivery data exists yet.
     s2L -= due2L + fcDep['2L Bottle'];
-    s12 -= due12 + fcDep['600ml 12pk'];
     s6  -= due6  + fcDep['600ml 6pk'];
   }
 
   return {
     shifts,
     endStock2L: Math.round(s2L),
-    endStock12: Math.round(s12),
     endStock6:  Math.round(s6),
     endDays2L:  days2L,   // carry for next week's 2L phase position
     endDays600: days600,  // carry for next week's 600ml phase position
@@ -1461,7 +1388,6 @@ function forwardSimulate(fromWeekIdx, openStock, eff) {
       '10L Cask':    capHMPS + Math.floor(cap10perShift * 2 * fwdDays10 * eff),
       '5L Cask':     Math.floor(cap5perShift * 2 * fwdDays5 * eff),
       '2L Bottle':   Math.floor(52 * 2 * fwdOpDays * eff),
-      '600ml 12pk':  Math.floor(34 * 2 * fwdOpDays * eff),
       '600ml 6pk':   Math.floor(32 * 2 * fwdOpDays * eff),
     };
 
@@ -1602,7 +1528,6 @@ function planWeek(week) {
     const cask5C  = confProd.filter(s => s.sku === '5L Cask');
     const cask10C = confProd.filter(s => s.sku === '10L Cask' && !(s.label && s.label.includes('HMPS')));
     const bot2LC  = confProd.filter(s => s.sku === '2L Bottle');
-    const ep12C   = confProd.filter(s => s.sku === '600ml 12pk');
     const ep6C    = confProd.filter(s => s.sku === '600ml 6pk');
     const hmpsConfPal  = hmpsC.reduce((a,s)=>a+Math.floor(getMaxPal(s)*eff),0);
     const hmpsDaysC    = new Set(hmpsC.map(s=>s.date)).size;
@@ -1612,7 +1537,6 @@ function planWeek(week) {
     const cask10ABDays = new Set(cask10C.map(s=>s.date)).size;
     const bot2LPal     = bot2LC.reduce((a,s)=>a+Math.floor(getMaxPal(s)*eff),0);
     const bot2LDays    = new Set(bot2LC.map(s=>s.date)).size;
-    const ep12Pal      = ep12C.reduce((a,s)=>a+Math.floor(getMaxPal(s)*eff),0);
     const ep6Pal       = ep6C.reduce((a,s)=>a+Math.floor(getMaxPal(s)*eff),0);
 
     const atRiskOrdersC = [];
@@ -1662,14 +1586,12 @@ function planWeek(week) {
         shifts5: 2, hmpsShifts: 2
       },
       ep: {
-        prod12: ep12Pal, prod6: ep6Pal,
-        days12: new Set(ep12C.map(s=>s.date)).size,
+        prod6: ep6Pal,
         days6:  new Set(ep6C.map(s=>s.date)).size,
-        shifts: [...ep12C, ...ep6C],
-        endStock12: stockEnd['600ml 12pk'],
+        shifts: [...ep6C],
         endStock6:  stockEnd['600ml 6pk']
       },
-      bottleShifts: [...bot2LC, ...ep12C, ...ep6C],
+      bottleShifts: [...bot2LC, ...ep6C],
       stockEnd10: stockEnd['10L Cask'],
       stockEnd5:  stockEnd['5L Cask'],
       stockEnd2:  stockEnd['2L Bottle'],
@@ -1835,10 +1757,9 @@ function planWeek(week) {
   const botCarry600   = (prevBotCache && prevBotCache.endDays600) || 0;
 
   const bottleResult = bottleDown
-    ? {shifts:[], endStock2L:avail['2L Bottle']||0, endStock12:avail['600ml 12pk']||0, endStock6:avail['600ml 6pk']||0, endDays2L: botCarry2L, endDays600: botCarry600}
+    ? {shifts:[], endStock2L:avail['2L Bottle']||0, endStock6:avail['600ml 6pk']||0, endDays2L: botCarry2L, endDays600: botCarry600}
     : scheduleBottleLine(week, eff,
         avail['2L Bottle']   || 0,
-        avail['600ml 12pk']  || 0,
         avail['600ml 6pk']   || 0,
         weekIdx, botCarry2L, botCarry600);
 
@@ -1862,24 +1783,15 @@ function planWeek(week) {
   );
 
   // Extract 600ml stats from bottle scheduler
-  const prod12 = bottleResult.shifts.filter(s => s.sku === '600ml 12pk').reduce((a,s) => a + s.pallets, 0);
   const prod6  = bottleResult.shifts.filter(s => s.sku === '600ml 6pk' ).reduce((a,s) => a + s.pallets, 0);
-  const days12 = bottleResult.shifts.filter(s => s.sku === '600ml 12pk').filter((s,i) => i % 2 === 0).length;
   const days6  = bottleResult.shifts.filter(s => s.sku === '600ml 6pk' ).filter((s,i) => i % 2 === 0).length;
 
   const stockEnd = {
     '10L Cask':    stockEnd10,
     '5L Cask':     stockEnd5,
     '2L Bottle':   stockEnd2,
-    '600ml 12pk':  bottleResult.endStock12,
     '600ml 6pk':   bottleResult.endStock6,
   };
-  // 12pk closure week: DAILY_REQUIRED has no confirmed delivery entries 4+ weeks out so the
-  // bottle scheduler leaves s12 unchanged (due12=0 every day). Deduct the full week's forecast
-  // demand explicitly so downstream weeks open with the correct stock position.
-  if (week === LAST_12PK_PROD_WEEK) {
-    stockEnd['600ml 12pk'] = Math.max(0, (avail['600ml 12pk'] || 0) - demand['600ml 12pk'].total);
-  }
   // nextWkForCover, nextWkOO and thisWkOO were pre-computed earlier (before A&B block).
 
   const coverDays = {};
@@ -1987,7 +1899,6 @@ function planWeek(week) {
         cls='as5';
       }
       else if(sku==='2L Bottle') { tgt=52;       label='EP Bottle — Sat'; cls='as2'; }
-      else if(sku==='600ml 12pk'){ tgt=34;       label='EP Bottle Line (12pk) — Sat'; cls='ep12'; }
       else if(sku==='600ml 6pk') { tgt=32;       label='EP Bottle Line (6pk) — Sat'; cls='ep6'; }
       if(!tgt) return;
       const satAlloc = Math.floor(tgt * eff);
@@ -2062,8 +1973,8 @@ function planWeek(week) {
     cask: {prod10: caskProd10, prod5: caskProd5, days10: caskDays10, days5: caskDays5, shifts: caskResult.shifts,
            endStock10: caskResult.endStock10, endStock5: caskResult.endStock5,
            shifts5: 2, hmpsShifts: 2},
-    ep: {prod12, prod6, days12, days6, shifts: bottleResult.shifts.filter(s => s.sku === '600ml 12pk' || s.sku === '600ml 6pk'),
-         endStock12: bottleResult.endStock12, endStock6: bottleResult.endStock6},
+    ep: {prod6, days6, shifts: bottleResult.shifts.filter(s => s.sku === '600ml 6pk'),
+         endStock6: bottleResult.endStock6},
     bottleShifts: bottleResult.shifts,
     stockEnd10, stockEnd5, stockEnd2,
     avail,
@@ -2071,7 +1982,6 @@ function planWeek(week) {
       '10L Cask':    prod10,
       '5L Cask':     caskProd5,
       '2L Bottle':   prod2L,
-      '600ml 12pk':  prod12,
       '600ml 6pk':   prod6,
     },
     totalGross: SKUS.reduce((a,s)=>a+demand[s].total,0),
@@ -2091,7 +2001,6 @@ function planWeek(week) {
     '10L Cask':   sat ? (cs?.['10L Cask']   ?? result.stockEnd10 ?? 0) : (result.stockEnd10 ?? 0),
     '5L Cask':    sat ? (cs?.['5L Cask']    ?? result.stockEnd5  ?? 0) : (result.stockEnd5  ?? 0),
     '2L Bottle':  sat ? (cs?.['2L Bottle']  ?? result.stockEnd2  ?? 0) : (result.stockEnd2  ?? 0),
-    '600ml 12pk': sat ? (cs?.['600ml 12pk'] ?? stockEnd['600ml 12pk'] ?? 0) : (stockEnd['600ml 12pk'] ?? 0),
     '600ml 6pk':  sat ? (cs?.['600ml 6pk']  ?? result.ep?.endStock6  ?? 0) : (result.ep?.endStock6  ?? 0),
   };
   return result;
@@ -2621,14 +2530,12 @@ function buildSchedule(week, pr) {
   bottleShifts.forEach(s => {
     let label;
     if (s.sku === '2L Bottle')       label = 'EP Bottle Line (2L)';
-    else if (s.sku === '600ml 12pk') label = 'EP Bottle Line (12pk)';
     else                             label = 'EP Bottle Line (6pk)';
     schedule.push({
       day: s.day, date: s.date, shift: s.shift, label,
       sku: s.sku, pallets: s.pallets, target: s.target, cls: s.cls, site: 'EP',
       riskFlag: s.riskFlag,
       stockAfter2L:  s.stockAfter2L,
-      stockAfter12:  s.stockAfter12,
       stockAfter6:   s.stockAfter6
     });
   });
@@ -2735,7 +2642,6 @@ function renderSkuStrips(pr) {
     '10L Cask':   Math.round(satUsed && satStock['10L Cask']  != null ? satStock['10L Cask']  : (pr.stockEnd10 ?? 0)),
     '5L Cask':    Math.round(satUsed && satStock['5L Cask']   != null ? satStock['5L Cask']   : (pr.stockEnd5  ?? 0)),
     '2L Bottle':  Math.round(satUsed && satStock['2L Bottle'] != null ? satStock['2L Bottle'] : (pr.stockEnd2  ?? 0)),
-    '600ml 12pk': Math.round(satUsed && satStock['600ml 12pk']!= null ? satStock['600ml 12pk']: (pr.ep?.endStock12 ?? 0)),
     '600ml 6pk':  Math.round(satUsed && satStock['600ml 6pk'] != null ? satStock['600ml 6pk'] : (pr.ep?.endStock6  ?? 0)),
   };
   // For future weeks, the "Stock (Today)" tile would show current live NS stock — which
@@ -2889,7 +2795,6 @@ function renderRollingTable(pr) {
     '10L Cask':   Math.max(0, baseStock['10L Cask']   ?? 0),
     '5L Cask':    Math.max(0, baseStock['5L Cask']    ?? 0),
     '2L Bottle':  Math.max(0, baseStock['2L Bottle']  ?? 0),
-    '600ml 12pk': Math.max(0, baseStock['600ml 12pk'] ?? 0),
     '600ml 6pk':  Math.max(0, baseStock['600ml 6pk']  ?? 0),
   };
 
@@ -2923,7 +2828,6 @@ function renderRollingTable(pr) {
     '10L Cask':   pr0?.plannedProd?.['10L Cask']   ?? 0,
     '5L Cask':    pr0?.plannedProd?.['5L Cask']    ?? 0,
     '2L Bottle':  pr0?.plannedProd?.['2L Bottle']  ?? 0,
-    '600ml 12pk': pr0?.plannedProd?.['600ml 12pk'] ?? 0,
     '600ml 6pk':  pr0?.plannedProd?.['600ml 6pk']  ?? 0,
   };
   if (pr0?.satUsed && pr0?.satLines) {
@@ -2959,7 +2863,7 @@ function renderRollingTable(pr) {
 
     let maxProd;
     if (isFinishedWeek) {
-      maxProd = {'10L Cask':0,'5L Cask':0,'2L Bottle':0,'600ml 12pk':0,'600ml 6pk':0};
+      maxProd = {'10L Cask':0,'5L Cask':0,'2L Bottle':0,'600ml 6pk':0};
     } else if (isThisWeek) {
       // Current week: use plannedProd — consistent across confirmed and non-confirmed schedule paths.
       // cask.prod10 + lines.hmps.cap would double-count HMPS in confirmed-schedule weeks because
@@ -2968,7 +2872,6 @@ function renderRollingTable(pr) {
         '10L Cask':   pr0?.plannedProd?.['10L Cask']   ?? 0,
         '5L Cask':    pr0?.plannedProd?.['5L Cask']    ?? 0,
         '2L Bottle':  pr0?.plannedProd?.['2L Bottle']  ?? 0,
-        '600ml 12pk': pr0?.plannedProd?.['600ml 12pk'] ?? 0,
         '600ml 6pk':  pr0?.plannedProd?.['600ml 6pk']  ?? 0,
       };
       if (pr0?.satUsed && pr0?.satLines) {
@@ -2984,7 +2887,6 @@ function renderRollingTable(pr) {
         '10L Cask':   pr.plannedProd['10L Cask']   ?? 0,
         '5L Cask':    pr.plannedProd['5L Cask']    ?? 0,
         '2L Bottle':  pr.plannedProd['2L Bottle']  ?? 0,
-        '600ml 12pk': pr.plannedProd['600ml 12pk'] ?? 0,
         '600ml 6pk':  pr.plannedProd['600ml 6pk']  ?? 0,
       };
       // Include Saturday production if triggered (same as isThisWeek branch)
@@ -3106,18 +3008,10 @@ function renderProdTable(pr) {
   h+=lr(lines.as2l, effEnd('2L Bottle'), coverDays['2L Bottle']);
 
   // EP New Line — summarise from day-level schedule
-  const cov12=coverDays['600ml 12pk'], cov6=coverDays['600ml 6pk'];
-  const endStock12 = effEnd('600ml 12pk');
+  const cov6=coverDays['600ml 6pk'];
   const endStock6  = effEnd('600ml 6pk');
-  const ec12=endStock12<0?'r':'g', ec6=endStock6<0?'r':'g';
-  const cc12=cov12<3?'r':cov12<5?'a':'g', cc6=cov6<3?'r':cov6<5?'a':'g';
-  h+=`<tr><td><span class="chip c12pk">600ml 12pk</span></td>
-    <td><strong>EP Bottle Line</strong> <span style="font-size:10px;color:var(--muted)">(day-level scheduled)</span></td>
-    <td class="num">${ep.days12} shifts / ${opDays*2}</td><td class="num"><strong>${fmt(ep.prod12)}</strong></td>
-    <td class="num">${fmt(demand['600ml 12pk']?.total||0)}</td>
-    <td class="num ${ec12}">${fmt(endStock12)}</td>
-    <td class="num ${cc12}">${cov12>50?'7.0':cov12<0?'<0':fmtF(Math.max(0,cov12))}d</td>
-    <td><span class="badge ba">SCHEDULED</span></td></tr>`;
+  const ec6=endStock6<0?'r':'g';
+  const cc6=cov6<3?'r':cov6<5?'a':'g';
   h+=`<tr><td><span class="chip c6pk">600ml 6pk</span></td>
     <td><strong>EP Bottle Line</strong> <span style="font-size:10px;color:var(--muted)">(day-level scheduled)</span></td>
     <td class="num">${ep.days6} shifts / ${opDays*2}</td><td class="num"><strong>${fmt(ep.prod6)}</strong></td>
@@ -3162,7 +3056,6 @@ function getMaxPal(s) {
   if (s.sku === '10L Cask') return lbl.includes('A&B') ? 60 : 30;  // A&B combined vs single line
   if (s.sku === '5L Cask')  return lbl.includes('A&B') ? 50 : 27;
   if (s.sku === '2L Bottle')   return 52;
-  if (s.sku === '600ml 12pk')  return 34;
   if (s.sku === '600ml 6pk')   return 32;
   return s.target; // safe fallback
 }
@@ -3492,9 +3385,6 @@ function buildAllAlerts() {
   }
 
   // ── STOCK-LEVEL (not week-specific) ─────────────────────────────────────────
-  if ((stockPal['600ml 12pk'] || 0) < 5) {
-    alerts.push({t:'r', msg:`<strong>Critical:</strong> 600ml 12pk opening stock near zero (${Math.round(stockPal['600ml 12pk']||0)} pal). Production urgent.`});
-  }
   const totalHold = SKUS.reduce((a,s) => a + (onHoldPal[s]||0), 0);
   if (totalHold > 0) {
     alerts.push({t:'a', msg:`<strong>${fmt(totalHold)} pallets on hold</strong> excluded from planning. Update when QA releases stock.`});
@@ -3581,9 +3471,9 @@ function buildAllAlerts() {
 
     // EP current-week detail (informational — current week only)
     if (i === 0) {
-      const d12 = demand['600ml 12pk'].total, d6 = demand['600ml 6pk'].total;
-      if (d12 > 0 && d6 > 0) {
-        alerts.push({t:'b', msg:`EP Bottle Line this week: ${ep.days12} shifts on 12pk, ${ep.days6} shifts on 6pk, sequenced by delivery date.`});
+      const d6 = demand['600ml 6pk'].total;
+      if (d6 > 0) {
+        alerts.push({t:'b', msg:`EP Bottle Line this week: ${ep.days6} shifts on 6pk, sequenced by delivery date.`});
       }
       if (bottle2LDates && bottle2LDates.size > 0) {
         alerts.push({t:'b', msg:`<strong>Constraint active:</strong> 2L and 600ml cannot run same day. EP idle on: ${[...bottle2LDates].map(fmtD).join(', ')}.`});
@@ -3665,7 +3555,6 @@ function buildAllAlerts() {
       '10L Cask':    Math.floor((hmpsTgt + 60) * eff),  // HMPS + EP Line A&B (dual)
       '5L Cask':     Math.floor(50 * eff),               // EP Line A&B dual
       '2L Bottle':   Math.floor(52 * eff),
-      '600ml 12pk':  Math.floor(34 * eff),
       '600ml 6pk':   Math.floor(32 * eff),
     };
     // Night shift extension: 2 hours extra = 2/7.5 of a full shift per line
@@ -3674,7 +3563,6 @@ function buildAllAlerts() {
     const satSkuMap = {
       '5L Cask':    Math.floor(50 * eff),    // EP Line A&B dual — 1 shift
       '2L Bottle':  Math.floor(52 * eff),    // Bottle line — 1 shift
-      '600ml 12pk': Math.floor(34 * eff),    // EP New Line — 1 shift
       '600ml 6pk':  Math.floor(32 * eff),    // EP New Line — 1 shift
       '10L Cask':   Math.floor(60 * eff),    // EP Line A&B dual only (HMPS not available Sat)
     };
@@ -3912,7 +3800,6 @@ function renderAudit() {
         '10L Cask':   (pr0c?.cask?.prod10??0)+(pr0c?.lines?.hmps?.cap??0),
         '5L Cask':    pr0c?.cask?.prod5??0,
         '2L Bottle':  pr0c?.lines?.as2l?.cap??0,
-        '600ml 12pk': pr0c?.ep?.prod12??0,
         '600ml 6pk':  pr0c?.ep?.prod6??0,
       };
       if (pr0c?.satUsed && pr0c?.satLines) pr0c.satLines.forEach(sl => { prod[sl.sku]=(prod[sl.sku]||0)+sl.satAlloc; });
@@ -3973,8 +3860,8 @@ function renderAudit() {
   h += `<table style="border-collapse:collapse;font-size:10px">
     <thead><tr>${th('Retailer')}${th('SKUs they supply')}${th('Last Live Week')}${th('Status')}</tr></thead><tbody>`;
   const retailerInfo = [
-    {ch:'ww',  label:'Woolworths', skus:'10L, 5L, 2L, 12pk (no 6pk)'},
-    {ch:'coles',label:'Coles',     skus:'10L, 5L, 2L, 6pk (no 12pk)'},
+    {ch:'ww',  label:'Woolworths', skus:'10L, 5L, 2L'},
+    {ch:'coles',label:'Coles',     skus:'10L, 5L, 2L, 6pk'},
     {ch:'metcash',label:'Metcash', skus:'All SKUs'},
   ];
   retailerInfo.forEach((r,i) => {
