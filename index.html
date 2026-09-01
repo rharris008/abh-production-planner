@@ -10,7 +10,6 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ABH Pureau — Production Planner</title>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
 :root{--navy:#1B2A4A;--red:#C0392B;--amber:#E67E22;--green:#27AE60;--blue:#0E7CCE;--bg:#F2F5F9;--border:#D0D7E3;--muted:#6B7A99;--light:#EEF2F8;--purple:#8E44AD}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -203,33 +202,6 @@ tr.risk-a td{background:#FEF9F0}
 </head>
 <body>
 
-<!-- ══ LOGIN OVERLAY ════════════════════════════════════════════════════════ -->
-<div id="loginOverlay" style="display:none;position:fixed;inset:0;background:#1B2A4A;z-index:9999;align-items:center;justify-content:center;">
-  <div style="background:#fff;border-radius:10px;padding:48px 40px;max-width:420px;width:90%;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.5)">
-    <img src="abh-logo.png" alt="ABH" style="height:52px;margin-bottom:20px" onerror="this.style.display='none'">
-    <h2 style="font-size:20px;font-weight:800;color:#1B2A4A;margin-bottom:6px;font-family:'Segoe UI',system-ui,sans-serif">Production Planner</h2>
-    <p style="font-size:13px;color:#6B7A99;margin-bottom:28px;font-family:'Segoe UI',system-ui,sans-serif">Enter your email to receive a sign-in link</p>
-    <div id="loginForm">
-      <input id="loginEmail" type="email" placeholder="you@abhgroup.com.au"
-        style="width:100%;padding:11px 14px;border:1.5px solid #D0D7E3;border-radius:5px;font-size:14px;margin-bottom:12px;outline:none;font-family:'Segoe UI',system-ui,sans-serif;color:#1B2A4A;box-sizing:border-box"
-        onkeydown="if(event.key==='Enter')sendMagicLink()">
-      <button id="loginBtn" onclick="sendMagicLink()"
-        style="width:100%;padding:12px;background:#1B2A4A;color:#fff;border:none;border-radius:5px;font-size:14px;font-weight:700;cursor:pointer;font-family:'Segoe UI',system-ui,sans-serif">
-        Send Login Link
-      </button>
-      <div id="loginMsg" style="margin-top:12px;font-size:13px;min-height:18px;font-family:'Segoe UI',system-ui,sans-serif"></div>
-    </div>
-    <div id="loginSent" style="display:none">
-      <div style="font-size:52px;margin-bottom:14px">📧</div>
-      <p style="font-size:16px;font-weight:700;color:#27AE60;margin-bottom:8px;font-family:'Segoe UI',system-ui,sans-serif">Check your email</p>
-      <p style="font-size:13px;color:#6B7A99;line-height:1.6;font-family:'Segoe UI',system-ui,sans-serif">We sent a link to <strong id="loginEmailSent"></strong>.<br>Click it to open the planner.</p>
-      <button onclick="document.getElementById('loginSent').style.display='none';document.getElementById('loginForm').style.display='block'"
-        style="margin-top:20px;background:none;border:1px solid #D0D7E3;border-radius:4px;padding:7px 18px;font-size:12px;cursor:pointer;color:#6B7A99;font-family:'Segoe UI',system-ui,sans-serif">
-        Use a different email
-      </button>
-    </div>
-  </div>
-</div>
 
 <div id="hdr">
   <div>
@@ -239,8 +211,6 @@ tr.risk-a td{background:#FEF9F0}
     <div style="display:flex;align-items:center;gap:8px;margin-top:2px">
       <div class="meta" id="sbStatus" style="font-size:11px;color:#8EB4D8;font-weight:500">⏳ Connecting...</div>
       <button onclick="sbForcePush()" style="font-size:9px;padding:2px 7px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:3px;color:#8EB4D8;cursor:pointer" title="Retry failed pushes or re-pull all data">↻ Sync</button>
-      <span id="authUserEmail" style="font-size:9px;color:#6A90B0;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
-      <button onclick="signOut()" style="font-size:9px;padding:2px 7px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);border-radius:3px;color:#6A90B0;cursor:pointer" title="Sign out">Sign out</button>
     </div>
     <div id="sbUploadAudit" style="font-size:9px;color:#6A90B0;margin-top:1px;letter-spacing:0.2px"></div>
   </div>
@@ -1067,9 +1037,10 @@ function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, mi
   let s5  = openStock5;
   const shifts = [];
   let days10 = 0, days5 = 0;
-  // Only schedule remaining working days — past days are already in live NS stock.
-  // On Friday, workDays = [Friday] only. For future weeks all 5 days remain.
-  const workDays = workingDaysInWeek(weekStart).filter(dt => dt >= localToday());
+  // Only schedule future working days — past days AND today are already in live NS stock.
+  // Today's production is pre-booked into NS at shift start, so including it here double-counts.
+  // On Friday, workDays = [] for current week. For future weeks all 5 days remain.
+  const workDays = workingDaysInWeek(weekStart).filter(dt => dt > localToday());
 
   // ── Production priority rules (Rob Harris 13/06/2026) ──────────────────────
   // 1. If HMPS covers 10L demand → Line A&B runs 5L all week.
@@ -1161,8 +1132,9 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock6, weekIdx, ca
   let s6  = openStock6;
 
   const shifts = [];
-  // Only schedule remaining working days — past days already in live NS stock.
-  const workDays = workingDaysInWeek(weekStart).filter(dt => dt >= localToday());
+  // Only schedule future working days — past days AND today are already in live NS stock.
+  // Today's production is pre-booked into NS at shift start, so including it here double-counts.
+  const workDays = workingDaysInWeek(weekStart).filter(dt => dt > localToday());
   let prevSku = null;
 
   // Far-future weeks (typically 4+ weeks out) have no confirmed DAILY_REQUIRED delivery entries.
@@ -1496,12 +1468,12 @@ function planWeek(week) {
   // Rob Harris 10/07/2026.
   if (CONFIRMED_SCHEDULES[week]) {
     const conf = CONFIRMED_SCHEDULES[week];
-    // Mid-week: only count production from today forward — past days are already in live NS stock.
-    // Exclude today's Day shift after 14:00 AEST — same guard as buildSchedule (isPastDayShift).
-    // Full conf is kept for buildSchedule (shift card display); confProd is the planning signal.
+    // Exclude today and past days from planning production — today's production is pre-booked
+    // into NS stock at shift start, so it is already in availPal(). Counting it here double-counts.
+    // Full conf is kept for buildSchedule (shift card display); confProd is the planning signal only.
     const today0 = localToday();
     const confProd = (week === monOf(today0))
-      ? conf.filter(s => s.date > today0 || (s.date === today0 && !(s.shift === 'Day' && isPastDayShift())))
+      ? conf.filter(s => s.date > today0)
       : conf;
     const confirmedProd = {};
     SKUS.forEach(s => confirmedProd[s] = 0);
@@ -1652,7 +1624,7 @@ function planWeek(week) {
   }
 
   const opDays = week === monOf(localToday())
-    ? remainingOpDaysInWeek(week)   // mid-week: only plan remaining days
+    ? workingDaysInWeek(week).filter(dt => dt > localToday()).length  // exclude today: pre-booked into NS stock at shift start
     : opDaysInWeek(week);           // future weeks: full working week
 
   const s10   = avail['10L Cask'] || 0;
@@ -6241,28 +6213,7 @@ function init() {
   loadHolidays();
 }
 
-// Auth-aware startup — runs after SB_KEY and _sbClient are defined below
-document.addEventListener('DOMContentLoaded', async () => {
-  let _appInitialized = false;
-
-  function onSession(session) {
-    window._sbAccessToken = session ? session.access_token : null;
-    const overlay = document.getElementById('loginOverlay');
-    const userEl  = document.getElementById('authUserEmail');
-    if (session) {
-      overlay.style.display = 'none';
-      if (userEl) userEl.textContent = session.user.email;
-      if (!_appInitialized) { _appInitialized = true; init(); }
-    } else {
-      overlay.style.display = 'flex';
-      if (userEl) userEl.textContent = '';
-    }
-  }
-
-  _sbClient.auth.onAuthStateChange((_event, session) => onSession(session));
-  const { data: { session } } = await _sbClient.auth.getSession();
-  onSession(session);
-});
+document.addEventListener('DOMContentLoaded',init);
 
 // ══ WHO'S AWAY BAR ═══════════════════════════════════════════════════════════
 const HOLIDAY_FALLBACK = [
@@ -6325,40 +6276,12 @@ const SB_URL = 'https://yxaebxkkclbjezffmerw.supabase.co';
 const SB_KEY = 'sb_publishable_yLmaFw0myJv-rHuCC2LsHw_WW7d8lJn';
 const SB_TIMEOUT_MS = 6000;
 
-const _sbClient = supabase.createClient(SB_URL, SB_KEY);
-window._sbAccessToken = null;
-
-async function sendMagicLink() {
-  const emailEl = document.getElementById('loginEmail');
-  const msg     = document.getElementById('loginMsg');
-  const btn     = document.getElementById('loginBtn');
-  const email   = emailEl.value.trim();
-  if (!email) { msg.style.color='#C0392B'; msg.textContent='Please enter your email address.'; return; }
-  btn.disabled = true; btn.textContent = 'Sending...'; msg.textContent = '';
-  const { error } = await _sbClient.auth.signInWithOtp({
-    email,
-    options: { emailRedirectTo: location.origin + location.pathname }
-  });
-  if (error) {
-    msg.style.color = '#C0392B'; msg.textContent = 'Error: ' + error.message;
-    btn.disabled = false; btn.textContent = 'Send Login Link';
-  } else {
-    document.getElementById('loginEmailSent').textContent = email;
-    document.getElementById('loginForm').style.display  = 'none';
-    document.getElementById('loginSent').style.display  = 'block';
-  }
-}
-
-async function signOut() {
-  await _sbClient.auth.signOut();
-  location.reload();
-}
 
 function sbHeaders() {
   return {
     'Content-Type': 'application/json',
     'apikey': SB_KEY,
-    'Authorization': 'Bearer ' + (window._sbAccessToken || SB_KEY),
+    'Authorization': 'Bearer ' + SB_KEY,
     'Prefer': 'return=minimal'
   };
 }
