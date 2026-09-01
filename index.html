@@ -10,6 +10,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ABH Pureau — Production Planner</title>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
 :root{--navy:#1B2A4A;--red:#C0392B;--amber:#E67E22;--green:#27AE60;--blue:#0E7CCE;--bg:#F2F5F9;--border:#D0D7E3;--muted:#6B7A99;--light:#EEF2F8;--purple:#8E44AD}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -202,6 +203,34 @@ tr.risk-a td{background:#FEF9F0}
 </head>
 <body>
 
+<!-- ══ LOGIN OVERLAY ════════════════════════════════════════════════════════ -->
+<div id="loginOverlay" style="display:none;position:fixed;inset:0;background:#1B2A4A;z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:10px;padding:48px 40px;max-width:420px;width:90%;text-align:center;box-shadow:0 16px 48px rgba(0,0,0,.5)">
+    <img src="abh-logo.png" alt="ABH" style="height:52px;margin-bottom:20px" onerror="this.style.display='none'">
+    <h2 style="font-size:20px;font-weight:800;color:#1B2A4A;margin-bottom:6px;font-family:'Segoe UI',system-ui,sans-serif">Production Planner</h2>
+    <p style="font-size:13px;color:#6B7A99;margin-bottom:28px;font-family:'Segoe UI',system-ui,sans-serif">Enter your email to receive a sign-in link</p>
+    <div id="loginForm">
+      <input id="loginEmail" type="email" placeholder="you@abhgroup.com.au"
+        style="width:100%;padding:11px 14px;border:1.5px solid #D0D7E3;border-radius:5px;font-size:14px;margin-bottom:12px;outline:none;font-family:'Segoe UI',system-ui,sans-serif;color:#1B2A4A;box-sizing:border-box"
+        onkeydown="if(event.key==='Enter')sendMagicLink()">
+      <button id="loginBtn" onclick="sendMagicLink()"
+        style="width:100%;padding:12px;background:#1B2A4A;color:#fff;border:none;border-radius:5px;font-size:14px;font-weight:700;cursor:pointer;font-family:'Segoe UI',system-ui,sans-serif">
+        Send Login Link
+      </button>
+      <div id="loginMsg" style="margin-top:12px;font-size:13px;min-height:18px;font-family:'Segoe UI',system-ui,sans-serif"></div>
+    </div>
+    <div id="loginSent" style="display:none">
+      <div style="font-size:52px;margin-bottom:14px">📧</div>
+      <p style="font-size:16px;font-weight:700;color:#27AE60;margin-bottom:8px;font-family:'Segoe UI',system-ui,sans-serif">Check your email</p>
+      <p style="font-size:13px;color:#6B7A99;line-height:1.6;font-family:'Segoe UI',system-ui,sans-serif">We sent a link to <strong id="loginEmailSent"></strong>.<br>Click it to open the planner.</p>
+      <button onclick="document.getElementById('loginSent').style.display='none';document.getElementById('loginForm').style.display='block'"
+        style="margin-top:20px;background:none;border:1px solid #D0D7E3;border-radius:4px;padding:7px 18px;font-size:12px;cursor:pointer;color:#6B7A99;font-family:'Segoe UI',system-ui,sans-serif">
+        Use a different email
+      </button>
+    </div>
+  </div>
+</div>
+
 <div id="hdr">
   <div>
     <div class="brand" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Scroll to top" style="cursor:pointer;display:flex;align-items:center;gap:8px;"><img src="abh-logo.png" alt="ABH" style="height:28px;width:auto;"><span>ABH Pureau <span style="font-size:9px;opacity:.6;letter-spacing:.5px">v9-supabase</span></span></div>
@@ -210,6 +239,8 @@ tr.risk-a td{background:#FEF9F0}
     <div style="display:flex;align-items:center;gap:8px;margin-top:2px">
       <div class="meta" id="sbStatus" style="font-size:11px;color:#8EB4D8;font-weight:500">⏳ Connecting...</div>
       <button onclick="sbForcePush()" style="font-size:9px;padding:2px 7px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:3px;color:#8EB4D8;cursor:pointer" title="Retry failed pushes or re-pull all data">↻ Sync</button>
+      <span id="authUserEmail" style="font-size:9px;color:#6A90B0;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+      <button onclick="signOut()" style="font-size:9px;padding:2px 7px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);border-radius:3px;color:#6A90B0;cursor:pointer" title="Sign out">Sign out</button>
     </div>
     <div id="sbUploadAudit" style="font-size:9px;color:#6A90B0;margin-top:1px;letter-spacing:0.2px"></div>
   </div>
@@ -6210,7 +6241,28 @@ function init() {
   loadHolidays();
 }
 
-document.addEventListener('DOMContentLoaded',init);
+// Auth-aware startup — runs after SB_KEY and _sbClient are defined below
+document.addEventListener('DOMContentLoaded', async () => {
+  let _appInitialized = false;
+
+  function onSession(session) {
+    window._sbAccessToken = session ? session.access_token : null;
+    const overlay = document.getElementById('loginOverlay');
+    const userEl  = document.getElementById('authUserEmail');
+    if (session) {
+      overlay.style.display = 'none';
+      if (userEl) userEl.textContent = session.user.email;
+      if (!_appInitialized) { _appInitialized = true; init(); }
+    } else {
+      overlay.style.display = 'flex';
+      if (userEl) userEl.textContent = '';
+    }
+  }
+
+  _sbClient.auth.onAuthStateChange((_event, session) => onSession(session));
+  const { data: { session } } = await _sbClient.auth.getSession();
+  onSession(session);
+});
 
 // ══ WHO'S AWAY BAR ═══════════════════════════════════════════════════════════
 const HOLIDAY_FALLBACK = [
@@ -6273,11 +6325,40 @@ const SB_URL = 'https://yxaebxkkclbjezffmerw.supabase.co';
 const SB_KEY = 'sb_publishable_yLmaFw0myJv-rHuCC2LsHw_WW7d8lJn';
 const SB_TIMEOUT_MS = 6000;
 
+const _sbClient = supabase.createClient(SB_URL, SB_KEY);
+window._sbAccessToken = null;
+
+async function sendMagicLink() {
+  const emailEl = document.getElementById('loginEmail');
+  const msg     = document.getElementById('loginMsg');
+  const btn     = document.getElementById('loginBtn');
+  const email   = emailEl.value.trim();
+  if (!email) { msg.style.color='#C0392B'; msg.textContent='Please enter your email address.'; return; }
+  btn.disabled = true; btn.textContent = 'Sending...'; msg.textContent = '';
+  const { error } = await _sbClient.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: location.origin + location.pathname }
+  });
+  if (error) {
+    msg.style.color = '#C0392B'; msg.textContent = 'Error: ' + error.message;
+    btn.disabled = false; btn.textContent = 'Send Login Link';
+  } else {
+    document.getElementById('loginEmailSent').textContent = email;
+    document.getElementById('loginForm').style.display  = 'none';
+    document.getElementById('loginSent').style.display  = 'block';
+  }
+}
+
+async function signOut() {
+  await _sbClient.auth.signOut();
+  location.reload();
+}
+
 function sbHeaders() {
   return {
     'Content-Type': 'application/json',
     'apikey': SB_KEY,
-    'Authorization': 'Bearer ' + SB_KEY,
+    'Authorization': 'Bearer ' + (window._sbAccessToken || SB_KEY),
     'Prefer': 'return=minimal'
   };
 }
