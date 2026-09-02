@@ -225,8 +225,8 @@ tr.risk-a td{background:#FEF9F0}
       <div class="tog"><button id="bDual" class="on" onclick="setHMPS('Dual')">Dual (90/sh)</button>
         <button id="bSingle" onclick="setHMPS('Single')">Single (45/sh)</button></div></div>
     <div class="ctrl-grp"><span class="ctrl-lbl">SATURDAY</span>
-      <div class="tog"><button id="bSatAuto" onclick="setSat('auto')">Auto (&lt;<span id="satFloorLabel">3</span>d)</button>
-        <button id="bSatOff" class="on" onclick="setSat('off')">Off</button>
+      <div class="tog"><button id="bSatAuto" class="on" onclick="setSat('auto')">Auto (&lt;<span id="satFloorLabel">3</span>d)</button>
+        <button id="bSatOff" onclick="setSat('off')">Off</button>
         <button id="bSatOn" onclick="setSat('on')">Force</button></div></div>
   </div>
   
@@ -706,7 +706,7 @@ const STOCK_COVER = {
 // ══ STATE ════════════════════════════════════════════════════════════════════
 let currentWeek = '';
 let hmpsConfig  = 'Dual';
-let satMode     = 'off';
+let satMode     = 'auto';  // Rob Harris 03/09/2026: default auto so Saturday fires when triggered
 let stockPal    = {...STOCK_PAL};
 let onHoldPal   = {'10L Cask':0,'5L Cask':0,'2L Bottle':0,'600ml 12pk':0,'600ml 6pk':0};
 let availPal    = () => Object.fromEntries(SKUS.map(s=>[s,Math.max(0,(stockPal[s]||0)-(onHoldPal[s]||0))]));
@@ -1717,13 +1717,28 @@ function planWeek(week) {
   // MIN_CASK_COVER removed — use STOCK_COVER.target (global config, C2 fix 11/07/2026).
   const pal10perABday  = cap10shift * 2;   // pallets A&B can produce per day on 10L (both shifts)
   const pal5perABday   = cap5shift  * 2;   // pallets A&B can produce per day on 5L (both shifts)
+
+  // No-negative floors (Rob Harris 03/09/2026): neither SKU may close the week negative.
+  // 5L has no HMPS fallback — it gets floor days first. 10L gets floor days from what remains.
+  // If combined floor days exceed opDays, Saturday is flagged as required.
+  const noNegGap5  = Math.max(0, -(projClose5L_noAB));      // 5L pallets short with no A&B
+  const noNegGap10 = Math.max(0, -(projClose10_HMPSonly));  // 10L pallets short even after HMPS
+  const noNegDays5raw  = pal5perABday  > 0 ? Math.ceil(noNegGap5  / pal5perABday)  : 0;
+  const noNegDays10raw = pal10perABday > 0 ? Math.ceil(noNegGap10 / pal10perABday) : 0;
+  const noNegDays5Capped  = Math.min(noNegDays5raw, opDays);
+  const noNegDays10Capped = Math.min(noNegDays10raw, Math.max(0, opDays - noNegDays5Capped));
+  const satRequiredNoNeg  = (noNegDays5raw + noNegDays10raw) > opDays;
+
+  // Target-cover top-up: remaining capacity after floors goes toward STOCK_COVER.target.
+  // 10L retains priority for target-cover top-up (consistent with existing priority rule).
+  const remainAfterFloors = Math.max(0, opDays - noNegDays5Capped - noNegDays10Capped);
   const gap10 = Math.max(0, STOCK_COVER.target * peakDailyD10 - projClose10_HMPSonly);
   const gap5  = Math.max(0, STOCK_COVER.target * peakDailyD5  - projClose5L_noAB);
-  const minDays10raw = pal10perABday > 0 ? Math.ceil(gap10 / pal10perABday) : 0;
-  const minDays5raw  = pal5perABday  > 0 ? Math.ceil(gap5  / pal5perABday)  : 0;
-  // If combined days exceed available, 10L takes priority (HMPS runs 10L; A&B 10L is additive).
-  const minDays10Final = Math.min(minDays10raw, opDays);
-  const minDays5Final  = Math.max(0, Math.min(minDays5raw, opDays - minDays10Final));
+  const targetExtra10 = pal10perABday > 0 ? Math.min(Math.max(0, Math.ceil(gap10 / pal10perABday) - noNegDays10Capped), remainAfterFloors) : 0;
+  const targetExtra5  = pal5perABday  > 0 ? Math.min(Math.max(0, Math.ceil(gap5  / pal5perABday)  - noNegDays5Capped),  Math.max(0, remainAfterFloors - targetExtra10)) : 0;
+
+  const minDays10Final = noNegDays10Capped + targetExtra10;
+  const minDays5Final  = noNegDays5Capped  + targetExtra5;
   // Primary SKU: whichever needs more A&B days (runs by default; other enforced via minDays).
   // When equal, 10L is primary (maintains 10L priority when both equally constrained).
   // Single-line constraint (Rob Harris 24/07/2026): 5L only runs when BOTH Line A and Line B are up.
@@ -1871,7 +1886,7 @@ function planWeek(week) {
     // Use this week's open orders as fallback demand signal when no forecast is loaded
     const effectiveDemand = demand[s].total > 0 ? demand[s].total : (thisWkOO[s] || 0);
     if ((coverDays[s]||0) < STOCK_COVER.floor || midWeekAtRisk.has(s)) return effectiveDemand > 0;
-    if (s === '5L Cask'  && (fwd5short || lineBOutageSatNeeded5L))  return true;
+    if (s === '5L Cask'  && (fwd5short || lineBOutageSatNeeded5L || satRequiredNoNeg)) return true;
     if (s === '10L Cask' && lineBOutageSatNeeded10L) return true;
     return false;
   });
