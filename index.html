@@ -6047,11 +6047,8 @@ function renderBudget() {
       ytdRows += `<tr>
         <td style="padding:5px 10px;font-weight:600;color:var(--navy)">${SKU_LBL[sku]}</td>
         <td class="num" style="padding:5px 10px;font-weight:700;color:var(--navy)">${skuA > 0 ? Math.round(skuA) : '—'}</td>
-        <td class="num" style="padding:5px 10px;color:var(--muted)">${Math.round(skuF)}</td>
         <td class="num" style="padding:5px 10px;color:var(--muted)">${Math.round(skuB)}</td>
         <td class="num" style="padding:5px 10px;${actCls}">${skuA > 0 ? fmtVar(actV) : '—'}</td><td class="num" style="padding:5px 10px;${actCls}">${skuA > 0 ? pct(skuA,skuB) : '—'}</td>
-        <td class="num" style="padding:5px 10px;${fcstCls}">${fmtVar(fcstV)}</td>
-        <td class="num" style="padding:5px 10px;${fcstCls}">${pct(skuF,skuB)}</td>
       </tr>`;
     });
     const ytdV = ytdTotalF - ytdTotalB;
@@ -6061,11 +6058,8 @@ function renderBudget() {
     ytdRows += `<tr style="background:var(--navy);font-weight:700;color:#fff">
       <td style="padding:6px 10px">Total</td>
       <td class="num" style="padding:6px 10px">${ytdTotalA > 0 ? Math.round(ytdTotalA) : '—'}</td>
-      <td class="num" style="padding:6px 10px;color:rgba(255,255,255,.7)">${Math.round(ytdTotalF)}</td>
       <td class="num" style="padding:6px 10px;color:rgba(255,255,255,.7)">${Math.round(ytdTotalB)}</td>
       <td class="num" style="padding:6px 10px;${ytdActCls}">${ytdTotalA > 0 ? fmtVar(ytdActV) : '—'}</td><td class="num" style="padding:6px 10px;${ytdActCls}">${ytdTotalA > 0 ? pct(ytdTotalA,ytdTotalB) : '—'}</td>
-      <td class="num" style="padding:6px 10px;${ytdCls}">${fmtVar(ytdV)}</td>
-      <td class="num" style="padding:6px 10px;${ytdCls}">${pct(ytdTotalF,ytdTotalB)}</td>
     </tr>`;
 
     const actNote = hasActs
@@ -6074,18 +6068,15 @@ function renderBudget() {
     ytdHtml = `
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
         ${ytdWeeks.length} completed week${ytdWeeks.length>1?'s':''} — FY27 W01 to Wk ${fmtD(ytdWeeks[ytdWeeks.length-1]).slice(0,5)}.
-        ${actNote}Forecast = retailer-reported orders.
+        ${actNote}
       </div>
       <div class="tscroll">
         <table>
           <thead><tr>
             <th style="text-align:left;min-width:90px">SKU</th>
             <th class="num" style="min-width:90px">Actuals (pal)</th>
-            <th class="num">Forecast (pal)</th>
             <th class="num">Budget (pal)</th>
             <th class="num">Act vs Bgt</th><th class="num">Act%</th>
-            <th class="num">Fcst Var</th>
-            <th class="num">Fcst%</th>
           </tr></thead>
           <tbody>${ytdRows}</tbody>
         </table>
