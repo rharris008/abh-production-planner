@@ -575,11 +575,12 @@ describe('LM: Logic Map tripwires', () => {
     );
   });
 
-  test('LM — EP 10L cask rate pattern (?30:60) count has not increased beyond 3', () => {
-    const count = (SRC.match(/\?\s*30\s*:\s*60/g) || []).length;
+  test('LM — EP 10L cask rate pattern (?40:80) count has not increased beyond 3', () => {
+    // Updated 15/09/2026: Rob confirmed BOM rate — 10L A&B design max 80, single 40 (operational 60/30 at 75%).
+    const count = (SRC.match(/\?\s*40\s*:\s*80/g) || []).length;
     assert.ok(
       count <= 3,
-      `FAIL LM: EP 10L rate pattern "? 30 : 60" found ${count} times — baseline is 3. ` +
+      `FAIL LM: EP 10L rate pattern "? 40 : 80" found ${count} times — baseline is 3. ` +
       `A new duplicate was added. Check PLANNER_LOGIC_MAP.md Tier 3 and either consolidate or document the reason.`
     );
     assert.ok(
@@ -588,11 +589,12 @@ describe('LM: Logic Map tripwires', () => {
     );
   });
 
-  test('LM — EP 5L cask rate pattern (?27:50) count has not increased beyond 4', () => {
-    const count = (SRC.match(/\?\s*27\s*:\s*50/g) || []).length;
+  test('LM — EP 5L cask rate pattern (?30:59) count has not increased beyond 4', () => {
+    // Updated 15/09/2026: Rob confirmed BOM rate — 5L A&B base 59 (gives exactly 44 at 75%), single 30 (gives 22).
+    const count = (SRC.match(/\?\s*30\s*:\s*59/g) || []).length;
     assert.ok(
       count <= 4,
-      `FAIL LM: EP 5L rate pattern "? 27 : 50" found ${count} times — baseline is 4. ` +
+      `FAIL LM: EP 5L rate pattern "? 30 : 59" found ${count} times — baseline is 4. ` +
       `A new duplicate was added. Check PLANNER_LOGIC_MAP.md Tier 3 and either consolidate or document the reason.`
     );
     assert.ok(

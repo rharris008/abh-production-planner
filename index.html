@@ -1016,23 +1016,23 @@ function getAdjustedDemand(week) {
 // ══ EP LINE A&B — DAY-LEVEL SCHEDULER ════════════════════════════════════════
 // Line A and Line B ALWAYS run combined as a single unit — they are never split
 // to run different SKUs simultaneously.
-// Each shift runs either 10L Cask (A+B combined: 60 base/shift = 90 pal/day at 75% eff; Line A only: 30 base = 44/day)
-// or 5L Cask (A+B combined: 50 base/shift = 74 pal/day at 75% eff; Line A only: 27 base = 40/day).
-// Capacity per Aaron Mattin (Operations Manager) 13/06/2026:
-//   Line A alone: 10L=45/day, 5L=40/day; Combined A+B: 10L=90/day, 5L=75/day.
+// Each shift runs either 10L Cask (A+B combined: 80 base/shift = 120 pal/day at 75% eff; Line A only: 40 base = 60/day)
+// or 5L Cask (A+B combined: 59 base/shift = 88 pal/day at 75% eff; Line A only: 30 base = 45/day).
+// BOM operational targets confirmed by Rob Harris 14/09/2026: 10L A&B=80 (60 at 75%), 5L A&B=59 (44 at 75%).
+// (Aaron Mattin 13/06/2026 carried 50/27 — superseded.)
 // The scheduler allocates each shift to whichever SKU (10L or 5L) has the
 // worse stock position vs deliveries due — same priority logic as EP New Line.
 // No changeover penalty: these are separate machines so SKU switches are
 // instantaneous between shifts.
 function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, minDays10=0, minDays5=0, hmpsCovers10L=false, shifts5=2) {
   // During a line outage, only one cask line runs (same single-line capacity regardless of which is down).
-  // Base capacities (before efficiency factor): single line: 10L=30, 5L=27; Combined A+B: 10L=60, 5L=50.
-  // At default 75% efficiency: single-line 10L=44/day, 5L=40/day; combined 10L=90/day, 5L=74/day.
-  // Per Aaron Mattin (Operations Manager) 13/06/2026.
+  // Base capacities (before efficiency factor): single line: 10L=40, 5L=30; Combined A+B: 10L=80, 5L=59.
+  // At default 75% efficiency: single-line 10L=30/shift, 5L=22/shift; combined 10L=60/shift, 5L=44/shift.
+  // Confirmed Rob Harris 14/09/2026 (BOM rate). Note: 59 base for 5L so Math.floor(59×0.75)=44 exactly.
   const {single: lineAOnly, bothDown: caskBothDown} = lineOutageForWeek(weekStart);
   const fiveDown = fiveLOverpackerForWeek(weekStart);
-  const tgt10 = caskBothDown ? 0 : Math.floor((lineAOnly ? 30 : 60) * eff);
-  const tgt5  = (caskBothDown || fiveDown) ? 0 : Math.floor((lineAOnly ? 27 : 50) * eff);
+  const tgt10 = caskBothDown ? 0 : Math.floor((lineAOnly ? 40 : 80) * eff);
+  const tgt5  = (caskBothDown || fiveDown) ? 0 : Math.floor((lineAOnly ? 30 : 59) * eff);
   let s10 = openStock10;
   let s5  = openStock5;
   const shifts = [];
@@ -1370,8 +1370,8 @@ function forwardSimulate(fromWeekIdx, openStock, eff) {
 
     // Capacity available this future week on each line
     const {single: lineAOnly} = lineOutageForWeek(wk);
-    const cap10perShift = Math.floor((lineAOnly ? 30 : 60) * eff);
-    const cap5perShift  = Math.floor((lineAOnly ? 27 : 50) * eff);
+    const cap10perShift = Math.floor((lineAOnly ? 40 : 80) * eff);
+    const cap5perShift  = Math.floor((lineAOnly ? 30 : 59) * eff);
     const hmpsTgt = hmpsConfig === 'Dual' ? 90 : 45;
     const fwdOpDays = opDaysInWeek(wk);
     const capHMPS = Math.floor(hmpsTgt * 2 * fwdOpDays * eff);  // working days × 2 shifts
@@ -1662,8 +1662,8 @@ function planWeek(week) {
 
   // ── Pre-build scan: calculate minimum days needed per SKU on EP Line A&B
   const {single: lineAOnlyNow, out: lineOutNow, bothDown: caskBothDownNow} = lineOutageForWeek(week);
-  const cap10shift = caskBothDownNow ? 0 : Math.floor((lineAOnlyNow ? 30 : 60) * eff);
-  const cap5shift  = caskBothDownNow ? 0 : Math.floor((lineAOnlyNow ? 27 : 50) * eff);
+  const cap10shift = caskBothDownNow ? 0 : Math.floor((lineAOnlyNow ? 40 : 80) * eff);
+  const cap5shift  = caskBothDownNow ? 0 : Math.floor((lineAOnlyNow ? 30 : 59) * eff);
 
   // EP Line A&B rules (Rob Harris 20/06/2026):
   // - Always 2 shifts, every working day — no throttle.
@@ -1908,7 +1908,7 @@ function planWeek(week) {
     satSkus.forEach(sku => {
       let tgt = 0, label = '', cls = '';
       if (sku==='5L Cask')   {
-        tgt = lineAOnlyNow ? 27 : 50;
+        tgt = lineAOnlyNow ? 30 : 59;
         const runLine5Sat = lineOutNow === 'B' ? 'A' : lineOutNow === 'A' ? 'B' : 'A&B';
         const outBadge5   = lineAOnlyNow ? ` 🔴 Pre-build (Line ${lineOutNow} out)` : '';
         label = lineAOnlyNow
@@ -2579,7 +2579,7 @@ function buildSchedule(week, pr) {
           pallets = 0;
         } else if (lineAOnlyCS) {
           label = `EP Line ${runLineCS} only (${is10L ? '10L' : '5L'})`;
-          pallets = Math.floor((is10L ? 30 : 27) * eff);
+          pallets = Math.floor((is10L ? 40 : 30) * eff);
         } else {
           label = is10L ? 'EP Line A&B (10L)' : 'EP Line A&B (5L)';
         }
@@ -3150,8 +3150,8 @@ function getMaxPal(s) {
   if (s.maxPal != null) return s.maxPal;
   const lbl = s.label || '';
   if (lbl.includes('HMPS')) return lbl.includes('Single') ? 45 : 90;
-  if (s.sku === '10L Cask') return lbl.includes('A&B') ? 60 : 30;  // A&B combined vs single line
-  if (s.sku === '5L Cask')  return lbl.includes('A&B') ? 50 : 27;
+  if (s.sku === '10L Cask') return lbl.includes('A&B') ? 80 : 40;  // A&B combined vs single line
+  if (s.sku === '5L Cask')  return lbl.includes('A&B') ? 59 : 30;
   if (s.sku === '2L Bottle')   return 52;
   if (s.sku === '600ml 6pk')   return 32;
   return s.target; // safe fallback
@@ -3647,10 +3647,10 @@ function buildAllAlerts() {
     const hmpsTgt = hmpsConfig === 'Dual' ? 90 : 45;
 
     // Per-SKU normal-rate pallets per shift (base × efficiency)
-    // EP cask capacities match scheduleEPCaskLines(): dual 10L=60, dual 5L=50
+    // EP cask capacities match scheduleEPCaskLines(): dual 10L=80, dual 5L=59
     const normalPalPerShift = {
-      '10L Cask':    Math.floor((hmpsTgt + 60) * eff),  // HMPS + EP Line A&B (dual)
-      '5L Cask':     Math.floor(50 * eff),               // EP Line A&B dual
+      '10L Cask':    Math.floor((hmpsTgt + 80) * eff),  // HMPS + EP Line A&B (dual)
+      '5L Cask':     Math.floor(59 * eff),               // EP Line A&B dual
       '2L Bottle':   Math.floor(52 * eff),
       '600ml 6pk':   Math.floor(32 * eff),
     };
@@ -3658,10 +3658,10 @@ function buildAllAlerts() {
     const nightShiftFrac = 2 / 7.5;
     // Saturday: single shift on EP lines only (HMPS never runs Saturday)
     const satSkuMap = {
-      '5L Cask':    Math.floor(50 * eff),    // EP Line A&B dual — 1 shift
+      '5L Cask':    Math.floor(59 * eff),    // EP Line A&B dual — 1 shift
       '2L Bottle':  Math.floor(52 * eff),    // Bottle line — 1 shift
       '600ml 6pk':  Math.floor(32 * eff),    // EP New Line — 1 shift
-      '10L Cask':   Math.floor(60 * eff),    // EP Line A&B dual only (HMPS not available Sat)
+      '10L Cask':   Math.floor(80 * eff),    // EP Line A&B dual only (HMPS not available Sat)
     };
 
     // Collect forward breach info per SKU — only earliest breach per SKU
