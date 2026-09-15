@@ -738,7 +738,6 @@ let RM_STOCK_DATE     = null; // ISO timestamp of last NS sync
 // Single source — used by computeRmCoverage(), renderRmStock(), and buildAllAlerts().
 const RM_BOM_PER_PAL = {
   // 10L cask — multiple suppliers, all same BOM rate, merged to one display row
-  'Pureau 10L cask':                {'10L Cask': 97.44},   // NS:2239
   'Cask - 10L 2026 EXT GL':         {'10L Cask': 97.44},
   'Cask - 10L Abbe':                {'10L Cask': 97.44},
   'Cask - 10L Glama Pak':           {'10L Cask': 97.44},   // NS:1706 — reinstated 16/09/2026
@@ -758,7 +757,6 @@ const RM_BOM_PER_PAL = {
   'Bottle - 600 ml':                 {'600ml 12pk': 1512, '600ml 6pk': 1512}, // JIT — 2-day threshold
 };
 const RM_DISPLAY_LABELS = {
-  'Pureau 10L cask':                'Cask 10L',          // merged with other 10L casks
   'Cask - 10L 2026 EXT GL':         'Cask 10L',
   'Cask - 10L Abbe':                'Cask 10L Abbe (A&B)',
   'Cask - 10L Glama Pak':           'Cask 10L',          // NS:1706 — reinstated 16/09/2026
