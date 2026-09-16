@@ -198,7 +198,7 @@ tr.risk-a td{background:#FEF9F0}
   .oc-grid{grid-template-columns:1fr}
   .tab{padding:12px 12px}
 }
-.other-tab{position:relative;cursor:pointer;user-select:none}.other-item{padding:7px 14px;cursor:pointer;font-size:13px;white-space:nowrap;color:var(--navy)}.other-item:hover{background:var(--light)}.haccp-grid{display:grid;gap:8px;margin-top:8px}.haccp-card{background:#fff;border-radius:6px;border:1px solid var(--border);padding:10px 14px;display:flex;align-items:flex-start;gap:10px}.haccp-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;margin-top:4px}.haccp-name{font-size:13px;font-weight:600;color:var(--text);margin-bottom:3px}.haccp-meta{font-size:11px;color:var(--muted)}.haccp-badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;margin-right:4px}
+.other-tab{position:relative;cursor:pointer;user-select:none}.other-item{padding:7px 14px;cursor:pointer;font-size:13px;white-space:nowrap;color:var(--navy)}.other-item:hover{background:var(--light)}.tracker-stats{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap}.stat-tile{border:1px solid var(--border);border-radius:6px;padding:8px 14px;min-width:100px;background:#fff}.stat-tile-label{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}.stat-tile-value{font-size:22px;font-weight:700}
 </style>
 </head>
 <body>
@@ -378,7 +378,7 @@ tr.risk-a td{background:#FEF9F0}
     <div class="ph navy">HACCP &amp; Safety Culture &#8212; Action Register
       <span style="font-size:10px;opacity:.7;margin-left:12px">Source: 3-Year Plan &#8212; Safety Culture pillar | Updated 16/09/2026</span>
     </div>
-    <div id="haccpStats" style="display:flex;gap:12px;margin-bottom:14px;flex-wrap:wrap"></div>
+    <div id="haccpStats" class="tracker-stats"></div>
     <div id="haccpList"></div>
   </div>
 </div>
@@ -5956,35 +5956,61 @@ function renderHaccp() {
   const stats = document.getElementById('haccpStats');
   const list  = document.getElementById('haccpList');
   if(!stats||!list) return;
-  const todo = HACCP_TASKS.filter(t=>t.status==='to do').length;
-  const inprog = HACCP_TASKS.filter(t=>t.status==='in progress').length;
-  const done = HACCP_TASKS.filter(t=>t.status==='complete').length;
-  const urgent = HACCP_TASKS.filter(t=>['urgent','URGENT'].includes(t.priority)&&t.status!=='complete').length;
+  const todo    = HACCP_TASKS.filter(t=>t.status==='to do').length;
+  const inprog  = HACCP_TASKS.filter(t=>t.status==='in progress').length;
+  const done    = HACCP_TASKS.filter(t=>t.status==='complete').length;
+  const urgent  = HACCP_TASKS.filter(t=>['urgent','URGENT'].includes(t.priority)&&t.status!=='complete').length;
+
+  // Stat tiles — consistent with planner tracker standard
   stats.innerHTML = `
-    <div style="background:#FDE8E8;border:1px solid #C0392B;border-radius:6px;padding:8px 14px;font-size:12px;font-weight:700;color:#C0392B">${urgent} Urgent open</div>
-    <div style="background:#FEF0DC;border:1px solid #E67E22;border-radius:6px;padding:8px 14px;font-size:12px;font-weight:700;color:#E67E22">${inprog} In Progress</div>
-    <div style="background:#FEF0DC;border:1px solid #E67E22;border-radius:6px;padding:8px 14px;font-size:12px;font-weight:700;color:#E67E22">${todo} To Do</div>
-    <div style="background:#EAF7EF;border:1px solid #27AE60;border-radius:6px;padding:8px 14px;font-size:12px;font-weight:700;color:#27AE60">${done} Complete</div>`;
-  const order = {urgent:0,URGENT:0,HIGH:1,HIGH:1,normal:2,NORMAL:2,none:3};
+    <div class="stat-tile"><div class="stat-tile-label">Urgent open</div><div class="stat-tile-value" style="color:var(--red)">${urgent}</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">In Progress</div><div class="stat-tile-value" style="color:var(--amber)">${inprog}</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">To Do</div><div class="stat-tile-value" style="color:var(--navy)">${todo}</div></div>
+    <div class="stat-tile"><div class="stat-tile-label">Complete</div><div class="stat-tile-value" style="color:var(--green)">${done}</div></div>`;
+
+  const order = {urgent:0,URGENT:0,HIGH:1,high:1,normal:2,NORMAL:2,none:3};
   const statusOrder = {'in progress':0,'to do':1,'complete':2};
   const sorted = [...HACCP_TASKS].sort((a,b)=>(statusOrder[a.status]||9)-(statusOrder[b.status]||9)||(order[a.priority]||9)-(order[b.priority]||9));
-  const dotCol = s => s==='complete'?'#27AE60':s==='in progress'?'#E67E22':'#C0392B';
-  const priCol = p => ['urgent','URGENT'].includes(p)?'#C0392B':['HIGH'].includes(p)?'#E67E22':'#1B2A4A';
+
   const fmtDate = d => { if(!d) return ''; const [y,m,day]=d.split('-'); return `${day}/${m}/${y}`; };
-  const overdue = d => d && new Date(d) < new Date() ? ' <span style="color:#C0392B;font-size:10px;font-weight:700">OVERDUE</span>' : '';
-  list.innerHTML = '<div class="haccp-grid">'+sorted.map(t=>`
-    <div class="haccp-card" style="opacity:${t.status==='complete'?.55:1}">
-      <div class="haccp-dot" style="background:${dotCol(t.status)}"></div>
-      <div style="flex:1">
-        <div class="haccp-name" style="text-decoration:${t.status==='complete'?'line-through':''}">${t.name}</div>
-        <div class="haccp-meta">
-          <span class="haccp-badge" style="background:${priCol(t.priority)}22;color:${priCol(t.priority)};border:1px solid ${priCol(t.priority)}55">${t.priority.toUpperCase()}</span>
-          <span class="haccp-badge" style="background:${dotCol(t.status)}22;color:${dotCol(t.status)};border:1px solid ${dotCol(t.status)}55">${t.status}</span>
-          ${t.due?`<span>Due: ${fmtDate(t.due)}${overdue(t.due)}</span>`:''}
-          <span style="margin-left:6px">${t.assignees.join(', ')}</span>
-        </div>
-      </div>
-    </div>`).join('')+'</div>';
+  const isOverdue = d => d && new Date(d) < new Date();
+
+  const statusBadge = s => {
+    if(s==='complete')    return '<span class="badge bg">COMPLETE</span>';
+    if(s==='in progress') return '<span class="badge ba">IN PROGRESS</span>';
+    return '<span class="badge bb">TO DO</span>';
+  };
+  const priBadge = p => {
+    const u = p.toUpperCase();
+    if(u==='URGENT') return '<span class="badge br">URGENT</span>';
+    if(u==='HIGH')   return '<span class="badge ba">HIGH</span>';
+    if(u==='NORMAL') return '<span class="badge bn">NORMAL</span>';
+    return '';
+  };
+
+  let html = `<div class="tscroll"><table>
+    <thead><tr>
+      <th>Task</th><th>Priority</th><th>Status</th><th>Due</th><th>Assignees</th>
+    </tr></thead><tbody>`;
+
+  for(const t of sorted) {
+    const od = isOverdue(t.due) && t.status !== 'complete';
+    const rowStyle = t.status==='complete' ? 'opacity:.55' : (od ? 'background:#FEF5F5' : '');
+    const nameCell = t.status==='complete' ? `<s>${t.name}</s>` : `<strong>${t.name}</strong>`;
+    const dueCell  = t.due
+      ? `${fmtDate(t.due)}${od ? ' <span class="badge br" style="font-size:9px">OVERDUE</span>' : ''}`
+      : '';
+    html += `<tr style="${rowStyle}">
+      <td style="max-width:340px">${nameCell}</td>
+      <td>${priBadge(t.priority)}</td>
+      <td>${statusBadge(t.status)}</td>
+      <td style="white-space:nowrap">${dueCell}</td>
+      <td style="font-size:11px;color:var(--muted)">${t.assignees.join(', ')}</td>
+    </tr>`;
+  }
+
+  html += '</tbody></table></div>';
+  list.innerHTML = html;
 }
 
 // Other-menu dropdown helpers
