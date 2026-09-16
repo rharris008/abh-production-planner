@@ -2698,7 +2698,7 @@ function buildSchedule(week, pr) {
                          s.label === 'EP Line B only (10L)' || s.label === 'EP Line B only (5L)';
       const is10L = s.sku === '10L Cask';
       let label = s.label;
-      let pallets = Math.floor(getMaxPal(s) * eff);
+      let pallets;
       if (isCaskLine) {
         if (caskBothDownCS) {
           label = is10L ? 'EP Line A&B (10L)' : 'EP Line A&B (5L)';
@@ -2708,7 +2708,14 @@ function buildSchedule(week, pr) {
           pallets = Math.floor((is10L ? 40 : 30) * eff);
         } else {
           label = is10L ? 'EP Line A&B (10L)' : 'EP Line A&B (5L)';
+          // Derive capacity from the NORMALISED label, not the stored one.
+          // Stored single-line labels ('EP Line B only (10L)') made getMaxPal
+          // return 40 instead of 80, so a card relabelled to A&B still showed
+          // half the pallets. Rob Harris 17/09/2026.
+          pallets = Math.floor(getMaxPal({...s, label}) * eff);
         }
+      } else {
+        pallets = Math.floor(getMaxPal(s) * eff);
       }
       return {...s, label, pallets, target: pallets};
     }).filter(s => !(s.shift === 'Day' && s.date === localToday() && isPastDayShift()));
@@ -6867,34 +6874,34 @@ const SB_CONFLICT_KEYS = {
   '2026-09-21': [
     // Auto-seeded default week — Aaron Mattin request
     {day:0,date:'2026-09-21',shift:'Day',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:90,target:90,cls:'ep10',site:'EP'},
-    {day:0,date:'2026-09-21',shift:'Day',label:'EP Line B only (10L)',sku:'10L Cask',pallets:30,target:30,cls:'ep10',site:'EP'},
+    {day:0,date:'2026-09-21',shift:'Day',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:60,cls:'ep10',site:'EP'},
     {day:0,date:'2026-09-21',shift:'Day',label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:32,target:32,cls:'ep6',site:'EP'},
     {day:0,date:'2026-09-21',shift:'Aft',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:90,target:90,cls:'ep10',site:'EP'},
-    {day:0,date:'2026-09-21',shift:'Aft',label:'EP Line B only (10L)',sku:'10L Cask',pallets:30,target:30,cls:'ep10',site:'EP'},
+    {day:0,date:'2026-09-21',shift:'Aft',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:60,cls:'ep10',site:'EP'},
     {day:0,date:'2026-09-21',shift:'Aft',label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:32,target:32,cls:'ep6',site:'EP'},
     {day:1,date:'2026-09-22',shift:'Day',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:90,target:90,cls:'ep10',site:'EP'},
-    {day:1,date:'2026-09-22',shift:'Day',label:'EP Line B only (10L)',sku:'10L Cask',pallets:30,target:30,cls:'ep10',site:'EP'},
+    {day:1,date:'2026-09-22',shift:'Day',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:60,cls:'ep10',site:'EP'},
     {day:1,date:'2026-09-22',shift:'Day',label:'EP Bottle Line (2L)',sku:'2L Bottle',pallets:39,target:39,maxPal:39,cls:'as2',site:'EP'},
     {day:1,date:'2026-09-22',shift:'Aft',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:90,target:90,cls:'ep10',site:'EP'},
-    {day:1,date:'2026-09-22',shift:'Aft',label:'EP Line B only (10L)',sku:'10L Cask',pallets:30,target:30,cls:'ep10',site:'EP'},
+    {day:1,date:'2026-09-22',shift:'Aft',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:60,cls:'ep10',site:'EP'},
     {day:1,date:'2026-09-22',shift:'Aft',label:'EP Bottle Line (2L)',sku:'2L Bottle',pallets:39,target:39,maxPal:39,cls:'as2',site:'EP'},
     {day:2,date:'2026-09-23',shift:'Day',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:90,target:90,cls:'ep10',site:'EP'},
-    {day:2,date:'2026-09-23',shift:'Day',label:'EP Line B only (10L)',sku:'10L Cask',pallets:30,target:30,cls:'ep10',site:'EP'},
+    {day:2,date:'2026-09-23',shift:'Day',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:60,cls:'ep10',site:'EP'},
     {day:2,date:'2026-09-23',shift:'Day',label:'EP Bottle Line (2L)',sku:'2L Bottle',pallets:39,target:39,maxPal:39,cls:'as2',site:'EP'},
     {day:2,date:'2026-09-23',shift:'Aft',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:90,target:90,cls:'ep10',site:'EP'},
-    {day:2,date:'2026-09-23',shift:'Aft',label:'EP Line B only (10L)',sku:'10L Cask',pallets:30,target:30,cls:'ep10',site:'EP'},
+    {day:2,date:'2026-09-23',shift:'Aft',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:60,cls:'ep10',site:'EP'},
     {day:2,date:'2026-09-23',shift:'Aft',label:'EP Bottle Line (2L)',sku:'2L Bottle',pallets:39,target:39,maxPal:39,cls:'as2',site:'EP'},
     {day:3,date:'2026-09-24',shift:'Day',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:90,target:90,cls:'ep10',site:'EP'},
-    {day:3,date:'2026-09-24',shift:'Day',label:'EP Line B only (10L)',sku:'10L Cask',pallets:30,target:30,cls:'ep10',site:'EP'},
+    {day:3,date:'2026-09-24',shift:'Day',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:60,cls:'ep10',site:'EP'},
     {day:3,date:'2026-09-24',shift:'Day',label:'EP Bottle Line (2L)',sku:'2L Bottle',pallets:39,target:39,maxPal:39,cls:'as2',site:'EP'},
     {day:3,date:'2026-09-24',shift:'Aft',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:90,target:90,cls:'ep10',site:'EP'},
-    {day:3,date:'2026-09-24',shift:'Aft',label:'EP Line B only (10L)',sku:'10L Cask',pallets:30,target:30,cls:'ep10',site:'EP'},
+    {day:3,date:'2026-09-24',shift:'Aft',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:60,cls:'ep10',site:'EP'},
     {day:3,date:'2026-09-24',shift:'Aft',label:'EP Bottle Line (2L)',sku:'2L Bottle',pallets:39,target:39,maxPal:39,cls:'as2',site:'EP'},
     {day:4,date:'2026-09-25',shift:'Day',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:90,target:90,cls:'ep10',site:'EP'},
-    {day:4,date:'2026-09-25',shift:'Day',label:'EP Line B only (10L)',sku:'10L Cask',pallets:30,target:30,cls:'ep10',site:'EP'},
+    {day:4,date:'2026-09-25',shift:'Day',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:60,cls:'ep10',site:'EP'},
     {day:4,date:'2026-09-25',shift:'Day',label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:32,target:32,cls:'ep6',site:'EP'},
     {day:4,date:'2026-09-25',shift:'Aft',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:90,target:90,cls:'ep10',site:'EP'},
-    {day:4,date:'2026-09-25',shift:'Aft',label:'EP Line B only (10L)',sku:'10L Cask',pallets:30,target:30,cls:'ep10',site:'EP'},
+    {day:4,date:'2026-09-25',shift:'Aft',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:60,cls:'ep10',site:'EP'},
     {day:4,date:'2026-09-25',shift:'Aft',label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:32,target:32,cls:'ep6',site:'EP'},
   ],
 };
