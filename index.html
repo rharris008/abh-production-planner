@@ -381,8 +381,8 @@ tr.risk-a td{background:#FEF9F0}
 
 <div id="tab-haccp" class="tc">
   <div class="panel">
-    <div class="ph navy">HACCP &amp; Safety Culture &#8212; Action Register
-      <span style="font-size:10px;opacity:.7;margin-left:12px">Source: 3-Year Plan &#8212; Safety Culture pillar | Updated 16/09/2026</span>
+    <div class="ph navy">HACCP &amp; Safety Culture - Action Register - <a href="https://rharris008.github.io/abh-3year-plan/" target="_blank" style="color:inherit;text-decoration:underline;opacity:.9">Linked to 3 Year Plan - $150m Turnover Goal</a>
+      <span style="font-size:10px;opacity:.7;margin-left:12px">Source: 3-Year Plan - Safety Culture pillar | Updated 16/09/2026</span>
     </div>
     <div id="haccpStats" class="tracker-stats"></div>
     <div id="haccpList"></div>
@@ -5958,25 +5958,74 @@ const HACCP_TASKS = [
   {id:"sitemtg_22062026_16",name:"Follow up with JLE for gantry and drip tray quotes",status:"complete",priority:"none",due:null,assignees:["Ravin Singh"]}
 ];
 
+// HACCP UI state
+let haccpHideDone = false;
+let haccpSortCol  = null;
+let haccpSortAsc  = true;
+let haccpFilter   = null; // null | 'urgent' | 'in progress' | 'to do' | 'complete'
+
+function haccpSort(col) {
+  if (haccpSortCol === col) { haccpSortAsc = !haccpSortAsc; }
+  else { haccpSortCol = col; haccpSortAsc = true; }
+  renderHaccp();
+}
+
+function haccpSetFilter(key) {
+  haccpFilter = (haccpFilter === key) ? null : key;
+  renderHaccp();
+}
+
 function renderHaccp() {
   const stats = document.getElementById('haccpStats');
   const list  = document.getElementById('haccpList');
   if(!stats||!list) return;
-  const todo    = HACCP_TASKS.filter(t=>t.status==='to do').length;
-  const inprog  = HACCP_TASKS.filter(t=>t.status==='in progress').length;
-  const done    = HACCP_TASKS.filter(t=>t.status==='complete').length;
-  const urgent  = HACCP_TASKS.filter(t=>['urgent','URGENT'].includes(t.priority)&&t.status!=='complete').length;
 
-  // Stat tiles — consistent with planner tracker standard
+  // Always count from the full unfiltered array
+  const todo   = HACCP_TASKS.filter(t=>t.status==='to do').length;
+  const inprog = HACCP_TASKS.filter(t=>t.status==='in progress').length;
+  const done   = HACCP_TASKS.filter(t=>t.status==='complete').length;
+  const urgent = HACCP_TASKS.filter(t=>['urgent','URGENT'].includes(t.priority)&&t.status!=='complete').length;
+
+  const tileRing = key => haccpFilter===key
+    ? 'outline:3px solid rgba(255,255,255,0.65);outline-offset:2px;' : '';
+
+  // Stat tiles — clickable; clicking active tile clears filter
   stats.innerHTML = `
-    <div class="stat-tile"><div class="stat-tile-label">Urgent open</div><div class="stat-tile-value" style="color:var(--red)">${urgent}</div></div>
-    <div class="stat-tile"><div class="stat-tile-label">In Progress</div><div class="stat-tile-value" style="color:var(--amber)">${inprog}</div></div>
-    <div class="stat-tile"><div class="stat-tile-label">To Do</div><div class="stat-tile-value" style="color:var(--navy)">${todo}</div></div>
-    <div class="stat-tile"><div class="stat-tile-label">Complete</div><div class="stat-tile-value" style="color:var(--green)">${done}</div></div>`;
+    <div class="stat-tile" onclick="haccpSetFilter('urgent')"    style="cursor:pointer;${tileRing('urgent')}"><div class="stat-tile-label">Urgent open</div><div class="stat-tile-value" style="color:var(--red)">${urgent}</div></div>
+    <div class="stat-tile" onclick="haccpSetFilter('in progress')" style="cursor:pointer;${tileRing('in progress')}"><div class="stat-tile-label">In Progress</div><div class="stat-tile-value" style="color:var(--amber)">${inprog}</div></div>
+    <div class="stat-tile" onclick="haccpSetFilter('to do')"     style="cursor:pointer;${tileRing('to do')}"><div class="stat-tile-label">To Do</div><div class="stat-tile-value" style="color:var(--navy)">${todo}</div></div>
+    <div class="stat-tile" onclick="haccpSetFilter('complete')"  style="cursor:pointer;${tileRing('complete')}"><div class="stat-tile-label">Complete</div><div class="stat-tile-value" style="color:var(--green)">${done}</div></div>
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer;margin-left:auto;white-space:nowrap">
+      <input type="checkbox" ${haccpHideDone?'checked':''} onchange="haccpHideDone=this.checked;renderHaccp()"> Hide completed
+    </label>`;
 
   const order = {urgent:0,URGENT:0,HIGH:1,high:1,normal:2,NORMAL:2,none:3};
   const statusOrder = {'in progress':0,'to do':1,'complete':2};
-  const sorted = [...HACCP_TASKS].sort((a,b)=>(statusOrder[a.status]||9)-(statusOrder[b.status]||9)||(order[a.priority]||9)-(order[b.priority]||9));
+
+  // Default sort: status then priority
+  let sorted = [...HACCP_TASKS].sort((a,b)=>
+    (statusOrder[a.status]||9)-(statusOrder[b.status]||9)||
+    (order[a.priority]||9)-(order[b.priority]||9));
+
+  // Column sort override
+  if (haccpSortCol) {
+    sorted.sort((a,b)=>{
+      let va, vb;
+      if      (haccpSortCol==='name')     { va=a.name.toLowerCase(); vb=b.name.toLowerCase(); }
+      else if (haccpSortCol==='priority') { va=order[a.priority]||9; vb=order[b.priority]||9; }
+      else if (haccpSortCol==='status')   { va=statusOrder[a.status]||9; vb=statusOrder[b.status]||9; }
+      else if (haccpSortCol==='due')      { va=a.due||'9999'; vb=b.due||'9999'; }
+      else                                { va=a[haccpSortCol]||''; vb=b[haccpSortCol]||''; }
+      if (typeof va==='number') return haccpSortAsc ? va-vb : vb-va;
+      return haccpSortAsc ? (va<vb?-1:va>vb?1:0) : (va>vb?-1:va<vb?1:0);
+    });
+  }
+
+  // Apply filter
+  let displayed = sorted;
+  if (haccpHideDone)          displayed = displayed.filter(t=>t.status!=='complete');
+  if (haccpFilter==='urgent')  displayed = displayed.filter(t=>['urgent','URGENT'].includes(t.priority)&&t.status!=='complete');
+  else if (haccpFilter)        displayed = displayed.filter(t=>t.status===haccpFilter);
 
   const fmtDate = d => { if(!d) return ''; const [y,m,day]=d.split('-'); return `${day}/${m}/${y}`; };
   const isOverdue = d => d && new Date(d) < new Date();
@@ -5994,12 +6043,19 @@ function renderHaccp() {
     return '';
   };
 
-  let html = `<div class="tscroll"><table>
+  const arrow = col => col===haccpSortCol ? (haccpSortAsc?' &#9650;':' &#9660;') : '';
+  const thClick = col => `onclick="haccpSort('${col}')" style="cursor:pointer"`;
+
+  let html = `<div class="tscroll"><table class="task-table">
     <thead><tr>
-      <th>Task</th><th>Priority</th><th>Status</th><th>Due</th><th>Assignees</th>
+      <th ${thClick('name')}>Task${arrow('name')}</th>
+      <th ${thClick('priority')}>Priority${arrow('priority')}</th>
+      <th ${thClick('status')}>Status${arrow('status')}</th>
+      <th ${thClick('due')}>Due${arrow('due')}</th>
+      <th>Assignees</th>
     </tr></thead><tbody>`;
 
-  for(const t of sorted) {
+  for(const t of displayed) {
     const od = isOverdue(t.due) && t.status !== 'complete';
     const rowStyle = t.status==='complete' ? 'opacity:.55' : (od ? 'background:#FEF5F5' : '');
     const nameCell = t.status==='complete' ? `<s>${t.name}</s>` : `<strong>${t.name}</strong>`;
@@ -6014,6 +6070,8 @@ function renderHaccp() {
       <td style="font-size:11px;color:var(--muted)">${t.assignees.join(', ')}</td>
     </tr>`;
   }
+
+  if (!displayed.length) html += `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">No items match the current filter.</td></tr>`;
 
   html += '</tbody></table></div>';
   list.innerHTML = html;
