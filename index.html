@@ -212,7 +212,7 @@ tr.risk-a td{background:#FEF9F0}
 
 <div id="hdr">
   <div>
-    <div class="brand" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Scroll to top" style="cursor:pointer;display:flex;align-items:center;gap:8px;"><img src="abh-logo.png" alt="ABH" style="height:28px;width:auto;"><span>ABH Pureau <span style="font-size:9px;opacity:.6;letter-spacing:.5px">v9-supabase</span></span></div>
+    <div class="brand" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Scroll to top" style="cursor:pointer;display:flex;align-items:center;gap:8px;"><img src="abh-logo.png" alt="ABH" style="height:28px;width:auto;"><span>ABH Pureau <span id="buildStamp" style="font-size:9px;opacity:.6;letter-spacing:.5px" title="Build this browser tab is running. If this is older than the latest change, hard reload (Cmd+Shift+R).">v9-supabase</span></span></div>
     <div class="title" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Scroll to top" style="cursor:pointer;">Production Planning Tool</div>
     <div class="meta" id="hdrMeta">Select a week</div>
     <div style="display:flex;align-items:center;gap:8px;margin-top:2px">
@@ -7916,6 +7916,21 @@ function renderMaintenance() {
   tbl.innerHTML = html;
 }
 // ── end MAINTENANCE CALENDAR ─────────────────────────────────────────────────
+
+// Build stamp: show which build THIS browser tab is running.
+// Sourced from document.lastModified (the Last-Modified header of index.html), so it
+// needs no manual bump and can never drift from the file actually loaded. Exists because
+// three separate "is the planner fixed yet" rounds could not be settled without knowing
+// whether the tab was holding a current or a stale build. Local date parts only, never UTC.
+function setBuildStamp(){
+  const el = document.getElementById('buildStamp');
+  if (!el) return;
+  const d = new Date(document.lastModified);
+  if (isNaN(d)) return;
+  const p = n => String(n).padStart(2,'0');
+  el.textContent = `v9-supabase · build ${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+window.addEventListener('load', setBuildStamp);
 
 // Sticky nav: pin tab bar just below the sticky header
 function updateNavTop(){
