@@ -579,8 +579,8 @@ tr.risk-a td{background:#FEF9F0}
             <option value="">-- select --</option>
             <option value="Scholle filler A">Scholle filler A (Line A filler — 3-day test hold)</option>
             <option value="Scholle filler B">Scholle filler B (Line B filler — 3-day test hold)</option>
-            <option value="Scholle filler 1">Scholle filler 1 (HMPS line 1 — 3-day test hold)</option>
-            <option value="Scholle filler 2">Scholle filler 2 (HMPS line 2 — 3-day test hold)</option>
+            <option value="HMPS Scholle filler 1">HMPS Scholle filler 1 (HMPS line 1 — 3-day test hold)</option>
+            <option value="HMPS Scholle filler 2">HMPS Scholle filler 2 (HMPS line 2 — 3-day test hold)</option>
             <option value="Recopak A">Recopak A (Line A carton erector — back next day)</option>
             <option value="Recopak B">Recopak B (Line B carton erector — back next day)</option>
             <option value="HMPS">HMPS (full system — back next day)</option>
@@ -867,14 +867,14 @@ function lineOutageForWeek(wk) {
   return {single: false, out: null, bothDown: false};
 }
 
-// Returns true if HMPS is fully down: 'HMPS' whole system entered, or both Scholle filler 1 and 2 down.
+// Returns true if HMPS is fully down: 'HMPS' whole system entered, or both HMPS Scholle filler 1 and 2 down.
 function hmpsOutageForWeek(wk) {
   const wkFri = maintAddDays(wk, 4);
   const entries = maintLoadEntries();
   const inWk = e => e.startDate <= wkFri && e.endDate >= wk;
   if (entries.some(e => (e.machine === 'HMPS' || e.machine === 'HMPS Date Coder') && inWk(e))) return true;
-  const f1 = entries.some(e => e.machine === 'Scholle filler 1' && inWk(e));
-  const f2 = entries.some(e => e.machine === 'Scholle filler 2' && inWk(e));
+  const f1 = entries.some(e => e.machine === 'HMPS Scholle filler 1' && inWk(e));
+  const f2 = entries.some(e => e.machine === 'HMPS Scholle filler 2' && inWk(e));
   return f1 && f2;
 }
 
@@ -884,7 +884,7 @@ function hmpsSingleModeForWeek(wk) {
   const wkFri = maintAddDays(wk, 4);
   const entries = maintLoadEntries();
   const inWk = e => e.startDate <= wkFri && e.endDate >= wk;
-  return entries.some(e => (e.machine === 'Scholle filler 1' || e.machine === 'Scholle filler 2') && inWk(e));
+  return entries.some(e => (e.machine === 'HMPS Scholle filler 1' || e.machine === 'HMPS Scholle filler 2') && inWk(e));
 }
 
 // Returns true if EP Bottle Line is under maintenance for any day in week wk.
@@ -2680,8 +2680,8 @@ function buildSchedule(week, pr) {
   const MAINT_LINES = [
     { machine: 'Scholle filler A',    label: 'Scholle filler A — MAINTENANCE',    cls: 'ep5',  site: 'EP' },
     { machine: 'Scholle filler B',    label: 'Scholle filler B — MAINTENANCE',    cls: 'ep5',  site: 'EP' },
-    { machine: 'Scholle filler 1',    label: 'Scholle filler 1 — MAINTENANCE',    cls: 'ep10', site: 'EP' },
-    { machine: 'Scholle filler 2',    label: 'Scholle filler 2 — MAINTENANCE',    cls: 'ep10', site: 'EP' },
+    { machine: 'HMPS Scholle filler 1',    label: 'HMPS Scholle filler 1 — MAINTENANCE',    cls: 'ep10', site: 'EP' },
+    { machine: 'HMPS Scholle filler 2',    label: 'HMPS Scholle filler 2 — MAINTENANCE',    cls: 'ep10', site: 'EP' },
     { machine: 'Recopak A',           label: 'Recopak A — MAINTENANCE',           cls: 'ep5',  site: 'EP' },
     { machine: 'Recopak B',           label: 'Recopak B — MAINTENANCE',           cls: 'ep5',  site: 'EP' },
     { machine: 'HMPS',                label: 'EP HMPS — MAINTENANCE',             cls: 'ep10', site: 'EP' },
@@ -7213,8 +7213,8 @@ const MAINT_KEY = 'abh_maintenance_events';
 function maintHasRecovery(machine) {
   return machine === 'Scholle filler A' ||
          machine === 'Scholle filler B' ||
-         machine === 'Scholle filler 1' ||
-         machine === 'Scholle filler 2' ||
+         machine === 'HMPS Scholle filler 1' ||
+         machine === 'HMPS Scholle filler 2' ||
          machine === 'EP Bottle line filler';
 }
 
@@ -7487,13 +7487,20 @@ async function saveMaintEntry(evt) {
   rebuildData();
 }
 
+function maintDayType(dateStr) {
+  if (!dateStr) return '';
+  const p = dateStr.split('-');
+  const wd = new Date(+p[0], +p[1] - 1, +p[2]).getDay();
+  return (wd === 0 || wd === 6) ? 'Weekend' : 'Weekday';
+}
+
 function renderMaintenance() {
   const entries = maintLoadEntries();
   const today = localToday();
 
   // -- Summary: next upcoming per machine --
   const machines = [
-    'Scholle filler A','Scholle filler B','Scholle filler 1','Scholle filler 2',
+    'Scholle filler A','Scholle filler B','HMPS Scholle filler 1','HMPS Scholle filler 2',
     'Recopak A','Recopak B','HMPS',
     'EP Bottle line filler','Descrambler','Rinser','Shrink tunnel','Labeller',
     '2L over packer','5L over packer',
@@ -7526,12 +7533,12 @@ function renderMaintenance() {
   const tbl = document.getElementById('maintTable');
   if (!tbl) return;
   if (entries.length === 0) {
-    tbl.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:20px;color:var(--muted)">No entries yet.</td></tr>';
+    tbl.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--muted)">No entries yet.</td></tr>';
     return;
   }
 
   let html = `<thead><tr>
-    <th>Machine</th><th>Type</th><th>Start</th><th>End</th>
+    <th>Machine</th><th>Type</th><th>Start</th><th>Day Type</th><th>End</th>
     <th class="num">Duration</th><th>Production Impact</th>
     <th>Back Operational</th><th>Notes</th><th></th>
   </tr></thead><tbody>`;
@@ -7542,7 +7549,7 @@ function renderMaintenance() {
     const [y,m] = monthKey.split('-');
     const monthNames = ['','January','February','March','April','May','June','July','August','September','October','November','December'];
     if (monthKey !== lastMonth) {
-      html += `<tr style="background:var(--light)"><td colspan="9" style="font-weight:700;font-size:11px;color:var(--navy);padding:5px 10px;letter-spacing:.4px">${monthNames[+m]} ${y}</td></tr>`;
+      html += `<tr style="background:var(--light)"><td colspan="10" style="font-weight:700;font-size:11px;color:var(--navy);padding:5px 10px;letter-spacing:.4px">${monthNames[+m]} ${y}</td></tr>`;
       lastMonth = monthKey;
     }
     const isLive = e.startDate <= today && e.endDate >= today;
@@ -7554,6 +7561,7 @@ function renderMaintenance() {
       <td style="font-weight:700">${statusBadge}${e.machine || ''}</td>
       <td>${e.maintenanceType || ''}</td>
       <td style="white-space:nowrap">${maintFmtDate(e.startDate)}</td>
+      <td style="white-space:nowrap">${maintDayType(e.startDate)}</td>
       <td style="white-space:nowrap">${maintFmtDate(e.endDate)}</td>
       <td class="num">${e.startDate && e.endDate ? maintDaysBetween(e.startDate, e.endDate) : ''}</td>
       <td>${e.productionImpact || ''}</td>
