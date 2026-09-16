@@ -198,6 +198,7 @@ tr.risk-a td{background:#FEF9F0}
   .oc-grid{grid-template-columns:1fr}
   .tab{padding:12px 12px}
 }
+.other-tab{position:relative;cursor:pointer;user-select:none}.other-item{padding:7px 14px;cursor:pointer;font-size:13px;white-space:nowrap;color:var(--navy)}.other-item:hover{background:var(--light)}.haccp-grid{display:grid;gap:8px;margin-top:8px}.haccp-card{background:#fff;border-radius:6px;border:1px solid var(--border);padding:10px 14px;display:flex;align-items:flex-start;gap:10px}.haccp-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;margin-top:4px}.haccp-name{font-size:13px;font-weight:600;color:var(--text);margin-bottom:3px}.haccp-meta{font-size:11px;color:var(--muted)}.haccp-badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;margin-right:4px}
 </style>
 </head>
 <body>
@@ -236,16 +237,15 @@ tr.risk-a td{background:#FEF9F0}
   <div id="nav-tabs">
     <div class="tab active" onclick="switchTab('demand',this)">Demand &amp; Stock</div>
     <div class="tab" onclick="switchTab('schedule',this)">Shift Schedule</div>
-    <div class="tab" onclick="switchTab('openorders',this)">Orders</div>
-    <div class="tab" onclick="switchTab('stock',this)">Stock</div>
-    <div class="tab" onclick="switchTab('budget',this)">Bud v Fcast</div>
-    <div class="tab" onclick="switchTab('dispatch',this)">Dispatch Calendar</div>
-    <div class="tab" onclick="switchTab('maintenance',this)">Maintenance</div>
     <div class="tab" onclick="switchTab('horizon',this)">12-Week Horizon</div>
+    <div class="tab" onclick="switchTab('dispatch',this)">Dispatch Calendar</div>
+    <div class="tab" onclick="switchTab('stock',this)">Stock</div>
+    <div class="tab" onclick="switchTab('haccp',this)">HACCP</div>
+    <div class="tab" onclick="switchTab('maintenance',this)">Maintenance</div>
+    <div class="tab" onclick="switchTab('budget',this)">Bud v Fcast</div>
     <div class="tab" onclick="switchTab('alerts',this)">Alerts</div>
-    <div class="tab" onclick="switchTab('actuals',this)">Actuals vs Plan</div>
-    <div class="tab" onclick="switchTab('upload',this)">Forecast Upload</div>
-    <div class="tab" onclick="switchTab('audit',this)">Audit</div>
+    <div class="tab" onclick="switchTab('openorders',this)">Orders</div>
+    <div class="tab other-tab" id="otherTab" onclick="toggleOtherMenu(event)">Other &#9660;<div class="other-menu" id="otherMenu" style="display:none;position:absolute;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:4px 0;z-index:100;min-width:160px;box-shadow:0 4px 12px rgba(0,0,0,.1)"><div class="other-item" onclick="switchOtherTab(event,'actuals')">Actuals vs Plan</div><div class="other-item" onclick="switchOtherTab(event,'upload')">Forecast Upload</div><div class="other-item" onclick="switchOtherTab(event,'audit')">Audit</div></div></div>
   </div>
   <div id="navFreshness" title="Data freshness — last update per source"></div>
 </div>
@@ -372,6 +372,16 @@ tr.risk-a td{background:#FEF9F0}
 </div>
 
 <!-- ACTUALS VS PLAN -->
+
+<div id="tab-haccp" class="tc">
+  <div class="panel">
+    <div class="ph navy">HACCP &amp; Safety Culture &#8212; Action Register
+      <span style="font-size:10px;opacity:.7;margin-left:12px">Source: 3-Year Plan &#8212; Safety Culture pillar | Updated 16/09/2026</span>
+    </div>
+    <div id="haccpStats" style="display:flex;gap:12px;margin-bottom:14px;flex-wrap:wrap"></div>
+    <div id="haccpList"></div>
+  </div>
+</div>
 <div id="tab-actuals" class="tc">
   <div class="panel">
     <div class="ph navy">Upload Actuals — ABH Actual Production Performance Tracker
@@ -414,7 +424,7 @@ tr.risk-a td{background:#FEF9F0}
     <div class="panel">
       <div class="ph blue" id="replanHdr">Replan — Remaining Days to Recover</div>
       <div style="padding:8px 12px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border)">
-        Today and remaining days at planned capacity. HMPS does not run Saturday. Saturday is emergency-only for EP lines — night shift preferred.
+        Today and remaining days at planned capacity. HMPS runs on any Saturday when production is scheduled. Saturday requires Rob Harris approval — night shift preferred.
       </div>
       <div class="tscroll"><table id="replanTable"></table></div>
     </div>
@@ -1673,8 +1683,29 @@ function planWeek(week) {
   const hmpsShifts = 2;
   const hmpsTgtLabel = `EP HMPS (${hmpsForceSingle ? 'Single — filler maint.' : hmpsConfig})`;
   const hmpsDown = hmpsOutageForWeek(week);
-  const days10hmps = hmpsDown ? 0 : opDays;
-  const hmps = makeLine(hmpsTgtLabel, 'EP', '10L Cask', hmpsTgt, days10hmps, hmpsShifts);
+  // Per-day override: compute HMPS capacity from HMPS_DAY_OVERRIDES if any date in this week is overridden
+  const wkDaysPlan = workingDaysInWeek(week);
+  const hasHmpsDayOvr = wkDaysPlan.some(d => HMPS_DAY_OVERRIDES[d]);
+  let hmps;
+  if (hasHmpsDayOvr) {
+    let totalCapH = 0;
+    let runDaysH = 0;
+    wkDaysPlan.forEach(d => {
+      const mode = hmpsConfigForDate(d, week);
+      if (mode !== 'down') {
+        const dayTgt = mode === 'single' ? 45 : 90;
+        totalCapH += Math.floor(dayTgt * 2 * eff);
+        runDaysH++;
+      }
+    });
+    hmps = { label: hmpsTgtLabel, site: 'EP', sku: '10L Cask',
+      tgt: hmpsTgt, days: runDaysH, shifts: 2, maxDays: 5, cap: totalCapH,
+      util: runDaysH / 5,
+      stockEnd: (stockPal['10L Cask']||0) + totalCapH - demand['10L Cask'].total };
+  } else {
+    const days10hmps = hmpsDown ? 0 : opDays;
+    hmps = makeLine(hmpsTgtLabel, 'EP', '10L Cask', hmpsTgt, days10hmps, hmpsShifts);
+  }
 
   // ── Pre-build scan: look ahead and bias EP Line A&B scheduler toward SKUs facing future deficits
   // Run a simplified forward projection using current closing stock to identify
@@ -1938,12 +1969,24 @@ function planWeek(week) {
   const satLines = [];
   const satStock = {...stockEnd};
   if (needSat && !satIsHoliday) {
-    // Saturday rules:
-    // - HMPS never runs Saturday (double time, not cost effective).
-    //   If 10L is short, a night shift (22:00-06:00) on a weekday is the preferred option.
-    // - EP Line A&B, Bottle Line, and EP New Line can run Saturday as a last resort.
+    // Saturday rules (updated 16/09/2026 — Rob Harris):
+    // - HMPS MUST run on any Saturday, regardless of what triggered it.
+    //   HMPS is the most efficient and cost-effective line. If HMPS is fully down
+    //   for maintenance it cannot run, but otherwise it always runs Saturday.
+    // - EP Line A&B, Bottle Line, and EP New Line also run for their triggered SKUs.
     // - Night shift alert fires whenever satTriggers > 0 (see renderAlerts).
-    const satSkus = satTriggers.filter(s => s !== '10L Cask');  // HMPS never Saturday
+    
+    // Always add HMPS when Saturday runs (unless HMPS is fully down for maintenance)
+    if (!hmpsDown) {
+      const hmpsSatTgt = hmpsForceSingle ? 45 : (hmpsConfig === 'Dual' ? 90 : 45);
+      const hmpsSatAlloc = Math.floor(hmpsSatTgt * eff);
+      const hmpsSatLabel = `EP HMPS (${hmpsForceSingle ? 'Single — filler maint.' : hmpsConfig}) — Sat`;
+      satStock['10L Cask'] = (satStock['10L Cask']||0) + hmpsSatAlloc;
+      satLines.push({sku:'10L Cask', label:hmpsSatLabel, tgt:hmpsSatTgt, satAlloc:hmpsSatAlloc, cls:'ep10'});
+    }
+    
+    // Also run other lines for their triggered SKUs (10L handled by HMPS above)
+    const satSkus = satTriggers.filter(s => s !== '10L Cask');
     satSkus.forEach(sku => {
       let tgt = 0, label = '', cls = '';
       if (sku==='5L Cask')   {
@@ -2070,6 +2113,25 @@ function planWeek(week) {
 // Format: 'YYYY-MM-DD' (week Monday) → array of shift objects.
 // Each object: {day, date, shift, label, sku, pallets, target, cls, site}
 // Added: 19/06/2026 — Aaron Mattin confirmed plan for w/c 22/06/2026.
+// Per-date HMPS production overrides — for weeks where filler status changes day by day.
+// Value: 'dual' | 'single' | 'down'
+// Authorised by Rob Harris (email 16/09/2026).
+// Use when maintenance calendar shows whole week in one mode but per-day reality differs.
+const HMPS_DAY_OVERRIDES = {
+  // w/c 12/10/2026 — Filler 2 down all week; HMPS full maintenance Tue 13 & Wed 14
+  '2026-10-12': 'single',  // Mon: Filler 2 in maint, Filler 1 running (33/shift)
+  '2026-10-13': 'down',    // Tue: HMPS full machine maintenance
+  '2026-10-14': 'down',    // Wed: HMPS full machine maintenance (back Thu)
+  '2026-10-15': 'single',  // Thu: Filler 1 back (33/shift)
+  '2026-10-16': 'dual',    // Fri: Both fillers, full dual (67/shift)
+  // w/c 28/9/2026 — Filler 1 down from 26/9 Sat for 3 production days (Mon/Tue/Wed)
+  '2026-09-28': 'single',  // Mon: Filler 1 in maintenance (33/shift)
+  '2026-09-29': 'single',  // Tue: Filler 1 in maintenance (33/shift)
+  '2026-09-30': 'single',  // Wed: Filler 1 in maintenance (33/shift)
+  '2026-10-01': 'dual',    // Thu: Both fillers back (67/shift)
+  '2026-10-02': 'dual',    // Fri: Both fillers running (67/shift)
+};
+
 const CONFIRMED_SCHEDULES = {
   '2026-06-22': [
     // Monday 22/06: HMPS 120, 5L Line A 40, 2L 70
@@ -2597,6 +2659,18 @@ function isInLockWindow(week) {
 }
 
 // ══ BUILD FULL SHIFT SCHEDULE ═════════════════════════════════════════════════
+// Returns HMPS mode ('dual'|'single'|'down') for a specific date.
+// Checks HMPS_DAY_OVERRIDES first; falls back to week-level logic.
+// Allows per-day filler transitions within a maintenance week.
+function hmpsConfigForDate(date, week) {
+  if (HMPS_DAY_OVERRIDES[date]) return HMPS_DAY_OVERRIDES[date];
+  const hd = hmpsOutageForWeek(week);
+  if (hd) return 'down';
+  const hs = hmpsSingleModeForWeek(week);
+  if (hs) return 'single';
+  return (hmpsConfig === 'Dual') ? 'dual' : 'single';
+}
+
 function buildSchedule(week, pr) {
   // Confirmed plan override — Aaron's plan defines the line/SKU structure.
   // Pallet counts are re-derived from max capacity × current efficiency so
@@ -2645,7 +2719,23 @@ function buildSchedule(week, pr) {
     }
   }
 
-  addLine(lines.hmps, 'ep10');
+  // HMPS: per-date schedule (handles mid-week filler transitions via HMPS_DAY_OVERRIDES)
+  {
+    const wkDaysH = workingDaysInWeek(week);
+    const effH = getEff();
+    wkDaysH.forEach((date, d) => {
+      const mode = hmpsConfigForDate(date, week);
+      if (mode === 'down') return;
+      const dayTgt = mode === 'single' ? 45 : 90;
+      const dayLabel = mode === 'single' ? 'EP HMPS (Single — filler maint.)' : `EP HMPS (${hmpsConfig})`;
+      for (let sh = 0; sh < 2; sh++) {
+        if (sh === 0 && date === localToday() && isPastDayShift()) continue;
+        const tgtH = Math.floor(dayTgt * effH);
+        schedule.push({day:d, date, shift:sh===0?'Day':'Aft', label:dayLabel,
+          sku:'10L Cask', pallets:tgtH, target:tgtH, cls:'ep10', site:'EP'});
+      }
+    });
+  }
 
   // EP Line A&B: use the day-level scheduler output
   const {single: lineAOnlyWeek, out: lineOutWeek} = lineOutageForWeek(week);
@@ -5833,7 +5923,89 @@ function setRetailerView(r) {
   const pr = planWeek(currentWeek);
   renderSkuStrips(pr);
 }
-function switchTab(n,el){document.querySelectorAll('.tc').forEach(e=>e.classList.remove('active'));document.querySelectorAll('.tab').forEach(e=>e.classList.remove('active'));document.getElementById('tab-'+n).classList.add('active');if(el)el.classList.add('active');if(n==='budget')renderBudget();if(n==='maintenance')renderMaintenance();}
+
+// ============================================================
+// HACCP & Safety Culture — sourced from 3-Year Plan (16/09/2026)
+// ============================================================
+const HACCP_TASKS = [
+  {id:"86d238at3",name:"Bigger trays under the cask fillers",status:"in progress",priority:"URGENT",due:"2026-10-02",assignees:["Ravin Singh","Aaron Mattin","Jasmine Pereira"]},
+  {id:"sitemtg_15",name:"Begin RO area safety barriers working back to the lunchroom",status:"in progress",priority:"HIGH",due:"2026-10-16",assignees:["Ravin Singh"]},
+  {id:"sitemtg_12",name:"Create and publish shed traffic management plan (forklift routes)",status:"in progress",priority:"HIGH",due:"2026-10-31",assignees:["Jeremy Wheeler","Jasmine Pereira"]},
+  {id:"new_mqgltbzn27ptr",name:"Install All Safety barriers",status:"in progress",priority:"HIGH",due:"2026-09-30",assignees:["Ravin Singh","Jasmine Pereira"]},
+  {id:"new_mtupmx3quptr5",name:"Scrambler Table Broken/bent Leg to be repaired",status:"to do",priority:"NORMAL",due:"2026-09-25",assignees:["Ravin Singh","Jeremy Wheeler"]},
+  {id:"new_mtry2kjwrasi8",name:"Water Leaking from joints near 0.2micron filter — HMPS Scholle Filler Line",status:"to do",priority:"NORMAL",due:"2026-09-26",assignees:["Ravin Singh","Aaron Mattin","Jasmine Pereira","Jeremy Wheeler"]},
+  {id:"new_mtrxndjrttnbt",name:"Water Leaking from Rinser — Inspect for Root Cause and Rectify",status:"to do",priority:"NORMAL",due:"2026-09-26",assignees:["Ravin Singh","Aaron Mattin","Jasmine Pereira"]},
+  {id:"new_msivwfakmxdt5",name:"CDC for washrooms",status:"to do",priority:"NORMAL",due:"2026-09-30",assignees:["Rob Harris"]},
+  {id:"new_mqgm0ohe48gld",name:"Lunchroom Door punch through",status:"to do",priority:"NORMAL",due:"2026-09-30",assignees:["Rob Harris"]},
+  {id:"new_mtm48gj0k3wvg",name:"GMP audit",status:"to do",priority:"URGENT",due:"2026-10-03",assignees:["Jasmine Pereira"]},
+  {id:"new_mqglsd2jnv6wt",name:"Line Markings",status:"to do",priority:"NORMAL",due:"2026-10-31",assignees:["Ravin Singh","Jasmine Pereira"]},
+  {id:"sitemtg_22062026_03",name:"Install 2L overbacker safety barrier",status:"complete",priority:"normal",due:"2026-06-28",assignees:["Ravin Singh"]},
+  {id:"sitemtg_22062026_01",name:"Fix rinser pump seal",status:"complete",priority:"urgent",due:"2026-06-28",assignees:["Ravin Singh"]},
+  {id:"sitemtg_22062026_29",name:"Investigate whether Woolworths has photos of incorrect SSCC labels",status:"complete",priority:"NORMAL",due:"2026-07-01",assignees:["Kate Harris","Richard Carlick"]},
+  {id:"sitemtg_22062026_02",name:"Train staff on rinser water levels",status:"complete",priority:"NORMAL",due:"2026-07-03",assignees:["Patrick Rose","Jasmine Pereira"]},
+  {id:"sitemtg_22062026_23",name:"Discussion re staff members driving dangerously on site",status:"complete",priority:"none",due:"2026-07-03",assignees:["Caine Bowers"]},
+  {id:"new_mr8qus3mzgqzw",name:"Mark out current walkways with bollards",status:"complete",priority:"URGENT",due:"2026-07-07",assignees:["Jeremy Wheeler","Jasmine Pereira"]},
+  {id:"new_mqgm1n5zk7htr",name:"Hire new cleaner",status:"complete",priority:"HIGH",due:"2026-07-24",assignees:["Jasmine Pereira"]},
+  {id:"new_mr8rrsbpw8qv7",name:"GMP audit following last poor result",status:"complete",priority:"URGENT",due:"2026-08-03",assignees:["Jasmine Pereira"]},
+  {id:"new_mr8qzwhx7qn67",name:"Line marking plan — aligned with Aaron on return",status:"complete",priority:"HIGH",due:"2026-08-10",assignees:["Aaron Mattin","Jasmine Pereira","Caine Bowers","Jeremy Wheeler","Ravin Singh","Richard Carlick"]},
+  {id:"new_msgu44l0jm66t",name:"GMP audit",status:"complete",priority:"URGENT",due:"2026-09-03",assignees:["Jasmine Pereira"]},
+  {id:"sitemtg_22062026_16",name:"Follow up with JLE for gantry and drip tray quotes",status:"complete",priority:"none",due:null,assignees:["Ravin Singh"]}
+];
+
+function renderHaccp() {
+  const stats = document.getElementById('haccpStats');
+  const list  = document.getElementById('haccpList');
+  if(!stats||!list) return;
+  const todo = HACCP_TASKS.filter(t=>t.status==='to do').length;
+  const inprog = HACCP_TASKS.filter(t=>t.status==='in progress').length;
+  const done = HACCP_TASKS.filter(t=>t.status==='complete').length;
+  const urgent = HACCP_TASKS.filter(t=>['urgent','URGENT'].includes(t.priority)&&t.status!=='complete').length;
+  stats.innerHTML = `
+    <div style="background:#FDE8E8;border:1px solid #C0392B;border-radius:6px;padding:8px 14px;font-size:12px;font-weight:700;color:#C0392B">${urgent} Urgent open</div>
+    <div style="background:#FEF0DC;border:1px solid #E67E22;border-radius:6px;padding:8px 14px;font-size:12px;font-weight:700;color:#E67E22">${inprog} In Progress</div>
+    <div style="background:#FEF0DC;border:1px solid #E67E22;border-radius:6px;padding:8px 14px;font-size:12px;font-weight:700;color:#E67E22">${todo} To Do</div>
+    <div style="background:#EAF7EF;border:1px solid #27AE60;border-radius:6px;padding:8px 14px;font-size:12px;font-weight:700;color:#27AE60">${done} Complete</div>`;
+  const order = {urgent:0,URGENT:0,HIGH:1,HIGH:1,normal:2,NORMAL:2,none:3};
+  const statusOrder = {'in progress':0,'to do':1,'complete':2};
+  const sorted = [...HACCP_TASKS].sort((a,b)=>(statusOrder[a.status]||9)-(statusOrder[b.status]||9)||(order[a.priority]||9)-(order[b.priority]||9));
+  const dotCol = s => s==='complete'?'#27AE60':s==='in progress'?'#E67E22':'#C0392B';
+  const priCol = p => ['urgent','URGENT'].includes(p)?'#C0392B':['HIGH'].includes(p)?'#E67E22':'#1B2A4A';
+  const fmtDate = d => { if(!d) return ''; const [y,m,day]=d.split('-'); return `${day}/${m}/${y}`; };
+  const overdue = d => d && new Date(d) < new Date() ? ' <span style="color:#C0392B;font-size:10px;font-weight:700">OVERDUE</span>' : '';
+  list.innerHTML = '<div class="haccp-grid">'+sorted.map(t=>`
+    <div class="haccp-card" style="opacity:${t.status==='complete'?.55:1}">
+      <div class="haccp-dot" style="background:${dotCol(t.status)}"></div>
+      <div style="flex:1">
+        <div class="haccp-name" style="text-decoration:${t.status==='complete'?'line-through':''}">${t.name}</div>
+        <div class="haccp-meta">
+          <span class="haccp-badge" style="background:${priCol(t.priority)}22;color:${priCol(t.priority)};border:1px solid ${priCol(t.priority)}55">${t.priority.toUpperCase()}</span>
+          <span class="haccp-badge" style="background:${dotCol(t.status)}22;color:${dotCol(t.status)};border:1px solid ${dotCol(t.status)}55">${t.status}</span>
+          ${t.due?`<span>Due: ${fmtDate(t.due)}${overdue(t.due)}</span>`:''}
+          <span style="margin-left:6px">${t.assignees.join(', ')}</span>
+        </div>
+      </div>
+    </div>`).join('')+'</div>';
+}
+
+// Other-menu dropdown helpers
+function toggleOtherMenu(e) {
+  e.stopPropagation();
+  const m = document.getElementById('otherMenu');
+  if(m) m.style.display = m.style.display==='none' ? 'block' : 'none';
+}
+function switchOtherTab(e, tabName) {
+  e.stopPropagation();
+  const m = document.getElementById('otherMenu');
+  if(m) m.style.display='none';
+  const otherTab = document.getElementById('otherTab');
+  switchTab(tabName, otherTab);
+}
+document.addEventListener('click', function() {
+  const m = document.getElementById('otherMenu');
+  if(m) m.style.display='none';
+});
+
+function switchTab(n,el){document.querySelectorAll('.tc').forEach(e=>e.classList.remove('active'));document.querySelectorAll('.tab').forEach(e=>e.classList.remove('active'));document.getElementById('tab-'+n).classList.add('active');if(el)el.classList.add('active');if(n==='budget')renderBudget();if(n==='maintenance')renderMaintenance();if(n==='haccp')renderHaccp();}
 
 // ══ BUDGET VS FORECAST TAB ════════════════════════════════════════════════════
 function renderBudget() {
