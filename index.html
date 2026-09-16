@@ -887,6 +887,22 @@ function hmpsSingleModeForWeek(wk) {
   return entries.some(e => (e.machine === 'HMPS Scholle filler 1' || e.machine === 'HMPS Scholle filler 2') && inWk(e));
 }
 
+// Returns HMPS filler outage status for display in rolling planner rows.
+// Distinguishes full outage (both fillers or HMPS whole-system) from partial (one filler in service).
+// { fullDown: bool, partial: bool, filler: 'Filler 1'|'Filler 2'|'Both fillers'|null }
+function hmpsFillerStatusForWeek(wk) {
+  const wkFri = maintAddDays(wk, 4);
+  const entries = maintLoadEntries();
+  const inWk = e => e.startDate <= wkFri && e.endDate >= wk;
+  const baseDown = entries.some(e => (e.machine === 'HMPS' || e.machine === 'HMPS Date Coder') && inWk(e));
+  const f1 = entries.some(e => e.machine === 'HMPS Scholle filler 1' && inWk(e));
+  const f2 = entries.some(e => e.machine === 'HMPS Scholle filler 2' && inWk(e));
+  if (baseDown || (f1 && f2)) return { fullDown: true, partial: false, filler: (f1 && f2) ? 'Both fillers' : null };
+  if (f1) return { fullDown: false, partial: true, filler: 'Filler 1' };
+  if (f2) return { fullDown: false, partial: true, filler: 'Filler 2' };
+  return { fullDown: false, partial: false, filler: null };
+}
+
 // Returns true if EP Bottle Line is under maintenance for any day in week wk.
 // Any single bottle-line component down = whole line down.
 function bottleOutageForWeek(wk) {
@@ -3015,10 +3031,17 @@ function renderRollingTable(pr) {
       }
     }
 
+    const hmpsFS = hmpsFillerStatusForWeek(wk);
     const rowStyle = isCurrentSelected ? 'background:rgba(0,120,255,0.12);font-weight:600;outline:2px solid var(--blue)' :
       isThisWeek ? 'background:rgba(0,120,255,0.04)' :
-      la ? 'background:rgba(255,165,0,0.06)' : '';
+      hmpsFS.fullDown ? 'background:rgba(192,57,43,0.06)' :
+      (la || hmpsFS.partial) ? 'background:rgba(255,165,0,0.06)' : '';
     const lineBLabel = la ? ` <span style="font-size:9px;color:var(--amber);font-weight:700">LINE ${laOut} OUT</span>` : '';
+    const hmpsFillerLabel = hmpsFS.fullDown
+      ? ` <span style="font-size:9px;color:#fff;background:var(--red);padding:1px 4px;border-radius:3px;font-weight:700">HMPS OUT</span>`
+      : hmpsFS.partial
+        ? ` <span style="font-size:9px;color:var(--amber);font-weight:700">HMPS 50% — ${hmpsFS.filler} service</span>`
+        : '';
     const doneLabel  = isFinishedWeek ? ` <span style="font-size:9px;color:var(--muted);font-weight:600">COMPLETE</span>` : '';
     const projLabel  = isProjected ? ` <span style="font-size:9px;color:var(--blue);font-weight:600" title="Demand projected from last live forecast week — last known qty with seasonal adjustment">PROJ</span>` : '';
     // Public holiday badge — collect any PH days Mon–Fri this week
@@ -3029,7 +3052,7 @@ function renderRollingTable(pr) {
       if (plannedShutdowns.has(phDate)) phNames.push(plannedShutdowns.get(phDate));
     }
     const phLabel = phNames.length ? ` <span style="font-size:9px;color:#fff;background:var(--navy);padding:1px 4px;border-radius:3px;font-weight:700" title="${phNames.join(', ')}">PH</span>` : '';
-    h += `<tr style="${rowStyle}"><td style="font-size:11px;white-space:nowrap">${fmtD(wk)}${lineBLabel}${doneLabel}${projLabel}${phLabel}</td>`;
+    h += `<tr style="${rowStyle}"><td style="font-size:11px;white-space:nowrap">${fmtD(wk)}${lineBLabel}${hmpsFillerLabel}${doneLabel}${projLabel}${phLabel}</td>`;
 
     skuCols.forEach(s => {
       // Current week: use getAdjustedDemand (same source as planWeek/tiles) not raw getDemand.
@@ -3352,9 +3375,15 @@ function renderHorizon() {
       :inLW
         ?'<span class="badge" style="background:#E67E22;color:#fff">LOCK BY WED</span>'
         :'<span class="badge" style="background:#0E7CCE;color:#fff">ALGORITHM</span>';
-    h+=`<tr style="${isCW?'background:#EEF2F8':anyShort?'background:#FEF0F0':''};cursor:pointer"
+    const hFS=hmpsFillerStatusForWeek(w);
+    const hFSbadge=hFS.fullDown
+      ?` <span style="font-size:9px;color:#fff;background:var(--red);padding:1px 4px;border-radius:3px;font-weight:700">HMPS OUT</span>`
+      :hFS.partial
+        ?` <span style="font-size:9px;color:var(--amber);font-weight:700">HMPS 50% — ${hFS.filler}</span>`
+        :'';
+    h+=`<tr style="${isCW?'background:#EEF2F8':anyShort?'background:#FEF0F0':hFS.fullDown?'background:rgba(192,57,43,0.05)':hFS.partial?'background:rgba(255,165,0,0.05)':''};cursor:pointer"
       onclick="currentWeek='${w}';document.getElementById('weekSel').value='${w}';onWeekChange()">
-      <td style="font-weight:${isCW?700:400};color:var(--blue)">${fmtD(w)}</td>`;
+      <td style="font-weight:${isCW?700:400};color:var(--blue)">${fmtD(w)}${hFSbadge}</td>`;
     SKUS.forEach(s=>{
       const dem=pr.demand[s].total;
       const cov=pr.coverDays[s]||0;
