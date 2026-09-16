@@ -6782,6 +6782,16 @@ async function sbPull() {
     const rSt  = await sbFetch('stock');             if (rSt  && rSt.length)  { applyStockFromSB(rSt);   loaded.push('Stock'); }
     const rPH  = await sbFetch('public_holidays');   if (rPH  && rPH.length)  { applyPublicHolidays(rPH); loaded.push('Holidays'); }
     const rOO  = await sbFetch('open_order_lines');   if (rOO  && rOO.length)  { applyOpenOrdersFromSB(rOO); loaded.push('OpenOrders'); }
+    // Maintenance must hydrate before rebuildData() below: buildSchedule() zeroes
+    // a line whose machine is down, and reads it synchronously via maintLoadEntries().
+    try {
+      const nMaint = await sbPullMaintenance();
+      if (nMaint) loaded.push('Maintenance');
+      if (typeof renderMaintenance === 'function') renderMaintenance();
+      console.log(`[Maintenance] ${nMaint} event(s) loaded from Supabase`);
+    } catch(e) {
+      console.warn('[Maintenance] pull failed, using local fallback:', e.message);
+    }
 
     // Raw material coverage: compute next-week forecast pallets per SKU from raw SB data
     const _rmAllFc = [...(rWW||[]), ...(rCo||[]), ...(rMc||[])];
@@ -7226,12 +7236,136 @@ function maintDaysBetween(start, end) {
   return Math.round((b - a) / 86400000) + 1;
 }
 
+// ── Supabase-backed store (added 16/09/2026) ─────────────────────────────────
+// Maintenance was localStorage-only, so an entry Aaron added existed in his
+// browser profile alone and was lost on a cache clear. maintenance_events in
+// Supabase is now the record. MAINT_CACHE is a synchronous mirror of it,
+// because every read path (capacity logic in buildSchedule, the alert panel)
+// calls maintLoadEntries() synchronously and cannot be made async.
+// localStorage is retained purely as an offline/pre-pull fallback.
+let MAINT_CACHE = null;          // null = not yet hydrated from Supabase
+const MAINT_MIGRATED_KEY = 'abh_maint_migrated';
+
+// DB uses snake_case, every render/capacity path uses camelCase. Map explicitly
+// in both directions: a missed field renders blank with no error.
+function maintFromRow(r) {
+  return {
+    id:               r.id,
+    machine:          r.machine,
+    maintenanceType:  r.maintenance_type  || '',
+    startDate:        (r.start_date || '').slice(0,10),
+    endDate:          (r.end_date   || '').slice(0,10),
+    productionImpact: r.production_impact || '',
+    notes:            r.notes             || '',
+    backOperational:  (r.back_operational || '').slice(0,10),
+    hasRecovery:      !!r.has_recovery,
+    scholleInScope:   r.scholle_in_scope  || 'yes'
+  };
+}
+
+function maintToRow(e) {
+  return {
+    id:                e.id,
+    machine:           e.machine,
+    maintenance_type:  e.maintenanceType  || null,
+    start_date:        e.startDate,
+    end_date:          e.endDate,
+    production_impact: e.productionImpact || null,
+    notes:             e.notes            || null,
+    back_operational:  e.backOperational  || null,
+    has_recovery:      !!e.hasRecovery,
+    scholle_in_scope:  e.scholleInScope    || 'yes'
+  };
+}
+
 function maintLoadEntries() {
+  if (MAINT_CACHE) return MAINT_CACHE;
   try { return JSON.parse(localStorage.getItem(MAINT_KEY) || '[]'); } catch(e) { return []; }
 }
 
+// Cache + localStorage mirror only. Does NOT write to Supabase: the Supabase
+// write is done by the caller so a failed write can be surfaced, not swallowed.
 function maintSaveEntries(arr) {
-  localStorage.setItem(MAINT_KEY, JSON.stringify(arr));
+  MAINT_CACHE = arr;
+  try { localStorage.setItem(MAINT_KEY, JSON.stringify(arr)); } catch(e) { /* quota — cache still valid */ }
+}
+
+// Pull from Supabase into the cache. Called from sbPull() before rebuildData().
+async function sbPullMaintenance() {
+  const res = await sbFetchTimeout(
+    `${SB_URL}/rest/v1/maintenance_events?select=*&order=start_date&limit=2000`,
+    { headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY } },
+    SB_TIMEOUT_MS
+  );
+  if (!res.ok) throw new Error('maintenance_events GET ' + res.status);
+  const rows = await res.json();
+
+  // One-time lift of pre-Supabase localStorage entries. Gated on a flag so a
+  // deleted event is never resurrected from a stale local copy on next load.
+  // Only runs when the fetch SUCCEEDED and the table is genuinely empty.
+  if (!rows.length && !localStorage.getItem(MAINT_MIGRATED_KEY)) {
+    let legacy = [];
+    try { legacy = JSON.parse(localStorage.getItem(MAINT_KEY) || '[]'); } catch(e) { legacy = []; }
+    if (legacy.length) {
+      const up = await sbFetchTimeout(
+        `${SB_URL}/rest/v1/maintenance_events?on_conflict=id`,
+        { method: 'POST',
+          headers: { ...sbHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+          body: JSON.stringify(legacy.map(maintToRow)) },
+        SB_TIMEOUT_MS
+      );
+      if (up.ok) {
+        console.log(`[Maintenance] migrated ${legacy.length} local entries to Supabase`);
+        localStorage.setItem(MAINT_MIGRATED_KEY, '1');
+        maintSaveEntries(legacy.slice().sort((a,b) => a.startDate.localeCompare(b.startDate)));
+        return legacy.length;
+      }
+      return 0;   // migration failed — leave flag unset so it retries next load
+    }
+    localStorage.setItem(MAINT_MIGRATED_KEY, '1');   // nothing to migrate, never look again
+  }
+
+  maintSaveEntries(rows.map(maintFromRow));
+  return rows.length;
+}
+
+// Upsert one entry. Returns true on success, false (with the error surfaced) otherwise.
+async function sbSaveMaintEntry(entry) {
+  try {
+    const res = await sbFetchTimeout(
+      `${SB_URL}/rest/v1/maintenance_events?on_conflict=id`,
+      { method: 'POST',
+        headers: { ...sbHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+        body: JSON.stringify([maintToRow(entry)]) },
+      SB_TIMEOUT_MS
+    );
+    if (!res.ok) throw new Error(await res.text());
+    sbStatus('\u2713 Maintenance saved \u2014 visible to everyone on next sync', 'ok');
+    return true;
+  } catch(e) {
+    const msg = e.name === 'AbortError' ? 'timed out' : e.message;
+    sbStatus('\u26a0 Maintenance save failed: ' + msg, 'err');
+    alert('Saving to Supabase failed:\n' + msg + '\n\nThis entry is NOT shared with the team. Press \u21bb Sync and try again.');
+    return false;
+  }
+}
+
+async function sbDeleteMaintEntry(id) {
+  try {
+    const res = await sbFetchTimeout(
+      `${SB_URL}/rest/v1/maintenance_events?id=eq.${encodeURIComponent(id)}`,
+      { method: 'DELETE', headers: sbHeaders() },
+      SB_TIMEOUT_MS
+    );
+    if (!res.ok) throw new Error(await res.text());
+    sbStatus('\u2713 Maintenance entry deleted', 'ok');
+    return true;
+  } catch(e) {
+    const msg = e.name === 'AbortError' ? 'timed out' : e.message;
+    sbStatus('\u26a0 Maintenance delete failed: ' + msg, 'err');
+    alert('Delete from Supabase failed:\n' + msg + '\n\nThe entry is still there for the team. Press \u21bb Sync and try again.');
+    return false;
+  }
 }
 
 function maintMachineChange() {
@@ -7278,16 +7412,15 @@ function maintEditEntry(id) {
   document.getElementById('maintForm').scrollIntoView({behavior:'smooth',block:'start'});
 }
 
-function maintDeleteEntry(id) {
+async function maintDeleteEntry(id) {
   if (!confirm('Delete this maintenance entry?')) return;
-  let entries = maintLoadEntries();
-  entries = entries.filter(x => x.id !== id);
-  maintSaveEntries(entries);
+  if (!await sbDeleteMaintEntry(id)) return;   // Supabase is the record: no local delete on failure
+  maintSaveEntries(maintLoadEntries().filter(x => x.id !== id));
   renderMaintenance();
   rebuildData();
 }
 
-function saveMaintEntry(evt) {
+async function saveMaintEntry(evt) {
   evt.preventDefault();
   const machine = document.getElementById('mfMachine').value;
   const startDate = document.getElementById('mfStart').value;
@@ -7296,15 +7429,25 @@ function saveMaintEntry(evt) {
   const recovery = maintHasRecovery(machine);
   const backOp = recovery ? maintAddDays(endDate, 3) : maintAddDays(endDate, 1);
   const editId = document.getElementById('mfEditId').value;
-  let entries = maintLoadEntries();
-  if (editId) {
-    const idx = entries.findIndex(x => x.id === editId);
-    if (idx >= 0) {
-      entries[idx] = { id: editId, machine, maintenanceType: document.getElementById('mfType').value, startDate, endDate, productionImpact: document.getElementById('mfImpact').value, notes: document.getElementById('mfNotes').value, backOperational: backOp, hasRecovery: recovery };
-    }
-  } else {
-    entries.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), machine, maintenanceType: document.getElementById('mfType').value, startDate, endDate, productionImpact: document.getElementById('mfImpact').value, notes: document.getElementById('mfNotes').value, backOperational: backOp, hasRecovery: recovery });
-  }
+  let entries = maintLoadEntries().slice();
+  const entry = {
+    id: editId || (Date.now().toString(36) + Math.random().toString(36).slice(2,6)),
+    machine,
+    maintenanceType:  document.getElementById('mfType').value,
+    startDate, endDate,
+    productionImpact: document.getElementById('mfImpact').value,
+    notes:            document.getElementById('mfNotes').value,
+    backOperational:  backOp,
+    hasRecovery:      recovery,
+    scholleInScope:   document.getElementById('mfScholle').value || 'yes'
+  };
+
+  // Supabase first. If the write fails the entry is not committed locally
+  // either, so what the planner shows always matches the shared record.
+  if (!await sbSaveMaintEntry(entry)) return;
+
+  const idx = editId ? entries.findIndex(x => x.id === editId) : -1;
+  if (idx >= 0) entries[idx] = entry; else entries.push(entry);
   entries.sort((a,b) => a.startDate.localeCompare(b.startDate));
   maintSaveEntries(entries);
   maintClearForm();
