@@ -6790,7 +6790,10 @@ async function sbPull() {
       if (typeof renderMaintenance === 'function') renderMaintenance();
       console.log(`[Maintenance] ${nMaint} event(s) loaded from Supabase`);
     } catch(e) {
+      // Visible, not console-only: capacity logic keeps running on whatever
+      // maintenance data this browser holds, which may be stale or empty.
       console.warn('[Maintenance] pull failed, using local fallback:', e.message);
+      sbStatus('\u26a0 Maintenance not synced (' + e.message + ') \u2014 showing local copy only', 'warn');
     }
 
     // Raw material coverage: compute next-week forecast pallets per SKU from raw SB data
@@ -7245,6 +7248,9 @@ function maintDaysBetween(start, end) {
 // localStorage is retained purely as an offline/pre-pull fallback.
 let MAINT_CACHE = null;          // null = not yet hydrated from Supabase
 const MAINT_MIGRATED_KEY = 'abh_maint_migrated';
+// Untouched snapshot of the pre-Supabase local entries, taken before the first
+// pull writes anything. Never cleared. Recovery source if a migration misfires.
+const MAINT_BACKUP_KEY   = 'abh_maintenance_events_backup';
 
 // DB uses snake_case, every render/capacity path uses camelCase. Map explicitly
 // in both directions: a missed field renders blank with no error.
@@ -7292,6 +7298,16 @@ function maintSaveEntries(arr) {
 
 // Pull from Supabase into the cache. Called from sbPull() before rebuildData().
 async function sbPullMaintenance() {
+  // Snapshot the legacy local copy before anything else can touch it. Written
+  // once, never overwritten, never cleared: it is the last line of defence if a
+  // migration or a cache write goes wrong.
+  try {
+    const rawLegacy = localStorage.getItem(MAINT_KEY);
+    if (rawLegacy && !localStorage.getItem(MAINT_BACKUP_KEY)) {
+      localStorage.setItem(MAINT_BACKUP_KEY, rawLegacy);
+    }
+  } catch(e) { /* quota or disabled storage — proceed */ }
+
   const res = await sbFetchTimeout(
     `${SB_URL}/rest/v1/maintenance_events?select=*&order=start_date&limit=2000`,
     { headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY } },
@@ -7299,35 +7315,51 @@ async function sbPullMaintenance() {
   );
   if (!res.ok) throw new Error('maintenance_events GET ' + res.status);
   const rows = await res.json();
+  let merged = rows.map(maintFromRow);
 
-  // One-time lift of pre-Supabase localStorage entries. Gated on a flag so a
-  // deleted event is never resurrected from a stale local copy on next load.
-  // Only runs when the fetch SUCCEEDED and the table is genuinely empty.
-  if (!rows.length && !localStorage.getItem(MAINT_MIGRATED_KEY)) {
+  // One-time lift of this browser's pre-Supabase localStorage entries.
+  //
+  // Gated on MAINT_MIGRATED_KEY ONLY, never on the table being empty. Maintenance
+  // was browser-local, so every person holds a different set. Gating on an empty
+  // table meant only the first browser to load could ever migrate, and every other
+  // browser then fell through to maintSaveEntries(server rows), which overwrote
+  // that browser's un-migrated entries with someone else's. Each browser now lifts
+  // its own set and merges, so no one's entries are destroyed by another's sync.
+  if (!localStorage.getItem(MAINT_MIGRATED_KEY)) {
     let legacy = [];
     try { legacy = JSON.parse(localStorage.getItem(MAINT_KEY) || '[]'); } catch(e) { legacy = []; }
-    if (legacy.length) {
+    // Only lift entries the server does not already hold. Ids are random, so an
+    // id already present means this browser's copy was migrated previously.
+    const serverIds = new Set(merged.map(e => e.id));
+    const toLift = legacy.filter(e => e && e.id && !serverIds.has(e.id));
+    if (toLift.length) {
       const up = await sbFetchTimeout(
         `${SB_URL}/rest/v1/maintenance_events?on_conflict=id`,
         { method: 'POST',
           headers: { ...sbHeaders(), 'Prefer': 'resolution=merge-duplicates,return=minimal' },
-          body: JSON.stringify(legacy.map(maintToRow)) },
+          body: JSON.stringify(toLift.map(maintToRow)) },
         SB_TIMEOUT_MS
       );
-      if (up.ok) {
-        console.log(`[Maintenance] migrated ${legacy.length} local entries to Supabase`);
-        localStorage.setItem(MAINT_MIGRATED_KEY, '1');
-        maintSaveEntries(legacy.slice().sort((a,b) => a.startDate.localeCompare(b.startDate)));
-        return legacy.length;
+      if (!up.ok) {
+        // Flag stays unset so it retries next load, and the local copy is left
+        // untouched. Return the server rows WITHOUT writing them to localStorage,
+        // so the un-migrated legacy set survives.
+        console.warn('[Maintenance] migration POST failed — legacy entries kept local, will retry');
+        sbStatus('⚠ Maintenance entries not yet shared — press ↻ Sync to retry', 'warn');
+        MAINT_CACHE = merged;
+        return merged.length;
       }
-      return 0;   // migration failed — leave flag unset so it retries next load
+      console.log(`[Maintenance] migrated ${toLift.length} local entries to Supabase`);
+      merged = merged.concat(toLift);
     }
-    localStorage.setItem(MAINT_MIGRATED_KEY, '1');   // nothing to migrate, never look again
+    localStorage.setItem(MAINT_MIGRATED_KEY, '1');
   }
 
-  maintSaveEntries(rows.map(maintFromRow));
-  return rows.length;
+  merged.sort((a,b) => (a.startDate || '').localeCompare(b.startDate || ''));
+  maintSaveEntries(merged);
+  return merged.length;
 }
+
 
 // Upsert one entry. Returns true on success, false (with the error surfaced) otherwise.
 async function sbSaveMaintEntry(entry) {
