@@ -7191,12 +7191,15 @@ function loadFallbackHolidays() {
 }
 
 // ══ MAINTENANCE CALENDAR ═════════════════════════════════════════════════════
-// Storage key for localStorage persistence
-const MAINT_KEY = 'abh_maintenance_events';
+// Supabase-backed shared maintenance calendar — all users see the same data.
+// One-time migration: if localStorage has legacy entries, they are pushed to
+// Supabase on first load and then cleared from localStorage.
+const MAINT_KEY = 'abh_maintenance_events'; // legacy localStorage key (migration only)
 
-// Machines that trigger the 3-day post-service recovery rule (test results before production resumes).
-// All Scholle fillers and the EP Bottle line filler require 3-day hold.
-// All other machines are back next day.
+// In-memory cache — avoids repeated Supabase round-trips within a session.
+let maintEntriesCache = null;
+
+// Machines that trigger the 3-day post-service recovery rule.
 function maintHasRecovery(machine) {
   return machine === 'Scholle filler A' ||
          machine === 'Scholle filler B' ||
@@ -7226,12 +7229,81 @@ function maintDaysBetween(start, end) {
   return Math.round((b - a) / 86400000) + 1;
 }
 
-function maintLoadEntries() {
-  try { return JSON.parse(localStorage.getItem(MAINT_KEY) || '[]'); } catch(e) { return []; }
+// Convert Supabase row (snake_case) to JS object (camelCase).
+function maintFromRow(row) {
+  return {
+    id: row.id,
+    machine: row.machine,
+    maintenanceType: row.maintenance_type || '',
+    startDate: row.start_date ? row.start_date.slice(0,10) : '',
+    endDate: row.end_date ? row.end_date.slice(0,10) : '',
+    productionImpact: row.production_impact || '',
+    notes: row.notes || '',
+    backOperational: row.back_operational ? row.back_operational.slice(0,10) : '',
+    hasRecovery: !!row.has_recovery,
+    scholleInScope: row.scholle_in_scope || 'yes'
+  };
 }
 
-function maintSaveEntries(arr) {
-  localStorage.setItem(MAINT_KEY, JSON.stringify(arr));
+// Convert JS object (camelCase) to Supabase row (snake_case).
+function maintToRow(e) {
+  return {
+    id: e.id,
+    machine: e.machine,
+    maintenance_type: e.maintenanceType || null,
+    start_date: e.startDate,
+    end_date: e.endDate,
+    production_impact: e.productionImpact || null,
+    notes: e.notes || null,
+    back_operational: e.backOperational || null,
+    has_recovery: !!e.hasRecovery,
+    scholle_in_scope: e.scholleInScope || 'yes'
+  };
+}
+
+// Load entries from Supabase with in-memory cache.
+// On first call: fetches from Supabase, migrates any localStorage legacy data, returns cache.
+async function maintLoadEntries() {
+  if (maintEntriesCache !== null) return maintEntriesCache;
+  try {
+    const res = await sbFetchTimeout(
+      `${SB_URL}/rest/v1/maintenance_events?select=*&order=start_date.asc`,
+      { method: 'GET', headers: sbHeaders() },
+      SB_TIMEOUT_MS
+    );
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const rows = await res.json();
+    maintEntriesCache = rows.map(maintFromRow);
+  } catch(err) {
+    console.warn('maintLoadEntries Supabase fetch failed:', err);
+    maintEntriesCache = [];
+  }
+  // One-time migration from localStorage to Supabase.
+  try {
+    const raw = localStorage.getItem(MAINT_KEY);
+    if (raw) {
+      const legacy = JSON.parse(raw) || [];
+      const existingIds = new Set(maintEntriesCache.map(e => e.id));
+      const toInsert = legacy.filter(e => e.id && !existingIds.has(e.id)).map(maintToRow);
+      if (toInsert.length > 0) {
+        const res2 = await sbFetchTimeout(
+          `${SB_URL}/rest/v1/maintenance_events`,
+          { method: 'POST', headers: { ...sbHeaders(), 'Prefer': 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify(toInsert) },
+          SB_TIMEOUT_MS * 2
+        );
+        if (res2.ok) {
+          const inserted = await res2.json();
+          maintEntriesCache = [...maintEntriesCache, ...inserted.map(maintFromRow)]
+            .sort((a,b) => a.startDate.localeCompare(b.startDate));
+          console.log('Migrated ' + toInsert.length + ' maintenance entries from localStorage to Supabase.');
+        }
+      }
+      localStorage.removeItem(MAINT_KEY); // Clear legacy data after migration.
+    }
+  } catch(err) {
+    console.warn('maintMigrateLegacy failed:', err);
+  }
+  return maintEntriesCache;
 }
 
 function maintMachineChange() {
@@ -7261,8 +7333,8 @@ function maintClearForm() {
   document.getElementById('mfEditId').value = '';
 }
 
-function maintEditEntry(id) {
-  const entries = maintLoadEntries();
+async function maintEditEntry(id) {
+  const entries = await maintLoadEntries();
   const e = entries.find(x => x.id === id);
   if (!e) return;
   document.getElementById('mfMachine').value = e.machine || '';
@@ -7278,16 +7350,25 @@ function maintEditEntry(id) {
   document.getElementById('maintForm').scrollIntoView({behavior:'smooth',block:'start'});
 }
 
-function maintDeleteEntry(id) {
+async function maintDeleteEntry(id) {
   if (!confirm('Delete this maintenance entry?')) return;
-  let entries = maintLoadEntries();
-  entries = entries.filter(x => x.id !== id);
-  maintSaveEntries(entries);
-  renderMaintenance();
-  rebuildData();
+  try {
+    const res = await sbFetchTimeout(
+      `${SB_URL}/rest/v1/maintenance_events?id=eq.${encodeURIComponent(id)}`,
+      { method: 'DELETE', headers: sbHeaders() },
+      SB_TIMEOUT_MS
+    );
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    if (maintEntriesCache) maintEntriesCache = maintEntriesCache.filter(x => x.id !== id);
+    await renderMaintenance();
+    rebuildData();
+  } catch(err) {
+    alert('Failed to delete entry. Please try again.');
+    console.error('maintDeleteEntry failed:', err);
+  }
 }
 
-function saveMaintEntry(evt) {
+async function saveMaintEntry(evt) {
   evt.preventDefault();
   const machine = document.getElementById('mfMachine').value;
   const startDate = document.getElementById('mfStart').value;
@@ -7296,24 +7377,43 @@ function saveMaintEntry(evt) {
   const recovery = maintHasRecovery(machine);
   const backOp = recovery ? maintAddDays(endDate, 3) : maintAddDays(endDate, 1);
   const editId = document.getElementById('mfEditId').value;
-  let entries = maintLoadEntries();
-  if (editId) {
-    const idx = entries.findIndex(x => x.id === editId);
-    if (idx >= 0) {
-      entries[idx] = { id: editId, machine, maintenanceType: document.getElementById('mfType').value, startDate, endDate, productionImpact: document.getElementById('mfImpact').value, notes: document.getElementById('mfNotes').value, backOperational: backOp, hasRecovery: recovery };
+  const newEntry = {
+    id: editId || (Date.now().toString(36) + Math.random().toString(36).slice(2,6)),
+    machine,
+    maintenanceType: document.getElementById('mfType').value,
+    startDate,
+    endDate,
+    productionImpact: document.getElementById('mfImpact').value,
+    notes: document.getElementById('mfNotes').value,
+    backOperational: backOp,
+    hasRecovery: recovery,
+    scholleInScope: document.getElementById('mfScholle') ? (document.getElementById('mfScholle').value || 'yes') : 'yes'
+  };
+  try {
+    const res = await sbFetchTimeout(
+      `${SB_URL}/rest/v1/maintenance_events`,
+      { method: 'POST', headers: { ...sbHeaders(), 'Prefer': 'resolution=merge-duplicates,return=representation' }, body: JSON.stringify(maintToRow(newEntry)) },
+      SB_TIMEOUT_MS
+    );
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    // Update cache.
+    if (maintEntriesCache) {
+      const idx = maintEntriesCache.findIndex(x => x.id === newEntry.id);
+      if (idx >= 0) { maintEntriesCache[idx] = newEntry; }
+      else { maintEntriesCache.push(newEntry); }
+      maintEntriesCache.sort((a,b) => a.startDate.localeCompare(b.startDate));
     }
-  } else {
-    entries.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), machine, maintenanceType: document.getElementById('mfType').value, startDate, endDate, productionImpact: document.getElementById('mfImpact').value, notes: document.getElementById('mfNotes').value, backOperational: backOp, hasRecovery: recovery });
+    maintClearForm();
+    await renderMaintenance();
+    rebuildData();
+  } catch(err) {
+    alert('Failed to save entry. Please try again.');
+    console.error('saveMaintEntry failed:', err);
   }
-  entries.sort((a,b) => a.startDate.localeCompare(b.startDate));
-  maintSaveEntries(entries);
-  maintClearForm();
-  renderMaintenance();
-  rebuildData();
 }
 
-function renderMaintenance() {
-  const entries = maintLoadEntries();
+async function renderMaintenance() {
+  const entries = await maintLoadEntries();
   const today = localToday();
 
   // -- Summary: next upcoming per machine --
