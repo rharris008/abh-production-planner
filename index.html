@@ -7557,11 +7557,13 @@ function renderMaintenance() {
     const rowStyle = isLive ? 'background:#FEF0DC' : (isPast ? 'opacity:.6' : '');
     const statusBadge = isLive ? '<span class="badge ba">IN SERVICE</span> ' : (isPast ? '<span class="badge bn">DONE</span> ' : '<span class="badge bb">PLANNED</span> ');
     const recBadge = e.hasRecovery ? ' <span class="badge ba" title="3-day recovery period applies">+3d recovery</span>' : '';
+    const dayTypeVal = maintDayType(e.startDate);
+    const dayTypeColor = dayTypeVal === 'Weekend' ? '#27AE60' : '#C0392B';
     html += `<tr style="${rowStyle}">
       <td style="font-weight:700">${statusBadge}${e.machine || ''}</td>
       <td>${e.maintenanceType || ''}</td>
       <td style="white-space:nowrap">${maintFmtDate(e.startDate)}</td>
-      <td style="white-space:nowrap">${maintDayType(e.startDate)}</td>
+      <td style="white-space:nowrap;font-weight:600;color:${dayTypeColor}">${dayTypeVal}</td>
       <td style="white-space:nowrap">${maintFmtDate(e.endDate)}</td>
       <td class="num">${e.startDate && e.endDate ? maintDaysBetween(e.startDate, e.endDate) : ''}</td>
       <td>${e.productionImpact || ''}</td>
