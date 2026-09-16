@@ -85,6 +85,20 @@ This planner covers Pureau SKUs only:
 
 Ignore: Lemon Fresh, Daily Good, any third-party SKUs.
 
+## Tracker Tab Component Standard (set by Rob 16/09/2026)
+
+All tracker/register tabs (HACCP, Maintenance register-style, any future action register) must use the same visual pattern. Do NOT invent new card/grid layouts for tracker tabs.
+
+**Required structure:**
+1. `<div class="ph navy">Tab Title</div>` header
+2. `<div class="tracker-stats">` stat tiles using `.stat-tile` + `.stat-tile-label` + `.stat-tile-value` with ABH colour variables
+3. `<div class="tscroll"><table>` with global `th`/`td` styles (navy header, alternating hover)
+4. Badges: use `.badge` + `.bg` (complete/green), `.ba` (in-progress/amber), `.bb` (planned/blue), `.br` (urgent/red), `.bn` (normal/grey)
+
+**Why:** Matches the 3-Year Plan look and feel. Consistent across all planner tabs. Confirmed by Rob 16/09/2026.
+
+This standard lives here (project CLAUDE.md) AND is referenced in the global brand pack. Read this before building any new tracker tab.
+
 ## HMPS targets (current)
 
 - Operational target: 67 pal/shift at 75% utilisation.
