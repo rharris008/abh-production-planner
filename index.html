@@ -382,7 +382,7 @@ tr.risk-a td{background:#FEF9F0}
 <div id="tab-haccp" class="tc">
   <div class="panel">
     <div class="ph navy">HACCP &amp; Safety Culture - Action Register - <a href="https://rharris008.github.io/abh-3year-plan/" target="_blank" style="color:inherit;text-decoration:underline;opacity:.9">Linked to 3 Year Plan - $150m Turnover Goal</a>
-      <span style="font-size:10px;opacity:.7;margin-left:12px">Source: 3-Year Plan - Safety Culture pillar | Updated 16/09/2026</span>
+      <span id="haccpTs" style="font-size:10px;opacity:.7;margin-left:12px">Source: 3-Year Plan - Safety Culture pillar | Syncing&hellip;</span>
     </div>
     <div id="haccpStats" class="tracker-stats"></div>
     <div id="haccpList"></div>
@@ -5933,7 +5933,7 @@ function setRetailerView(r) {
 // ============================================================
 // HACCP & Safety Culture — sourced from 3-Year Plan (16/09/2026)
 // ============================================================
-const HACCP_TASKS = [
+let HACCP_TASKS = [
   {id:"86d238at3",name:"Bigger trays under the cask fillers",status:"in progress",priority:"URGENT",due:"2026-10-02",assignees:["Ravin Singh","Aaron Mattin","Jasmine Pereira"]},
   {id:"sitemtg_15",name:"Begin RO area safety barriers working back to the lunchroom",status:"in progress",priority:"HIGH",due:"2026-10-16",assignees:["Ravin Singh"]},
   {id:"sitemtg_12",name:"Create and publish shed traffic management plan (forklift routes)",status:"in progress",priority:"HIGH",due:"2026-10-31",assignees:["Jeremy Wheeler","Jasmine Pereira"]},
@@ -5958,11 +5958,52 @@ const HACCP_TASKS = [
   {id:"sitemtg_22062026_16",name:"Follow up with JLE for gantry and drip tray quotes",status:"complete",priority:"none",due:null,assignees:["Ravin Singh"]}
 ];
 
+// HACCP live-sync config — reads from 3-Year Plan Supabase (gdfbpvzatnqmzujagtqm)
+const HACCP_SB_URL = 'https://gdfbpvzatnqmzujagtqm.supabase.co';
+const HACCP_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdkZmJwdnphdG5xbXp1amFndHFtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MzE3NTQsImV4cCI6MjA5MDIwNzc1NH0.O0XquoCFEaIL0xJZKGaPrFgfz42A_j1uKRUjhr6Zqvw';
+
+async function loadHaccpLive() {
+  haccpLiveLoaded = true; // set at entry so concurrent re-renders don't double-fetch
+  try {
+    const url = `${HACCP_SB_URL}/rest/v1/abh_3year_tasks?pillar=eq.${encodeURIComponent('Safety Culture')}&select=id,name,status,priority,due_date,assignees&order=due_date.asc.nullslast`;
+    const res = await fetch(url, {
+      headers: { 'apikey': HACCP_SB_KEY, 'Authorization': `Bearer ${HACCP_SB_KEY}` }
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const rows = await res.json();
+    if (Array.isArray(rows) && rows.length > 0) {
+      HACCP_TASKS = rows.map(r => ({
+        id: r.id,
+        name: r.name || '',
+        status: r.status || 'to do',
+        priority: r.priority || 'NORMAL',
+        due: r.due_date || null,
+        assignees: Array.isArray(r.assignees) ? r.assignees : (typeof r.assignees === 'string' ? JSON.parse(r.assignees || '[]') : [])
+      }));
+      const ts = document.getElementById('haccpTs');
+      if (ts) {
+        const now = new Date();
+        const pad = n => String(n).padStart(2, '0');
+        ts.textContent = `Live — updated ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+      }
+      renderHaccp();
+    } else {
+      const ts = document.getElementById('haccpTs');
+      if (ts) ts.textContent = 'Source: 3-Year Plan snapshot | No live rows returned';
+    }
+  } catch(e) {
+    console.warn('HACCP live sync failed, using snapshot:', e.message);
+    const ts = document.getElementById('haccpTs');
+    if (ts) ts.textContent = 'Source: 3-Year Plan snapshot | Sync failed';
+  }
+}
+
 // HACCP UI state
-let haccpHideDone = false;
+let haccpHideDone = true;
 let haccpSortCol  = null;
 let haccpSortAsc  = true;
 let haccpFilter   = null; // null | 'urgent' | 'in progress' | 'to do' | 'complete'
+let haccpLiveLoaded = false;
 
 function haccpSort(col) {
   if (haccpSortCol === col) { haccpSortAsc = !haccpSortAsc; }
@@ -5976,12 +6017,14 @@ function haccpSetFilter(key) {
 }
 
 function renderHaccp() {
+  if (!haccpLiveLoaded) loadHaccpLive(); // fire-and-forget; re-renders once live data arrives
   const stats = document.getElementById('haccpStats');
   const list  = document.getElementById('haccpList');
   if(!stats||!list) return;
 
   // Always count from the full unfiltered array
-  const todo   = HACCP_TASKS.filter(t=>t.status==='to do').length;
+  // 'blocked' and 'on hold' are folded into the To Do bucket for display purposes
+  const todo   = HACCP_TASKS.filter(t=>['to do','blocked','on hold'].includes(t.status)).length;
   const inprog = HACCP_TASKS.filter(t=>t.status==='in progress').length;
   const done   = HACCP_TASKS.filter(t=>t.status==='complete').length;
   const urgent = HACCP_TASKS.filter(t=>['urgent','URGENT'].includes(t.priority)&&t.status!=='complete').length;
@@ -5999,8 +6042,8 @@ function renderHaccp() {
       <input type="checkbox" ${haccpHideDone?'checked':''} onchange="haccpHideDone=this.checked;renderHaccp()"> Hide completed
     </label>`;
 
-  const order = {urgent:0,URGENT:0,HIGH:1,high:1,normal:2,NORMAL:2,none:3};
-  const statusOrder = {'in progress':0,'to do':1,'complete':2};
+  const order = {urgent:0,URGENT:0,HIGH:1,high:1,normal:2,NORMAL:2,LOW:3,low:3,none:4};
+  const statusOrder = {'in progress':0,'to do':1,'blocked':1,'on hold':1,'complete':2};
 
   // Default sort: status then priority
   let sorted = [...HACCP_TASKS].sort((a,b)=>
@@ -6025,6 +6068,7 @@ function renderHaccp() {
   let displayed = sorted;
   if (haccpHideDone)          displayed = displayed.filter(t=>t.status!=='complete');
   if (haccpFilter==='urgent')  displayed = displayed.filter(t=>['urgent','URGENT'].includes(t.priority)&&t.status!=='complete');
+  else if (haccpFilter==='to do') displayed = displayed.filter(t=>['to do','blocked','on hold'].includes(t.status));
   else if (haccpFilter)        displayed = displayed.filter(t=>t.status===haccpFilter);
 
   const fmtDate = d => { if(!d) return ''; const [y,m,day]=d.split('-'); return `${day}/${m}/${y}`; };
@@ -6033,6 +6077,8 @@ function renderHaccp() {
   const statusBadge = s => {
     if(s==='complete')    return '<span class="badge badge-complete">COMPLETE</span>';
     if(s==='in progress') return '<span class="badge badge-progress">IN PROGRESS</span>';
+    if(s==='blocked')     return '<span class="badge badge-urgent">BLOCKED</span>';
+    if(s==='on hold')     return '<span class="badge badge-todo">ON HOLD</span>';
     return '<span class="badge badge-todo">TO DO</span>';
   };
   const priBadge = p => {
