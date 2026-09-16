@@ -79,6 +79,12 @@ tr:hover td{background:var(--light)}
 .bb{background:#D6EAFA;color:#0A4D82}
 .bn{background:#E8ECF2;color:var(--muted)}
 .bsat{background:#EAD6FA;color:#4A0E82}
+/* Tracker-tab solid-fill badges — 3-Year Plan standard */
+.badge-complete{background:var(--green);color:#fff}
+.badge-progress{background:var(--blue);color:#fff}
+.badge-todo{background:#ddd;color:#555}
+.badge-overdue,.badge-urgent{background:var(--red);color:#fff}
+.badge-high{background:var(--amber);color:#fff}
 .alert{display:flex;gap:10px;padding:9px 12px;border-radius:4px;margin-bottom:7px;font-size:12px;border-left:4px solid}
 .alert-r{background:#FCE4E4;border-color:var(--red);color:#5C0E0E}
 .alert-a{background:#FEF0DC;border-color:var(--amber);color:#5C2E00}
@@ -198,7 +204,7 @@ tr.risk-a td{background:#FEF9F0}
   .oc-grid{grid-template-columns:1fr}
   .tab{padding:12px 12px}
 }
-.other-tab{position:relative;cursor:pointer;user-select:none}.other-item{padding:7px 14px;cursor:pointer;font-size:13px;white-space:nowrap;color:var(--navy)}.other-item:hover{background:var(--light)}.tracker-stats{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap}.stat-tile{border:1px solid var(--border);border-radius:6px;padding:8px 14px;min-width:100px;background:#fff}.stat-tile-label{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}.stat-tile-value{font-size:22px;font-weight:700}
+.other-tab{position:relative;cursor:pointer;user-select:none}.other-item{padding:7px 14px;cursor:pointer;font-size:13px;white-space:nowrap;color:var(--navy)}.other-item:hover{background:var(--light)}.tracker-stats{display:flex;gap:16px;margin-bottom:20px;flex-wrap:wrap}.stat-tile{background:#fff;border-radius:8px;padding:18px 16px;box-shadow:0 1px 4px rgba(0,0,0,.08);text-align:center;min-width:120px;flex:1;transition:transform .15s,box-shadow .15s}.stat-tile:hover{transform:translateY(-2px);box-shadow:0 6px 14px rgba(0,0,0,.14)}.stat-tile-label{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#666;margin-bottom:4px}.stat-tile-value{font-size:32px;font-weight:700}
 </style>
 </head>
 <body>
@@ -5976,15 +5982,15 @@ function renderHaccp() {
   const isOverdue = d => d && new Date(d) < new Date();
 
   const statusBadge = s => {
-    if(s==='complete')    return '<span class="badge bg">COMPLETE</span>';
-    if(s==='in progress') return '<span class="badge ba">IN PROGRESS</span>';
-    return '<span class="badge bb">TO DO</span>';
+    if(s==='complete')    return '<span class="badge badge-complete">COMPLETE</span>';
+    if(s==='in progress') return '<span class="badge badge-progress">IN PROGRESS</span>';
+    return '<span class="badge badge-todo">TO DO</span>';
   };
   const priBadge = p => {
     const u = p.toUpperCase();
-    if(u==='URGENT') return '<span class="badge br">URGENT</span>';
-    if(u==='HIGH')   return '<span class="badge ba">HIGH</span>';
-    if(u==='NORMAL') return '<span class="badge bn">NORMAL</span>';
+    if(u==='URGENT') return '<span class="badge badge-urgent">URGENT</span>';
+    if(u==='HIGH')   return '<span class="badge badge-high">HIGH</span>';
+    if(u==='NORMAL') return '<span class="badge badge-todo">NORMAL</span>';
     return '';
   };
 
@@ -5998,7 +6004,7 @@ function renderHaccp() {
     const rowStyle = t.status==='complete' ? 'opacity:.55' : (od ? 'background:#FEF5F5' : '');
     const nameCell = t.status==='complete' ? `<s>${t.name}</s>` : `<strong>${t.name}</strong>`;
     const dueCell  = t.due
-      ? `${fmtDate(t.due)}${od ? ' <span class="badge br" style="font-size:9px">OVERDUE</span>' : ''}`
+      ? `${fmtDate(t.due)}${od ? ' <span class="badge badge-overdue" style="font-size:9px">OVERDUE</span>' : ''}`
       : '';
     html += `<tr style="${rowStyle}">
       <td style="max-width:340px">${nameCell}</td>

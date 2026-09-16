@@ -85,19 +85,24 @@ This planner covers Pureau SKUs only:
 
 Ignore: Lemon Fresh, Daily Good, any third-party SKUs.
 
-## Tracker Tab Component Standard (set by Rob 16/09/2026)
+## Tracker Tab Component Standard (corrected per Rob email 16/09/2026)
 
-All tracker/register tabs (HACCP, Maintenance register-style, any future action register) must use the same visual pattern. Do NOT invent new card/grid layouts for tracker tabs.
+All tracker/register tabs (HACCP, Maintenance register-style, any future action register) must use the same visual pattern as the 3-Year Plan tracker tabs. Do NOT invent new card/grid layouts for tracker tabs. Do NOT use the planner's soft-pastel badge classes (`.bg`, `.ba`, `.bb`, `.br`) for tracker tab tables — those are used in the planning grid only.
 
 **Required structure:**
 1. `<div class="ph navy">Tab Title</div>` header
-2. `<div class="tracker-stats">` stat tiles using `.stat-tile` + `.stat-tile-label` + `.stat-tile-value` with ABH colour variables
-3. `<div class="tscroll"><table>` with global `th`/`td` styles (navy header, alternating hover)
-4. Badges: use `.badge` + `.bg` (complete/green), `.ba` (in-progress/amber), `.bb` (planned/blue), `.br` (urgent/red), `.bn` (normal/grey)
+2. `<div class="tracker-stats">` KPI-style stat tiles: `.stat-tile` + `.stat-tile-label` + `.stat-tile-value` — these now render with 32px bold value, box-shadow, and hover lift (matching 3-Year Plan kpi-tile)
+3. `<div class="tscroll"><table>` — the global `th` rule already applies navy headers; no extra class needed
+4. Badges for tracker tables: use `.badge` + one of the solid-fill tracker classes:
+   - `.badge-complete` (green solid, white text) — COMPLETE status
+   - `.badge-progress` (blue solid, white text) — IN PROGRESS status
+   - `.badge-todo` (grey, dark text) — TO DO status and NORMAL priority
+   - `.badge-urgent` or `.badge-overdue` (red solid, white text) — URGENT priority or overdue date
+   - `.badge-high` (amber solid, white text) — HIGH priority
 
-**Why:** Matches the 3-Year Plan look and feel. Consistent across all planner tabs. Confirmed by Rob 16/09/2026.
+**Why:** Rob's email 16/09/2026 flagged that the first build used soft pastel badges and compact stat tiles, which do not match the 3-Year Plan look and feel. The solid-fill badge classes and KPI-tile stat tiles are the correct implementation.
 
-This standard lives here (project CLAUDE.md) AND is referenced in the global brand pack. Read this before building any new tracker tab.
+This standard lives here (project CLAUDE.md) AND is referenced in the global ABH_Brand_Pack.md. Read this before building any new tracker tab.
 
 ## HMPS targets (current)
 
