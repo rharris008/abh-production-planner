@@ -7116,6 +7116,18 @@ async function lockPlanToSupabase(week) {
       SB_TIMEOUT_MS
     ).catch(e => console.warn('Audit log write failed (non-fatal):', e.message));
 
+    // Record the lock so plan_change_applier.py cannot override it via email.
+    // UPSERT so re-locking the same week updates locked_at without error.
+    await sbFetchTimeout(
+      `${SB_URL}/rest/v1/locked_weeks`,
+      {
+        method: 'POST',
+        headers: { ...sbHeaders(), 'Prefer': 'return=minimal,resolution=merge-duplicates' },
+        body: JSON.stringify({ week_start: week, locked_by: 'planner-ui' })
+      },
+      SB_TIMEOUT_MS
+    ).catch(e => console.warn('locked_weeks write failed (non-fatal):', e.message));
+
     if (btn) { btn.textContent = 'LOCKED ✓'; btn.style.background = '#27AE60'; btn.disabled = false; }
     sbStatus(`✓ Plan locked for w/c ${week} — ${rows.length} shifts saved`, 'ok');
   } catch(e) {
