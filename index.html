@@ -722,6 +722,7 @@ const STOCK_COVER = {
 // ══ STATE ════════════════════════════════════════════════════════════════════
 let currentWeek = '';
 let hmpsConfig  = 'Dual';
+let lockedWeeksSet = new Set(); // Weeks locked in Supabase locked_weeks — no email override
 let satMode     = 'auto';  // Rob Harris 03/09/2026: default auto so Saturday fires when triggered
 let stockPal    = {...STOCK_PAL};
 let onHoldPal   = {'10L Cask':0,'5L Cask':0,'2L Bottle':0,'600ml 12pk':0,'600ml 6pk':0};
@@ -3341,18 +3342,19 @@ function renderSchedule(week, pr) {
   lockWindowBadge.textContent = (!isConfirmed && inLockWindow) ? 'LOCK WINDOW — CONFIRM BY WED' : '';
   lockWindowBadge.style.display = (!isConfirmed && inLockWindow) ? 'inline' : 'none';
 
-  // Lock Plan to Supabase button — only visible for confirmed weeks
-  let lockBtn = document.getElementById('lockPlanBtn');
-  if (!lockBtn) {
-    lockBtn = document.createElement('button');
-    lockBtn.id = 'lockPlanBtn';
-    lockBtn.style.cssText = 'background:var(--navy);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:3px;border:none;cursor:pointer;margin-left:8px;vertical-align:middle';
-    lockBtn.onclick = () => lockPlanToSupabase(currentWeek);
-    document.getElementById('schedHdr').appendChild(lockBtn);
+  // LOCKED badge — shown when the week has been locked by plan_change_applier.
+  // Populated from lockedWeeksSet (fetched from Supabase locked_weeks on sbPull).
+  // No clickable lock button: locking happens automatically when Aaron's email is applied.
+  let lockedBadge = document.getElementById('lockedBadge');
+  if (!lockedBadge) {
+    lockedBadge = document.createElement('span');
+    lockedBadge.id = 'lockedBadge';
+    lockedBadge.style.cssText = 'background:#C0392B;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:3px;margin-left:8px;letter-spacing:.5px;vertical-align:middle';
+    document.getElementById('schedHdr').appendChild(lockedBadge);
   }
-  lockBtn.textContent = 'LOCK TO SUPABASE';
-  lockBtn.style.background = 'var(--navy)';
-  lockBtn.style.display = isConfirmed ? 'inline' : 'none';
+  const isLocked = lockedWeeksSet.has(week);
+  lockedBadge.textContent = isLocked ? 'LOCKED' : '';
+  lockedBadge.style.display = isLocked ? 'inline' : 'none';
 
   const grid = document.getElementById('dayGrid');
 
@@ -7215,6 +7217,16 @@ async function sbPull() {
       });
       RM_STOCK_DATE = rRM.reduce((a, b) => (a > b.updated_at ? a : b.updated_at), '');
       loaded.push('RawMaterials');
+    }
+
+    // Load locked weeks so the LOCKED badge renders correctly without a button.
+    try {
+      const rLocked = await sbFetch('locked_weeks?select=week_start');
+      if (rLocked) {
+        lockedWeeksSet = new Set(rLocked.map(r => r.week_start));
+      }
+    } catch(e) {
+      console.warn('[sbPull] locked_weeks fetch failed:', e.message);
     }
 
     if (loaded.length) {
