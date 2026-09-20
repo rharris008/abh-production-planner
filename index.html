@@ -6660,11 +6660,14 @@ function init() {
 
   const today=localToday();
   const sel=document.getElementById('weekSel');
-  const currentMon=monOf(today);
+  // On Saturday/Sunday the working week is over — default to the upcoming Monday.
+  const todayDow=new Date(today+'T00:00:00').getDay(); // 0=Sun, 6=Sat
+  const refDate=todayDow===0?addDays(today,1):todayDow===6?addDays(today,2):today;
+  const currentMon=monOf(refDate);
   ALL_WEEKS.filter(w=>w>=currentMon).slice(0,26).forEach(w=>{
     const o=document.createElement('option');o.value=w;o.textContent=fmtD(w);sel.appendChild(o);
   });
-  const dw=ALL_WEEKS.find(w=>w>=monOf(today))||ALL_WEEKS[0];
+  const dw=ALL_WEEKS.find(w=>w>=currentMon)||ALL_WEEKS[0];
   sel.value=dw;currentWeek=dw;
   renderOCGrid();
   renderHoldGrid();
