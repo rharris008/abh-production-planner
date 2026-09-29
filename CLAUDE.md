@@ -48,6 +48,8 @@ Name format: `FINDING_ID — description` (matching the pattern already in the s
 
 ## Logic Map — MANDATORY before adding any calculation
 
+**Keep the map current:** Any commit that changes a Tier 1 constant value, moves a Tier 2 function, or adds/removes a Tier 3 pattern location must update `PLANNER_LOGIC_MAP.md` in the same commit. The map and the code must always agree. A stale map is as harmful as no map.
+
 **`PLANNER_LOGIC_MAP.md`** is the single-source-of-truth registry for every core
 calculation in this planner. Read it before touching any code involving:
 
