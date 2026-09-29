@@ -575,6 +575,22 @@ describe('LM: Logic Map tripwires', () => {
     );
   });
 
+  test('LM — HMPS inverted-form pattern (single?45:90) count has not increased beyond 3', () => {
+    // Catches mode==='single'?45:90 form used in planWeek per-day loop (1703),
+    // buildSchedule (2860), and getMaxPal label check (3419). Evades the Dual?90:45
+    // regex above because the condition is inverted. Baseline: 3.
+    const count = (SRC.match(/\?\s*45\s*:\s*90/g) || []).length;
+    assert.ok(
+      count <= 3,
+      `FAIL LM: HMPS inverted pattern "? 45 : 90" found ${count} times — baseline is 3. ` +
+      `A new duplicate was added. Update PLANNER_LOGIC_MAP.md Tier 3 HMPS row and all 7 locations if throughput changed.`
+    );
+    assert.ok(
+      count >= 1,
+      'FAIL LM: HMPS inverted pattern completely removed — buildSchedule single-filler logic may be broken.'
+    );
+  });
+
   test('LM — EP 10L cask rate pattern (?40:80) count has not increased beyond 3', () => {
     // Updated 15/09/2026: Rob confirmed BOM rate — 10L A&B design max 80, single 40 (operational 60/30 at 75%).
     const count = (SRC.match(/\?\s*40\s*:\s*80/g) || []).length;
