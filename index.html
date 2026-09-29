@@ -722,7 +722,7 @@ const STOCK_COVER = {
 // ══ STATE ════════════════════════════════════════════════════════════════════
 let currentWeek = '';
 let hmpsConfig  = 'Dual';
-let lockedWeeksSet = new Set(); // Weeks locked in Supabase locked_weeks — no email override
+let lockedWeeksSet = new Set(); // Weeks locked in Supabase locked_weeks — blocks algorithm only; Aaron/Jeremy can still change via email
 let satMode     = 'auto';  // Rob Harris 03/09/2026: default auto so Saturday fires when triggered
 let stockPal    = {...STOCK_PAL};
 let onHoldPal   = {'10L Cask':0,'5L Cask':0,'2L Bottle':0,'600ml 12pk':0,'600ml 6pk':0};
@@ -1519,8 +1519,8 @@ function planWeek(week) {
 
   // ══ CONFIRMED SCHEDULE BYPASS ══════════════════════════════════════════════
   // When Aaron has agreed next week's production, it is hard-coded in CONFIRMED_SCHEDULES.
-  // Pallet counts use efficiency-adjusted figures (max × eff), consistent with buildSchedule.
-  // The 90/sh figure in CONFIRMED_SCHEDULES is MAX capacity; planning always uses 75% of max.
+  // Pallet counts: getMaxPal(s) returns the raw line max (e.g. 90 for HMPS Dual), then × eff
+  // gives the plan target (67). This matches what buildSchedule and the algorithm produce.
   // Rob Harris 10/07/2026.
   if (CONFIRMED_SCHEDULES[week]) {
     const conf = CONFIRMED_SCHEDULES[week];
