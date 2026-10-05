@@ -1585,18 +1585,27 @@ function planWeek(week) {
     // Derive line stubs from remaining production only (confProd = today-forward)
     const hmpsC  = confProd.filter(s => s.sku === '10L Cask' && s.label && s.label.includes('HMPS'));
     const cask5C  = confProd.filter(s => s.sku === '5L Cask');
+    // Exclude Saturday (day:5) from weekday display metrics — Saturday production is shown separately.
+    const cask5Weekday = cask5C.filter(s => s.day !== 5);
     const cask10C = confProd.filter(s => s.sku === '10L Cask' && !(s.label && s.label.includes('HMPS')));
     const bot2LC  = confProd.filter(s => s.sku === '2L Bottle');
     const ep6C    = confProd.filter(s => s.sku === '600ml 6pk');
     const hmpsConfPal  = hmpsC.reduce((a,s)=>a+Math.floor(getMaxPal(s)*eff),0);
     const hmpsDaysC    = new Set(hmpsC.map(s=>s.date)).size;
-    const cask5Pal     = cask5C.reduce((a,s)=>a+Math.floor(getMaxPal(s)*eff),0);
-    const cask5Days    = new Set(cask5C.map(s=>s.date)).size;
+    const cask5Pal     = cask5Weekday.reduce((a,s)=>a+Math.floor(getMaxPal(s)*eff),0);
+    const cask5Days    = new Set(cask5Weekday.map(s=>s.date)).size;
     const cask10ABPal  = cask10C.reduce((a,s)=>a+Math.floor(getMaxPal(s)*eff),0);
     const cask10ABDays = new Set(cask10C.map(s=>s.date)).size;
     const bot2LPal     = bot2LC.reduce((a,s)=>a+Math.floor(getMaxPal(s)*eff),0);
     const bot2LDays    = new Set(bot2LC.map(s=>s.date)).size;
     const ep6Pal       = ep6C.reduce((a,s)=>a+Math.floor(getMaxPal(s)*eff),0);
+    // Saturday entries (day:5) — displayed as a confirmed SAT section, not folded into weekday rows.
+    // satUsed stays false to avoid double-counting in rolling table and audit (Saturday is already
+    // in confirmedProd and therefore in stockEnd / plannedProd).
+    const confSatEntries = confProd.filter(s => s.day === 5);
+    const confirmedSatLines = confSatEntries.map(s => ({
+      sku: s.sku, label: s.label, satAlloc: Math.floor(getMaxPal(s) * eff), tgt: getMaxPal(s), cls: s.cls || ''
+    }));
 
     const atRiskOrdersC = [];
     if (typeof WW_ORDERS !== 'undefined') {
@@ -1628,7 +1637,7 @@ function planWeek(week) {
     const resultC = {
       demand, netDem: netDemC, stockEnd, coverDays: displayCoverDaysC, finalShortfall: finalShortfallC,
       satTriggers: satTriggersC, satLines: [], satStock: {...stockEnd},
-      satUsed: false, satIsHoliday: false,
+      satUsed: false, satIsHoliday: false, confirmedSatLines,
       lines: {
         hmps: { label:`EP HMPS (${hmpsConfig})`, site:'EP', sku:'10L Cask', tgt:60, days:hmpsDaysC, shifts:2, maxDays:5, cap:hmpsConfPal, util:hmpsDaysC/5 },
         as2l: { label:'EP Bottle Line (2L)', site:'EP', sku:'2L Bottle', tgt:52, days:bot2LDays, shifts:2, maxDays:5, cap:bot2LPal, util:bot2LDays/5 }
@@ -3350,7 +3359,7 @@ function renderRollingTable(pr) {
 
 // ══ RENDER: PRODUCTION PLAN TABLE ════════════════════════════════════════════
 function renderProdTable(pr) {
-  const {lines,cask,ep,coverDays,finalShortfall,satLines,satUsed,satStock,demand,stockEnd} = pr;
+  const {lines,cask,ep,coverDays,finalShortfall,satLines,satUsed,satStock,demand,stockEnd,confirmedSatLines} = pr;
   // When Saturday ran, use satStock (final closing position) for End Stock and Days Cover display.
   // stockEnd is the pre-Saturday weekday close — not the right number to show here.
   const effEnd = s => satUsed ? (satStock?.[s] ?? stockEnd[s]) : stockEnd[s];
@@ -3425,6 +3434,15 @@ function renderProdTable(pr) {
         <td class="num">1 shift</td><td class="num"><strong>${fmt(sl.satAlloc)}</strong></td>
         <td class="num">—</td><td class="num">—</td><td class="num">—</td>
         <td><span class="badge bg">SINGLE SHIFT</span></td></tr>`;
+    });
+  } else if (confirmedSatLines?.length > 0) {
+    h+=`<tr style="background:#EEE8F8"><td colspan="8" style="font-weight:700;font-size:11px;padding:5px 10px;color:#4A0E82">SATURDAY — Confirmed shift (${confirmedSatLines.map(s=>s.sku).join(', ')})</td></tr>`;
+    confirmedSatLines.forEach(sl=>{
+      h+=`<tr style="background:#F5F0FF"><td><span class="chip ${CHIP[sl.sku]}">${sl.sku}</span></td>
+        <td><strong>${sl.label}</strong> <span class="badge bsat">SAT</span></td>
+        <td class="num">1 shift</td><td class="num"><strong>${fmt(sl.satAlloc)}</strong></td>
+        <td class="num">—</td><td class="num">—</td><td class="num">—</td>
+        <td><span class="badge bg">CONFIRMED</span></td></tr>`;
     });
   }
 
@@ -3641,7 +3659,7 @@ function renderHorizon() {
       h+=`<td class="num">${fmt(dem)}<br><span style="font-size:10px;color:${cov<3?'var(--red)':cov<5?'var(--amber)':'var(--muted)'}">${cov>50?'7.0d':cov<0?'<0d':fmtF(Math.max(0,cov))+'d'} cover</span></td>`;
     });
     h+=`<td class="num"><strong>${fmt(pr.totalGross)}</strong></td>
-      <td>${pr.satUsed?'<span class="badge bsat">YES</span>':''}</td>
+      <td>${(pr.satUsed || pr.confirmedSatLines?.length > 0)?'<span class="badge bsat">YES</span>':''}</td>
       <td>${planBadge}</td>
       <td>${anyShort?'<span class="badge br">SHORTFALL</span>':'<span class="badge bg">OK</span>'}</td>
     </tr>`;
@@ -3799,7 +3817,7 @@ function buildAllAlerts() {
     if (wkIdx >= ALL_WEEKS.length) break;
     const wk  = ALL_WEEKS[wkIdx];
     const pr  = planWeek(wk);
-    const {demand, coverDays, finalShortfall, satTriggers, satLines, satUsed,
+    const {demand, coverDays, finalShortfall, satTriggers, satLines, satUsed, confirmedSatLines,
            ep, bottle2LDates, midWeekAtRisk, prebuildAlert, totalGross} = pr;
     const wkLabel = i === 0 ? `this week (w/c ${fmtD(wk)})` : `w/c ${fmtD(wk)}`;
 
@@ -3857,8 +3875,12 @@ function buildAllAlerts() {
     // Saturday triggers (EP only — HMPS never runs Saturday)
     if (satTriggers.length) {
       const epSkus = satTriggers.filter(s => s !== '10L Cask');
-      if (epSkus.length && satUsed)  alerts.push({t:'a', msg:`<strong>Saturday trigger active ${wkLabel}:</strong> ${epSkus.join(', ')} below ${STOCK_COVER.floor} days cover. Lines: ${satLines.map(s=>s.label).join(', ')}.`});
-      if (epSkus.length && !satUsed) alerts.push({t:'a', msg:`<strong>Saturday trigger active ${wkLabel}:</strong> ${epSkus.join(', ')} below ${STOCK_COVER.floor} days cover.`});
+      if (epSkus.length && satUsed)
+        alerts.push({t:'a', msg:`<strong>Saturday trigger active ${wkLabel}:</strong> ${epSkus.join(', ')} below ${STOCK_COVER.floor} days cover. Lines: ${satLines.map(s=>s.label).join(', ')}.`});
+      else if (epSkus.length && confirmedSatLines?.length > 0)
+        alerts.push({t:'a', msg:`<strong>Saturday shift confirmed ${wkLabel}:</strong> ${epSkus.join(', ')} below ${STOCK_COVER.floor} days cover. Lines: ${confirmedSatLines.map(s=>s.label).join(', ')}.`});
+      else if (epSkus.length)
+        alerts.push({t:'a', msg:`<strong>Saturday trigger active ${wkLabel}:</strong> ${epSkus.join(', ')} below ${STOCK_COVER.floor} days cover.`});
     }
 
     // Demand spike vs prior week (current week only)
@@ -6743,7 +6765,7 @@ function onWeekChange() {
     : '';
   const satDate = addDays(currentWeek, 5);
   const satNote = pr.satIsHoliday ? ` | 🗓 Sat blocked (${publicHolidayNames[satDate] || 'Public Holiday'})` : '';
-  document.getElementById('hdrMeta').textContent=`Week of ${fmtD(currentWeek)} | Demand: ${fmt(pr.totalGross)} pal | Net to produce: ${fmt(Math.round(pr.totalNet))} pal | HMPS: ${hmpsConfig} | ${pr.satUsed?'SAT run triggered':'Mon-Fri'}${phNote}${satNote}${midWeekNote}`;
+  document.getElementById('hdrMeta').textContent=`Week of ${fmtD(currentWeek)} | Demand: ${fmt(pr.totalGross)} pal | Net to produce: ${fmt(Math.round(pr.totalNet))} pal | HMPS: ${hmpsConfig} | ${(pr.satUsed || pr.confirmedSatLines?.length > 0)?'SAT run triggered':'Mon-Fri'}${phNote}${satNote}${midWeekNote}`;
   renderSkuStrips(pr);
   renderDemTable(pr);
   renderStockTable(pr);

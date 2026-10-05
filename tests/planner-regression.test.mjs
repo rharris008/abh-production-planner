@@ -655,3 +655,102 @@ describe('LM: Logic Map tripwires', () => {
   });
 
 });
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CS1 — Confirmed Saturday display (06/10/2026 review)
+//
+// A confirmed week with a day:5 entry was not surfacing the Saturday shift in
+// the horizon table, header, prod table SAT section, or alerts.
+// The four bugs were: satUsed hardcoded false, cask5Days counting Saturday as
+// a weekday date, no confirmed SAT section in renderProdTable, no confirmedSatLines
+// in horizon/header/alert paths.
+// ══════════════════════════════════════════════════════════════════════════════
+describe('CS1: Confirmed Saturday display', () => {
+
+  // ── satUsed stays false to prevent double-count in rolling table / audit ────
+
+  test('CS1 — confirmed path keeps satUsed: false (no double-count risk)', () => {
+    // The confirmed bypass must not set satUsed:true — Saturday is already in
+    // confirmedProd (and therefore stockEnd/plannedProd). Flipping satUsed causes
+    // rolling table and audit to add satAlloc again on top.
+    const bypassStart = SRC.indexOf('if (CONFIRMED_SCHEDULES[week])');
+    const bypassEnd   = SRC.indexOf('// ══ END CONFIRMED SCHEDULE BYPASS ══', bypassStart);
+    assert.ok(bypassStart > 0, 'confirmed bypass block not found');
+    assert.ok(bypassEnd   > 0, 'END CONFIRMED SCHEDULE BYPASS marker not found');
+    const bypass = SRC.slice(bypassStart, bypassEnd);
+    assert.ok(
+      bypass.includes('satUsed: false'),
+      'FAIL CS1: satUsed: false not found in confirmed bypass — double-count risk. ' +
+      'Saturday is already in confirmedProd; setting satUsed:true causes rolling table and audit to add it again.'
+    );
+  });
+
+  // ── confirmedSatLines populated from day:5 entries ─────────────────────────
+
+  test('CS1 — confirmed path builds confirmedSatLines from day:5 entries', () => {
+    const bypassStart = SRC.indexOf('if (CONFIRMED_SCHEDULES[week])');
+    const bypassEnd   = SRC.indexOf('// ══ END CONFIRMED SCHEDULE BYPASS ══', bypassStart);
+    const bypass = SRC.slice(bypassStart, bypassEnd);
+    assert.ok(
+      bypass.includes('confSatEntries') && bypass.includes('s.day !== 5'),
+      'FAIL CS1: confSatEntries / day:5 filter not found in confirmed bypass — Saturday entries not separated from weekday entries.'
+    );
+    assert.ok(
+      bypass.includes('confirmedSatLines'),
+      'FAIL CS1: confirmedSatLines not defined in confirmed bypass — confirmed Saturday display will be blank.'
+    );
+  });
+
+  // ── cask5Weekday excludes Saturday from day/pal display counts ─────────────
+
+  test('CS1 — cask5Weekday filter excludes day:5 before computing cask5Days and cask5Pal', () => {
+    const bypassStart = SRC.indexOf('if (CONFIRMED_SCHEDULES[week])');
+    const bypassEnd   = SRC.indexOf('// ══ END CONFIRMED SCHEDULE BYPASS ══', bypassStart);
+    const bypass = SRC.slice(bypassStart, bypassEnd);
+    assert.ok(
+      bypass.includes('cask5Weekday'),
+      'FAIL CS1: cask5Weekday not found — cask5Days and cask5Pal still count Saturday as a weekday date, ' +
+      'overstating utilisation (e.g. 2d×2shifts=4 when only 3 shifts ran).'
+    );
+    assert.ok(
+      bypass.includes('cask5Weekday.reduce') && bypass.includes('cask5Weekday.map'),
+      'FAIL CS1: cask5Pal or cask5Days not derived from cask5Weekday — Saturday date still folded into weekday count.'
+    );
+  });
+
+  // ── Display functions use confirmedSatLines ─────────────────────────────────
+
+  test('CS1 — horizon table Sat? column checks confirmedSatLines', () => {
+    assert.ok(
+      SRC.includes('pr.confirmedSatLines?.length > 0'),
+      'FAIL CS1: confirmedSatLines check not found in horizon rendering — Sat? column blank for confirmed Saturday weeks.'
+    );
+  });
+
+  test('CS1 — header uses confirmedSatLines for SAT run triggered text', () => {
+    assert.ok(
+      SRC.includes("pr.confirmedSatLines?.length > 0)?'SAT run triggered'"),
+      'FAIL CS1: header SAT run triggered text not updated for confirmed Saturday — still reads Mon-Fri for confirmed w/c 12 Oct type weeks.'
+    );
+  });
+
+  test('CS1 — renderProdTable has confirmed SAT section (else if confirmedSatLines)', () => {
+    const fnBody = extractFn('renderProdTable');
+    assert.ok(fnBody, 'renderProdTable not found');
+    assert.ok(
+      fnBody.includes('confirmedSatLines'),
+      'FAIL CS1: confirmedSatLines not referenced in renderProdTable — no SATURDAY section shown for confirmed Saturday weeks.'
+    );
+  });
+
+  test('CS1 — buildAllAlerts destructures confirmedSatLines from pr', () => {
+    const fnBody = extractFn('buildAllAlerts');
+    assert.ok(fnBody, 'buildAllAlerts not found');
+    assert.ok(
+      fnBody.includes('confirmedSatLines'),
+      'FAIL CS1: confirmedSatLines not destructured in buildAllAlerts — alert still shows "Saturday trigger active (no lines)" instead of confirmed lines.'
+    );
+  });
+
+});

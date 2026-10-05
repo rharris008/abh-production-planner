@@ -65,7 +65,7 @@ These are the ONE authoritative source for each calculation.
 |----|----------|------|---------|-------------------|
 | F-10 | `scheduleEPCaskLines(...)` | 1083 | `{days10, days5, shifts[], ...}` | Day-by-day allocation of EP Line A&B across 10L/5L Cask. Do not call from render functions — call via `planWeek` only. |
 | F-11 | `scheduleBottleLine(...)` | 1174 | `{shifts[], endStock2L, endStock12, endStock6, ...}` | EP New Line (bottle) scheduling. Same constraint: route through `planWeek`. |
-| F-12 | `planWeek(week)` | 1467 | `{avail, plannedProd, stockEnd, coverDays, satUsed, totalNet, ...}` | **Master integration function.** Calls F-10 and F-11, rolls stock forward, returns complete weekly plan. All render functions consume this result — never re-derive avail/cover/capacity independently. |
+| F-12 | `planWeek(week)` | 1467 | `{avail, plannedProd, stockEnd, coverDays, satUsed, confirmedSatLines, totalNet, ...}` | **Master integration function.** Calls F-10 and F-11, rolls stock forward, returns complete weekly plan. Confirmed weeks add `confirmedSatLines` (day:5 entries, display only) and keep `satUsed:false` to avoid double-counting Saturday in rolling table and audit. All render functions consume this result — never re-derive avail/cover/capacity independently. |
 | F-13 | `forwardSimulate(fromWeekIdx, openStock, eff)` | 1416 | `{deficits}` | Multi-week capacity deficit projection loop (used internally by planWeek). Not called from render functions. |
 
 ### Alerts and display
