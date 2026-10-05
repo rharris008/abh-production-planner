@@ -754,3 +754,112 @@ describe('CS1: Confirmed Saturday display', () => {
   });
 
 });
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CS2 — Round 3 fixes (06/10/2026 review by Bob)
+//
+// These tests guard the specific code patterns introduced in the Round 3 fix set.
+// Each is designed to FAIL when the original bug is re-introduced (structure-only
+// checks that would pass with the bug present were rejected per review finding #7).
+// ══════════════════════════════════════════════════════════════════════════════
+describe('CS2: Round 3 confirmed-Saturday correctness', () => {
+
+  function getBypass() {
+    const s = SRC.indexOf('if (CONFIRMED_SCHEDULES[week])');
+    const e = SRC.indexOf('// ══ END CONFIRMED SCHEDULE BYPASS ══', s);
+    return SRC.slice(s, e);
+  }
+
+  test('CS2 — hmpsC filter excludes day:5 (HMPS not double-counted in weekday rows and Saturday section)', () => {
+    const bypass = getBypass();
+    assert.ok(
+      bypass.includes("s.label.includes('HMPS') && s.day !== 5"),
+      'FAIL CS2: hmpsC filter is missing s.day !== 5. Saturday HMPS production counts in both hmpsConfPal (weekday) and confirmedSatLines, doubling the HMPS total for confirmed weeks.'
+    );
+  });
+
+  test('CS2 — confSatEntries filters to SKUS-only (maintenance entries excluded)', () => {
+    const bypass = getBypass();
+    assert.ok(
+      bypass.includes('SKUS.includes(s.sku)') && bypass.includes('confSatEntries'),
+      'FAIL CS2: confSatEntries must filter by SKUS.includes(s.sku). Without this, CIP/maintenance entries on day:5 appear as production lines in the confirmed SAT section.'
+    );
+  });
+
+  test('CS2 — confirmedSatLines aggregates shifts into one row per line (not flat .map())', () => {
+    const bypass = getBypass();
+    assert.ok(
+      bypass.includes('_satLineMap') && bypass.includes('Object.values(_satLineMap)'),
+      'FAIL CS2: confirmedSatLines must aggregate Day+Afternoon shifts via _satLineMap. A flat .map() produces duplicate rows (one per shift), so Day+Afternoon shows as two identical lines.'
+    );
+  });
+
+  test('CS2 — hmpsForceSingleC/hmpsTgtC duplicates removed (hmpsForceSingle/hmpsTgt are in scope)', () => {
+    const bypass = getBypass();
+    assert.ok(
+      !bypass.includes('hmpsForceSingleC') && !bypass.includes('hmpsTgtC'),
+      'FAIL CS2: hmpsForceSingleC or hmpsTgtC found in confirmed bypass. These duplicate hmpsForceSingle/hmpsTgt already in scope at line 1473-1474. Remove the re-declarations.'
+    );
+  });
+
+  test('CS2 — audit §2 uses planWeekCache closingStock (pr.closingStock is always undefined)', () => {
+    const auditFn = extractFn('renderAudit');
+    assert.ok(auditFn, 'renderAudit not found');
+    assert.ok(
+      auditFn.includes('planWeekCache[wk]?.closingStock'),
+      'FAIL CS2: audit §2 does not use planWeekCache[wk]?.closingStock. planWeek() returns resultC which has no closingStock property — pr.closingStock is always undefined, making the Plan column always 0.'
+    );
+    assert.ok(
+      !auditFn.includes('pr.closingStock'),
+      'FAIL CS2: pr.closingStock still in audit §2 — always undefined. Replace with planWeekCache[wk]?.closingStock.'
+    );
+  });
+
+  test('CS2 — audit §2 prod block uses plannedProd (not manual cask.prod10 + hmps.cap formula)', () => {
+    const auditFn = extractFn('renderAudit');
+    assert.ok(auditFn, 'renderAudit not found');
+    assert.ok(
+      !auditFn.includes('pr0c?.cask?.prod10'),
+      'FAIL CS2: audit §2 still uses pr0c.cask.prod10. For confirmed weeks prod10 already includes HMPS, so adding hmps.cap double-counts. Replace with pr.plannedProd.'
+    );
+    assert.ok(
+      !auditFn.includes('pr0c?.lines?.hmps?.cap'),
+      'FAIL CS2: audit §2 adds pr0c.lines.hmps.cap. For confirmed weeks this double-counts HMPS (already in prod10). Remove it and use pr.plannedProd.'
+    );
+  });
+
+  test('CS2 — renderReplan: nFuture and todayIsThisWeek declared before remWorkDays (no TDZ crash)', () => {
+    const fn = extractFn('renderReplan');
+    assert.ok(fn, 'renderReplan not found');
+    const idxNFuture     = fn.indexOf('const nFuture');
+    const idxTodayIsTW   = fn.indexOf('todayIsThisWeek');
+    const idxRemWorkDays = fn.indexOf('const remWorkDays');
+    assert.ok(idxNFuture > 0,     'FAIL CS2: const nFuture not found in renderReplan');
+    assert.ok(idxTodayIsTW > 0,   'FAIL CS2: todayIsThisWeek not found in renderReplan');
+    assert.ok(idxRemWorkDays > 0,  'FAIL CS2: const remWorkDays not found in renderReplan');
+    assert.ok(
+      idxNFuture < idxRemWorkDays && idxTodayIsTW < idxRemWorkDays,
+      'FAIL CS2: nFuture or todayIsThisWeek declared AFTER remWorkDays in renderReplan — TDZ crash. Both must be defined before the remWorkDays expression that reads them.'
+    );
+  });
+
+  test('CS2 — renderSchedule: Saturday column can be greyed as past (isPast no longer excludes isSat)', () => {
+    const fn = extractFn('renderSchedule');
+    assert.ok(fn, 'renderSchedule not found');
+    assert.ok(
+      !fn.includes('!isSat && date < today'),
+      'FAIL CS2: renderSchedule isPast still has !isSat guard — Saturday is never greyed out as a past date even after it has passed.'
+    );
+  });
+
+  test('CS2 — confirmed Saturday alert fires independently of satTriggers (separate if block)', () => {
+    const fn = extractFn('buildAllAlerts');
+    assert.ok(fn, 'buildAllAlerts not found');
+    assert.ok(
+      fn.includes('!satUsed && confirmedSatLines?.length > 0'),
+      'FAIL CS2: confirmed Saturday alert is nested inside if (satTriggers.length). For confirmed weeks satTriggers may be empty (Saturday already lifted cover), so the alert never fires. It must have its own if block.'
+    );
+  });
+
+});

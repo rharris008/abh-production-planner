@@ -1544,14 +1544,14 @@ function planWeek(week) {
     const nextWkOOC = {};
     SKUS.forEach(s => nextWkOOC[s] = 0);
     if (nextWkForCoverC) {
-      for (let d = 0; d < 5; d++) {
+      for (let d = 0; d < 6; d++) {
         const ndo = openOrdersDailyPal[addDays(nextWkForCoverC, d)] || {};
         SKUS.forEach(s => nextWkOOC[s] += ndo[s] || 0);
       }
     }
     const thisWkOOC = {};
     SKUS.forEach(s => thisWkOOC[s] = 0);
-    for (let d = 0; d < 5; d++) {
+    for (let d = 0; d < 6; d++) {
       const tdo = openOrdersDailyPal[addDays(week, d)] || {};
       SKUS.forEach(s => thisWkOOC[s] += tdo[s] || 0);
     }
@@ -1583,7 +1583,7 @@ function planWeek(week) {
     SKUS.forEach(s => netDemC[s] = Math.max(0, demand[s].total - (avail[s]||0)));
 
     // Derive line stubs from remaining production only (confProd = today-forward)
-    const hmpsC  = confProd.filter(s => s.sku === '10L Cask' && s.label && s.label.includes('HMPS'));
+    const hmpsC  = confProd.filter(s => s.sku === '10L Cask' && s.label && s.label.includes('HMPS') && s.day !== 5);
     const cask5C  = confProd.filter(s => s.sku === '5L Cask');
     // Exclude Saturday (day:5) from weekday display metrics — Saturday production is shown separately.
     const cask5Weekday = cask5C.filter(s => s.day !== 5);
@@ -1602,10 +1602,16 @@ function planWeek(week) {
     // Saturday entries (day:5) — displayed as a confirmed SAT section, not folded into weekday rows.
     // satUsed stays false to avoid double-counting in rolling table and audit (Saturday is already
     // in confirmedProd and therefore in stockEnd / plannedProd).
-    const confSatEntries = confProd.filter(s => s.day === 5);
-    const confirmedSatLines = confSatEntries.map(s => ({
-      sku: s.sku, label: s.label, satAlloc: Math.floor(getMaxPal(s) * eff), tgt: getMaxPal(s), cls: s.cls || ''
-    }));
+    // Only production SKUs — filters out CIP/maintenance entries that may appear on day:5.
+    // Aggregate Day + Afternoon shifts into one row per line (same label = same line).
+    const confSatEntries = confProd.filter(s => s.day === 5 && SKUS.includes(s.sku));
+    const _satLineMap = {};
+    confSatEntries.forEach(s => {
+      const key = s.label || s.sku;
+      if (!_satLineMap[key]) _satLineMap[key] = { sku: s.sku, label: s.label, satAlloc: 0, tgt: getMaxPal(s), cls: s.cls || '' };
+      _satLineMap[key].satAlloc += Math.floor(getMaxPal(s) * eff);
+    });
+    const confirmedSatLines = Object.values(_satLineMap);
 
     const atRiskOrdersC = [];
     if (typeof WW_ORDERS !== 'undefined') {
@@ -1634,16 +1640,14 @@ function planWeek(week) {
       return (displayCoverDaysC[s]||0) < STOCK_COVER.floor && effD > 0;
     });
 
-    const hmpsForceSingleC = hmpsSingleModeForWeek(week);
-    const hmpsTgtC = (hmpsConfig === 'Dual' && !hmpsForceSingleC) ? 90 : 45;
-    const hmpsTgtLabelC = `EP HMPS (${hmpsForceSingleC ? 'Single — filler maint.' : hmpsConfig})`;
+    const hmpsTgtLabelC = `EP HMPS (${hmpsForceSingle ? 'Single — filler maint.' : hmpsConfig})`;
 
     const resultC = {
       demand, netDem: netDemC, stockEnd, coverDays: displayCoverDaysC, finalShortfall: finalShortfallC,
       satTriggers: satTriggersC, satLines: [], satStock: {...stockEnd},
       satUsed: false, satIsHoliday: false, confirmedSatLines,
       lines: {
-        hmps: { label:hmpsTgtLabelC, site:'EP', sku:'10L Cask', tgt:hmpsTgtC, days:hmpsDaysC, shifts:2, maxDays:5, cap:hmpsConfPal, util:hmpsDaysC/5 },
+        hmps: { label:hmpsTgtLabelC, site:'EP', sku:'10L Cask', tgt:hmpsTgt, days:hmpsDaysC, shifts:2, maxDays:5, cap:hmpsConfPal, util:hmpsDaysC/5 },
         as2l: { label:'EP Bottle Line (2L)', site:'EP', sku:'2L Bottle', tgt:52, days:bot2LDays, shifts:2, maxDays:5, cap:bot2LPal, util:bot2LDays/5 }
       },
       bottle2LDates: new Set(bot2LC.map(s=>s.date)),
@@ -3548,7 +3552,7 @@ function renderSchedule(week, pr) {
     const due = {...dueO};
     const isHoliday = !isSat && publicHolidays.has(date);
     const isShutdown = !isSat && plannedShutdowns.has(date);
-    const isPast = isCurrentWeek && !isSat && date < today;
+    const isPast = isCurrentWeek && date < today;
     const dayEntries = byDate[date] || {Day: [], Aft: []};
     const all = [...dayEntries.Day, ...dayEntries.Aft];
     const totPal = all.reduce((a, s) => a + s.pallets, 0);
@@ -3884,10 +3888,12 @@ function buildAllAlerts() {
       const epSkus = satTriggers.filter(s => s !== '10L Cask');
       if (epSkus.length && satUsed)
         alerts.push({t:'a', msg:`<strong>Saturday trigger active ${wkLabel}:</strong> ${epSkus.join(', ')} below ${STOCK_COVER.floor} days cover. Lines: ${satLines.map(s=>s.label).join(', ')}.`});
-      else if (epSkus.length && confirmedSatLines?.length > 0)
-        alerts.push({t:'a', msg:`<strong>Saturday shift confirmed ${wkLabel}:</strong> ${epSkus.join(', ')} below ${STOCK_COVER.floor} days cover. Lines: ${confirmedSatLines.map(s=>s.label).join(', ')}.`});
-      else if (epSkus.length)
+      else if (epSkus.length && !confirmedSatLines?.length)
         alerts.push({t:'a', msg:`<strong>Saturday trigger active ${wkLabel}:</strong> ${epSkus.join(', ')} below ${STOCK_COVER.floor} days cover.`});
+    }
+    // Confirmed Saturday: alert regardless of whether satTriggers fired (cover may already be satisfied)
+    if (!satUsed && confirmedSatLines?.length > 0) {
+      alerts.push({t:'a', msg:`<strong>Saturday shift confirmed ${wkLabel}:</strong> Lines: ${confirmedSatLines.map(s=>s.label).join(', ')}.`});
     }
 
     // Demand spike vs prior week (current week only)
@@ -4224,17 +4230,10 @@ function renderAudit() {
     let prod = {};
     if (isFinished) {
       SKUS.forEach(s => prod[s] = 0);
-    } else if (isThisWeek) {
-      prod = {
-        '10L Cask':   (pr0c?.cask?.prod10??0)+(pr0c?.lines?.hmps?.cap??0),
-        '5L Cask':    pr0c?.cask?.prod5??0,
-        '2L Bottle':  pr0c?.lines?.as2l?.cap??0,
-        '600ml 6pk':  pr0c?.ep?.prod6??0,
-      };
-      if (pr0c?.satUsed && pr0c?.satLines) pr0c.satLines.forEach(sl => { prod[sl.sku]=(prod[sl.sku]||0)+sl.satAlloc; });
-      // confirmed bypass: satUsed is always false, but Saturday production is in confirmedSatLines
-      if (pr0c?.confirmedSatLines?.length > 0) pr0c.confirmedSatLines.forEach(sl => { prod[sl.sku]=(prod[sl.sku]||0)+sl.satAlloc; });
     } else {
+      // Use plannedProd for all weeks (confirmed and non-confirmed).
+      // Confirmed bypass: plannedProd = confirmedProd which already includes Saturday entries.
+      // Non-confirmed bypass: plannedProd is Mon-Fri only; satLines fold-in adds Saturday when needed.
       SKUS.forEach(s => { prod[s] = pr.plannedProd?.[s] ?? 0; });
       if (pr.satUsed && pr.satLines) pr.satLines.forEach(sl => { prod[sl.sku]=(prod[sl.sku]||0)+sl.satAlloc; });
     }
@@ -4244,7 +4243,7 @@ function renderAudit() {
     SKUS.forEach(s => {
       const d = isFinished ? 0 : dem[s].total;
       const rollClose = Math.round(rollStock[s] + prod[s] - d);
-      const planClose = Math.round(pr.closingStock?.[s] ?? 0);
+      const planClose = Math.round(planWeekCache[wk]?.closingStock?.[s] ?? 0);
       const ok = Math.abs(rollClose - planClose) <= 1;
       if (!ok) anyMismatch = true;
       h += td(fmt(rollClose),'text-align:right') +
@@ -4829,6 +4828,24 @@ function renderReplan(pr, skuPlan, skuActual, completedDaysLoop) {
   const completedDates = (actualsData && actualsData._completeDates) || [];
   const nComplete = completedDates.length;
 
+  // Remaining days: Mon-Fri strictly after today, plus Saturday when confirmed.
+  // futureDays = future production dates this week (after today)
+  const futureDays = [];
+  for (let d = 0; d < 5; d++) {
+    const dt = addDays(currentWeek, d);
+    if (dt > today) futureDays.push(dt);
+  }
+  if (pr.confirmedSatLines?.length > 0) {
+    const satDate = addDays(currentWeek, 5);
+    if (satDate > today) futureDays.push(satDate);
+  }
+  const nFuture = futureDays.length;
+
+  // Is today a production day this week? Mon-Fri (d=0..4) or confirmed Saturday (d=5).
+  let todayIsThisWeek = false;
+  for (let d = 0; d < 5; d++) { if (addDays(currentWeek,d) === today) { todayIsThisWeek = true; break; } }
+  if (!todayIsThisWeek && pr.confirmedSatLines?.length > 0 && addDays(currentWeek, 5) === today) todayIsThisWeek = true;
+
   // Today estimate: derive from planWeek plannedProd as a per-day share.
   // Remaining working days this week (today included if it is a working day).
   const remWorkDays = Math.max(1, (todayIsThisWeek ? 1 : 0) + nFuture);
@@ -4838,23 +4855,9 @@ function renderReplan(pr, skuPlan, skuActual, completedDaysLoop) {
     todayEst[s] = remWorkDays > 0 ? Math.round(totalPlan / remWorkDays) : 0;
   });
 
-  // Remaining days: today (estimated) + Thu/Fri (planned capacity)
-  // futureDays = tomorrow through end of week = strictly planned days
-  // Today is handled separately as an estimate
-  const futureDays = [];
-  for (let d = 0; d < 5; d++) {
-    const dt = addDays(currentWeek, d);
-    if (dt > today) futureDays.push(dt);
-  }
-  const nFuture = futureDays.length;
-
-  // Is today a production day this week?
-  // Check today is Mon-Fri of selected week (d=0..4)
-  let todayIsThisWeek = false;
-  for (let d = 0; d < 5; d++) { if (addDays(currentWeek,d) === today) { todayIsThisWeek = true; break; } }
-
-  const todayName = ['Mon','Tue','Wed','Thu','Fri'][new Date(today+'T00:00:00').getDay()-1] || today;
-  const futureNames = futureDays.map(dt => ['Mon','Tue','Wed','Thu','Fri'][new Date(dt+'T00:00:00').getDay()-1] || dt);
+  const dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat'];
+  const todayName = dayNames[new Date(today+'T00:00:00').getDay()-1] || today;
+  const futureNames = futureDays.map(dt => dayNames[new Date(dt+'T00:00:00').getDay()-1] || dt);
 
   document.getElementById('replanHdr').childNodes[0].textContent =
     `Replan — ${todayIsThisWeek ? todayName+' + ' : ''}${nFuture} more day${nFuture!==1?'s':''}: ${[todayIsThisWeek?todayName:'',...futureNames].filter(Boolean).join(', ')} at planned capacity`;
