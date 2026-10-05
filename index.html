@@ -1587,9 +1587,9 @@ function planWeek(week) {
     const cask5C  = confProd.filter(s => s.sku === '5L Cask');
     // Exclude Saturday (day:5) from weekday display metrics — Saturday production is shown separately.
     const cask5Weekday = cask5C.filter(s => s.day !== 5);
-    const cask10C = confProd.filter(s => s.sku === '10L Cask' && !(s.label && s.label.includes('HMPS')));
-    const bot2LC  = confProd.filter(s => s.sku === '2L Bottle');
-    const ep6C    = confProd.filter(s => s.sku === '600ml 6pk');
+    const cask10C = confProd.filter(s => s.sku === '10L Cask' && !(s.label && s.label.includes('HMPS')) && s.day !== 5);
+    const bot2LC  = confProd.filter(s => s.sku === '2L Bottle' && s.day !== 5);
+    const ep6C    = confProd.filter(s => s.sku === '600ml 6pk' && s.day !== 5);
     const hmpsConfPal  = hmpsC.reduce((a,s)=>a+Math.floor(getMaxPal(s)*eff),0);
     const hmpsDaysC    = new Set(hmpsC.map(s=>s.date)).size;
     const cask5Pal     = cask5Weekday.reduce((a,s)=>a+Math.floor(getMaxPal(s)*eff),0);
@@ -1634,12 +1634,16 @@ function planWeek(week) {
       return (displayCoverDaysC[s]||0) < STOCK_COVER.floor && effD > 0;
     });
 
+    const hmpsForceSingleC = hmpsSingleModeForWeek(week);
+    const hmpsTgtC = (hmpsConfig === 'Dual' && !hmpsForceSingleC) ? 90 : 45;
+    const hmpsTgtLabelC = `EP HMPS (${hmpsForceSingleC ? 'Single — filler maint.' : hmpsConfig})`;
+
     const resultC = {
       demand, netDem: netDemC, stockEnd, coverDays: displayCoverDaysC, finalShortfall: finalShortfallC,
       satTriggers: satTriggersC, satLines: [], satStock: {...stockEnd},
       satUsed: false, satIsHoliday: false, confirmedSatLines,
       lines: {
-        hmps: { label:`EP HMPS (${hmpsConfig})`, site:'EP', sku:'10L Cask', tgt:60, days:hmpsDaysC, shifts:2, maxDays:5, cap:hmpsConfPal, util:hmpsDaysC/5 },
+        hmps: { label:hmpsTgtLabelC, site:'EP', sku:'10L Cask', tgt:hmpsTgtC, days:hmpsDaysC, shifts:2, maxDays:5, cap:hmpsConfPal, util:hmpsDaysC/5 },
         as2l: { label:'EP Bottle Line (2L)', site:'EP', sku:'2L Bottle', tgt:52, days:bot2LDays, shifts:2, maxDays:5, cap:bot2LPal, util:bot2LDays/5 }
       },
       bottle2LDates: new Set(bot2LC.map(s=>s.date)),
@@ -3073,11 +3077,12 @@ function renderSkuStrips(pr) {
     const close  = closing[s] ?? 0;
     const short  = finalShortfall[s] || 0;
     const satT   = satTriggers?.includes(s);
+    const hasSatLine = satT && (satUsed || pr.confirmedSatLines?.some(sl => sl.sku === s));
     const cls    = short>0.5?'crit': cov<3?'warn':'ok';
     const stTxt  = short>0.5 ? `SHORTFALL ${fmt(Math.round(short))} pal`
-                 : satT&&satUsed ? `SAT run added`
+                 : hasSatLine ? `SAT run added`
                  : cov>=7 ? 'At 1-week target' : 'Building stock';
-    const stCls  = short>0.5?'red': satT&&satUsed?'amber': cov>=7?'green':'blue';
+    const stCls  = short>0.5?'red': hasSatLine?'amber': cov>=7?'green':'blue';
     const covCls = cov<3?'red': cov<5?'amber':'green';
     const clsCls = close < 0 ? 'red' : close < dem ? 'amber' : 'green';
     const oopal  = Math.round(weekOoPal[s] || 0);
@@ -3527,8 +3532,10 @@ function renderSchedule(week, pr) {
   const midWeek = isCurrentWeek && isMidWeek(week);
 
   // Determine columns: Mon-Fri + optional Saturday
-  // For confirmed schedules, show Saturday if any confirmed entry has day:5
-  const confirmedHasSat = isConfirmed && (CONFIRMED_SCHEDULES[week] || []).some(s => s.day === 5);
+  // Use pr.confirmedSatLines (same source as planWeek) so the Saturday column
+  // appears if and only if planWeek sees Saturday production — avoids the column
+  // showing on the Saturday itself when planWeek's confProd date-filter drops it.
+  const confirmedHasSat = isConfirmed && (pr.confirmedSatLines?.length > 0);
   const weekDates = [];
   for (let d = 0; d < 5; d++) weekDates.push({date: addDays(week, d), isSat: false});
   if (satUsed || confirmedHasSat) weekDates.push({date: addDays(week, 5), isSat: true});
@@ -4225,6 +4232,8 @@ function renderAudit() {
         '600ml 6pk':  pr0c?.ep?.prod6??0,
       };
       if (pr0c?.satUsed && pr0c?.satLines) pr0c.satLines.forEach(sl => { prod[sl.sku]=(prod[sl.sku]||0)+sl.satAlloc; });
+      // confirmed bypass: satUsed is always false, but Saturday production is in confirmedSatLines
+      if (pr0c?.confirmedSatLines?.length > 0) pr0c.confirmedSatLines.forEach(sl => { prod[sl.sku]=(prod[sl.sku]||0)+sl.satAlloc; });
     } else {
       SKUS.forEach(s => { prod[s] = pr.plannedProd?.[s] ?? 0; });
       if (pr.satUsed && pr.satLines) pr.satLines.forEach(sl => { prod[sl.sku]=(prod[sl.sku]||0)+sl.satAlloc; });
