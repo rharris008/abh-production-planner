@@ -1,7 +1,7 @@
 # ABH Production Planner — Project Rules
 
 ## Scope
-Single-file HTML/JS planner at planner.abhgroup.com.au.
+Single-file HTML/JS planner at rharris008.github.io/abh-production-planner/.
 Supabase project: yxaebxkkclbjezffmerw.
 GitHub: rharris008/abh-production-planner (main branch = live).
 Push to main is GREEN (Rob confirmed 09/07/2026 — no confirmation needed).
