@@ -1100,8 +1100,7 @@ function getAdjustedDemand(week) {
 // (Aaron Mattin 13/06/2026 carried 50/27 — superseded.)
 // The scheduler allocates each shift to whichever SKU (10L or 5L) has the
 // worse stock position vs deliveries due — same priority logic as EP New Line.
-// No changeover penalty: these are separate machines so SKU switches are
-// instantaneous between shifts.
+// Changeover has a time cost — minimum 3 days per SKU run enforced. Rob Harris 15/10/2026.
 function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, minDays10=0, minDays5=0, hmpsCovers10L=false, shifts5=2) {
   // During a line outage, only one cask line runs (same single-line capacity regardless of which is down).
   // Base capacities (before efficiency factor): single line: 10L=40, 5L=30; Combined A+B: 10L=80, 5L=59.
@@ -1120,11 +1119,15 @@ function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, mi
   // On Friday, workDays = [] for current week. For future weeks all 5 days remain.
   const workDays = workingDaysInWeek(weekStart).filter(dt => dt > localToday());
 
-  // ── Production priority rules (Rob Harris 13/06/2026) ──────────────────────
+  // ── Production priority rules ────────────────────────────────────────────────
   // 1. If HMPS covers 10L demand → Line A&B runs 5L all week.
   // 2. If HMPS cannot cover 10L demand → Line A&B runs 10L all week.
   // 3. Maximum ONE SKU change per week (reduces machine adjustments).
   // 4. 10L always runs 2 shifts; 5L runs shifts5 (drops to 1 if closing cover ≥ 8 days).
+  // 5. Minimum 3 days per SKU run to avoid changeover downtime. Rob Harris 15/10/2026:
+  //    a switch is only permitted when current SKU has run ≥ 3 days AND ≥ 3 days remain.
+  //    In a standard 5-day week (3+3=6 > 5) this effectively prevents any mid-week switch.
+  const CASK_MIN_RUN_DAYS = 3;
   const primarySku = weekSkuOverride.has(weekStart) ? weekSkuOverride.get(weekStart) : (hmpsCovers10L ? '5L Cask' : '10L Cask');
   let currentSku = primarySku;
   let skuChangesUsed = 0;
@@ -1142,13 +1145,17 @@ function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, mi
 
     let sku = currentSku;
 
-    // Only switch SKU if forced by min-day constraint AND budget allows (max 1 change)
-    if (must5 && sku !== '5L Cask' && skuChangesUsed < 1) {
+    // Only switch SKU if forced by min-day constraint AND both run-length constraints satisfied:
+    // - current SKU has already run >= CASK_MIN_RUN_DAYS days (no short runs before changeover)
+    // - remaining days >= CASK_MIN_RUN_DAYS (new SKU gets a sufficient run after changeover)
+    // Rob Harris 15/10/2026: 3-day minimum per SKU run to avoid changeover downtime.
+    const currentSkuDays = currentSku === '10L Cask' ? days10 : days5;
+    if (must5 && sku !== '5L Cask' && skuChangesUsed < 1 && currentSkuDays >= CASK_MIN_RUN_DAYS && daysLeft >= CASK_MIN_RUN_DAYS) {
       sku = '5L Cask'; skuChangesUsed++; currentSku = sku;
-    } else if (must10 && sku !== '10L Cask' && skuChangesUsed < 1) {
+    } else if (must10 && sku !== '10L Cask' && skuChangesUsed < 1 && currentSkuDays >= CASK_MIN_RUN_DAYS && daysLeft >= CASK_MIN_RUN_DAYS) {
       sku = '10L Cask'; skuChangesUsed++; currentSku = sku;
     }
-    // If both constraints fire and change budget exhausted, stay on current SKU.
+    // If constraints prevent a switch, stay on current SKU — Saturday will cover the other SKU.
 
     if (sku === '10L Cask') days10++; else days5++;
 
