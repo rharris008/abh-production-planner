@@ -2014,17 +2014,19 @@ function planWeek(week) {
   const satTriggers = SKUS.filter(s => {
     // Use this week's open orders as fallback demand signal when no forecast is loaded
     const effectiveDemand = demand[s].total > 0 ? demand[s].total : (thisWkOO[s] || 0);
-    if ((coverDays[s]||0) < STOCK_COVER.floor || midWeekAtRisk.has(s)) return effectiveDemand > 0;
+    // Saturday fires when weekday production can't reach target cover (5 days). Rob Harris 15/10/2026:
+    // previously checked < floor (3 days) which suppressed Saturday after the floor fix was applied.
+    if ((coverDays[s]||0) < STOCK_COVER.target || midWeekAtRisk.has(s)) return effectiveDemand > 0;
     if (s === '5L Cask'  && (fwd5short || lineBOutageSatNeeded5L || satRequiredNoNeg)) return true;
     if (s === '10L Cask' && lineBOutageSatNeeded10L) return true;
     return false;
   });
-  // Pre-approved Saturdays always run regardless of trigger (Rob Harris 15/10/2026: approved up to 01/01/2027)
-  const satPreApproved = CONFIRMED_SATURDAYS.has(satDate);
-  const needSat = satMode === 'on' || satPreApproved || (satMode === 'auto' && satTriggers.length > 0);
 
   // Check if Saturday itself is a public holiday — if so, no Saturday production
   const satDate = addDays(week, 5);
+  // Pre-approved Saturdays always run regardless of trigger (Rob Harris 15/10/2026: approved up to 01/01/2027)
+  const satPreApproved = CONFIRMED_SATURDAYS.has(satDate);
+  const needSat = satMode === 'on' || satPreApproved || (satMode === 'auto' && satTriggers.length > 0);
   const satIsHoliday = publicHolidays.has(satDate);
 
   const satLines = [];
