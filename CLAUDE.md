@@ -6,6 +6,31 @@ Supabase project: yxaebxkkclbjezffmerw.
 GitHub: rharris008/abh-production-planner (main branch = live).
 Push to main is GREEN (Rob confirmed 09/07/2026 — no confirmation needed).
 
+## Code Editing Protocol — MANDATORY (added 15/10/2026)
+
+Three consecutive commits broke the planner with TDZ (Temporal Dead Zone) crashes.
+All three passed syntax checks and all source-grep tests. Root cause: editing a 4,000-
+line file from memory without reading local context first.
+
+**Before inserting any code that references an existing variable:**
+
+1. **Read 20 lines around the insertion point** — not just the target line. Find the
+   exact line number of every variable you reference. A `const` in a 400-line function
+   can be anywhere. "I know it's above" is not enough.
+
+2. **Check declaration order before committing:**
+   ```
+   python3 -c "
+   js = open('index.html').read()
+   print(js.find('const VARIABLE_YOU_REFERENCE'))
+   print(js.find('const VARIABLE_YOU_ARE_ADDING'))
+   "
+   ```
+   The reference must print a LOWER number than the addition. If not, move the code.
+
+3. **Run npm test before git add** — not after. The RT1 suite executes scheduler
+   functions at runtime and will catch TDZ crashes the source-grep tests cannot.
+
 ## Regression Test Suite — MANDATORY
 
 **Run before every commit that touches planning logic in index.html:**
@@ -16,7 +41,7 @@ npm test
 
 Suite: `tests/planner-regression.test.mjs`
 Framework: Node built-in `node:test` (no install needed, Node 18+).
-Coverage: 55 tests across 8 suites (C2, H1, H2, H3, H4, H5, M6, LM).
+Coverage: 78 tests across 11 suites (C2, H1, H2, H3, H4, H5, M6, LM, R1, CS1, CS2, RT1).
 
 **A failing test blocks the commit.** Fix the root cause — do not modify the test
 to pass around a broken implementation.

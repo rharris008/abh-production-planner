@@ -864,3 +864,192 @@ describe('CS2: Round 3 confirmed-Saturday correctness', () => {
   });
 
 });
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// RT1 — Runtime execution: scheduleEPCaskLines and scheduleBottleLine
+//
+// WHY THIS SUITE EXISTS — 15/10/2026:
+// Three consecutive commits introduced TDZ (Temporal Dead Zone) crashes:
+//   1. satDate / satPreApproved used before declaration in planWeek
+//   2. caskBothDown wrong variable name
+//   3. prevCaskSku / prevCaskDays declared after caskResult call (the variable
+//      was in the bottle section, 35 lines below the cask call site)
+//
+// All three passed `node --check` (syntax OK) and all 73 source-grep tests.
+// Every TDZ bug throws at RUNTIME, not at parse time. The planner loaded blank
+// with a silent JS exception the grep suite cannot catch.
+//
+// STRUCTURAL GUARD: checks that key variables are declared before they are used
+// inside planWeek. Catches declaration-order TDZ at source level.
+//
+// RUNTIME GUARD: extracts the pure scheduler functions, stubs their global
+// dependencies (no DOM, no fetch, no Supabase), and actually executes them.
+// A TDZ throw, a missing variable, or a bad return shape fails the test
+// immediately — before the code ever reaches GitHub Pages.
+// ══════════════════════════════════════════════════════════════════════════════
+import { createContext, runInContext } from 'node:vm';
+
+describe('RT1: Runtime execution of scheduler functions', () => {
+
+  // ── Structural guard: declaration order inside planWeek ────────────────────
+  // For each (varDecl, consumerDecl) pair: varDecl must appear before consumerDecl
+  // inside the planWeek function body. A violation = TDZ crash on load.
+
+  function planWeekBody() {
+    const start = SRC.indexOf('function planWeek(');
+    const end   = SRC.indexOf('\nfunction ', start + 1);
+    return end > 0 ? SRC.slice(start, end) : SRC.slice(start);
+  }
+
+  test('RT1 — prevCaskSku declared before caskResult = scheduleEPCaskLines(...)', () => {
+    const body = planWeekBody();
+    const iDecl = body.indexOf('const prevCaskSku');
+    const iUse  = body.indexOf('const caskResult = scheduleEPCaskLines');
+    assert.ok(iDecl >= 0, 'FAIL RT1: const prevCaskSku not found inside planWeek');
+    assert.ok(iUse  >= 0, 'FAIL RT1: const caskResult = scheduleEPCaskLines not found inside planWeek');
+    assert.ok(
+      iDecl < iUse,
+      `FAIL RT1: prevCaskSku declared at offset ${iDecl} but caskResult call is at ${iUse} ` +
+      `— prevCaskSku is used BEFORE it is declared (TDZ crash). ` +
+      `Move const prevCaskSku to before the scheduleEPCaskLines call.`
+    );
+  });
+
+  test('RT1 — prevWk4Carry declared before botCarry2L / botCarry600 (no bottle TDZ)', () => {
+    const body  = planWeekBody();
+    const iCarry = body.indexOf('const prevWk4Carry');
+    const iBot2  = body.indexOf('const botCarry2L');
+    const iBot6  = body.indexOf('const botCarry600');
+    assert.ok(iCarry >= 0, 'FAIL RT1: const prevWk4Carry not found inside planWeek');
+    assert.ok(iBot2  >= 0, 'FAIL RT1: const botCarry2L not found inside planWeek');
+    assert.ok(iCarry < iBot2,  `FAIL RT1: prevWk4Carry (${iCarry}) must precede botCarry2L (${iBot2})`);
+    assert.ok(iCarry < iBot6,  `FAIL RT1: prevWk4Carry (${iCarry}) must precede botCarry600 (${iBot6})`);
+  });
+
+  // ── Runtime guard: build a stub context and execute the functions ──────────
+  // Stubs only the globals that scheduleEPCaskLines / scheduleBottleLine read.
+  // The functions themselves are pure numeric computation once the stubs are in place.
+
+  // Week of 2026-10-26 (a future week). ALL_WEEKS covers this week + neighbours.
+  const TEST_WEEK   = '2026-10-26';
+  const TEST_WEEKS  = ['2026-10-19','2026-10-26','2026-11-02'];
+
+  function buildStubContext() {
+    const ctx = {
+      Math, console,
+      lineOutageForWeek:          () => ({ single: false, bothDown: false }),
+      fiveLOverpackerForWeek:     () => false,
+      bottleOutageForWeek:        () => false,
+      workingDaysInWeek:          () => ['2026-10-26','2026-10-27','2026-10-28','2026-10-29','2026-10-30'],
+      localToday:                 () => '2026-10-25',   // Sunday before test week — all 5 days are future
+      isPastDayShift:             () => false,
+      weekSkuOverride:            new Map(),
+      DAILY_REQUIRED:             {},
+      STOCK_COVER:                { target: 5, floor: 3 },
+      ALL_WEEKS:                  TEST_WEEKS,
+      epChangeoverMins:           45,
+      openOrdersDailyPal:         {},
+      addDays: (dateStr, n) => {
+        const d = new Date(dateStr + 'T00:00:00Z');
+        d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString().slice(0, 10);
+      },
+      opDaysInWeek: () => 5,
+      getDemand: () => ({
+        '2L Bottle':  { total: 100 },
+        '600ml 6pk':  { total: 80  },
+        '10L Cask':   { total: 120 },
+        '5L Cask':    { total: 60  },
+      }),
+    };
+    createContext(ctx);
+    return ctx;
+  }
+
+  function loadFnIntoContext(fnName, ctx) {
+    const start = SRC.indexOf(`function ${fnName}(`);
+    const end   = SRC.indexOf('\nfunction ', start + 1);
+    const code  = SRC.slice(start, end > start ? end : start + 10000);
+    runInContext(code, ctx);
+    return ctx[fnName];
+  }
+
+  test('RT1 — scheduleEPCaskLines executes without throwing (runtime TDZ guard)', () => {
+    const ctx = buildStubContext();
+    loadFnIntoContext('scheduleEPCaskLines', ctx);
+    assert.ok(typeof ctx.scheduleEPCaskLines === 'function',
+      'FAIL RT1: scheduleEPCaskLines not found as a function after loading into context');
+
+    let result;
+    assert.doesNotThrow(() => {
+      result = ctx.scheduleEPCaskLines(
+        '2026-10-26', 5, 0.75,
+        200,  // openStock10
+        100,  // openStock5
+        2,    // minDays10
+        3,    // minDays5
+        false, // hmpsCovers10L
+        2,    // shifts5
+        null, // prevRunSku
+        0     // prevRunDays
+      );
+    }, 'FAIL RT1: scheduleEPCaskLines threw — likely a TDZ crash or missing global. Check the stub list.');
+
+    assert.ok(result && typeof result === 'object',  'FAIL RT1: scheduleEPCaskLines returned non-object');
+    assert.ok(Array.isArray(result.shifts),          'FAIL RT1: result.shifts is not an array');
+    assert.ok(typeof result.endStock10 === 'number', 'FAIL RT1: result.endStock10 missing or not a number');
+    assert.ok(typeof result.endStock5  === 'number', 'FAIL RT1: result.endStock5 missing or not a number');
+    assert.ok(typeof result.endSku     === 'string', 'FAIL RT1: result.endSku missing — cross-week carry broken');
+    assert.ok(typeof result.endSkuDays === 'number', 'FAIL RT1: result.endSkuDays missing — cross-week carry broken');
+  });
+
+  test('RT1 — scheduleEPCaskLines: prevRunSku carry forces correct SKU at start of week', () => {
+    // If previous week ended on 5L Cask with only 1 day (< 3 minimum), this week must
+    // start on 5L regardless of hmpsCovers10L=false (which would normally set primarySku=10L).
+    const ctx = buildStubContext();
+    loadFnIntoContext('scheduleEPCaskLines', ctx);
+
+    const result = ctx.scheduleEPCaskLines(
+      '2026-10-26', 5, 0.75,
+      200, 100, 0, 0,
+      false,   // hmpsCovers10L=false → primarySku would be 10L without carry
+      2,
+      '5L Cask',  // prevRunSku: 5L was running last week
+      1           // prevRunDays: only 1 day — minimum 3 not met, must continue 5L
+    );
+
+    assert.ok(result.shifts.length > 0, 'FAIL RT1: no shifts produced');
+    const firstSku = result.shifts[0].sku;
+    assert.equal(
+      firstSku, '5L Cask',
+      `FAIL RT1: prevRunSku carry broken — expected first shift to be 5L Cask (continuing minimum) ` +
+      `but got ${firstSku}. The 3-day cross-week minimum is not being enforced.`
+    );
+  });
+
+  test('RT1 — scheduleBottleLine executes without throwing (runtime TDZ guard)', () => {
+    const ctx = buildStubContext();
+    loadFnIntoContext('scheduleBottleLine', ctx);
+    assert.ok(typeof ctx.scheduleBottleLine === 'function',
+      'FAIL RT1: scheduleBottleLine not found after loading into context');
+
+    let result;
+    assert.doesNotThrow(() => {
+      result = ctx.scheduleBottleLine(
+        '2026-10-26', 0.75,
+        100,  // open2L
+        80,   // open6pk
+        5,    // weekIdx (arbitrary future week)
+        0,    // carry2L
+        0     // carry600
+      );
+    }, 'FAIL RT1: scheduleBottleLine threw — likely a TDZ crash or missing global.');
+
+    assert.ok(result && typeof result === 'object',     'FAIL RT1: scheduleBottleLine returned non-object');
+    assert.ok(Array.isArray(result.shifts),             'FAIL RT1: result.shifts is not an array');
+    assert.ok(typeof result.endStock2L  === 'number',   'FAIL RT1: result.endStock2L missing');
+    assert.ok(typeof result.endStock6   === 'number',   'FAIL RT1: result.endStock6 missing');
+  });
+
+});
