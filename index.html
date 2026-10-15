@@ -1894,10 +1894,12 @@ function planWeek(week) {
   // Single-line constraint (Rob Harris 24/07/2026): 5L only runs when BOTH Line A and Line B are up.
   // If one line is down, the surviving line runs 10L only — no 5L regardless of cover gaps.
   const lineABSku = (lineAOnlyNow || caskBothDownNow) ? '10L Cask' : (minDays5Final > minDays10Final ? '5L Cask' : '10L Cask');
-  // Carry A&B run state from previous week so 3-day minimum is enforced across week boundaries.
-  const prevCaskCache = prevWk4Carry ? planWeekCache[prevWk4Carry] : null;
-  const prevCaskSku   = (prevCaskCache && prevCaskCache.caskRunState) ? prevCaskCache.caskRunState.sku  : null;
-  const prevCaskDays  = (prevCaskCache && prevCaskCache.caskRunState) ? prevCaskCache.caskRunState.days : 0;
+  // Carry A&B run state from previous week — 3-day consecutive minimum spans weeks. Rob Harris 15/10/2026.
+  // prevWeekCacheForCask hoisted here (before caskResult); bottle carry uses the same prevWk4Carry below.
+  const prevWeekForCask   = weekIdx > 0 ? ALL_WEEKS[weekIdx - 1] : null;
+  const prevCachForCask   = prevWeekForCask ? planWeekCache[prevWeekForCask] : null;
+  const prevCaskSku       = (prevCachForCask && prevCachForCask.caskRunState) ? prevCachForCask.caskRunState.sku  : null;
+  const prevCaskDays      = (prevCachForCask && prevCachForCask.caskRunState) ? prevCachForCask.caskRunState.days : 0;
   const caskResult = scheduleEPCaskLines(
     week, opDays, eff,
     avail['10L Cask'] || 0, avail5,
