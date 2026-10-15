@@ -735,6 +735,15 @@ let currentWeek = '';
 let hmpsConfig  = 'Dual';
 let lockedWeeksSet = new Set(); // Weeks locked in Supabase locked_weeks — blocks algorithm only; Aaron/Jeremy can still change via email
 let satMode     = 'auto';  // Rob Harris 03/09/2026: default auto so Saturday fires when triggered
+// Pre-approved Saturday dates (Rob Harris 15/10/2026: approved up to 01/01/2027).
+// HMPS always runs Dual 10L. A&B runs the same SKU as Friday (no changeover).
+// Saturday 01/11 is already in CONFIRMED_SCHEDULES for w/c 26/10.
+const CONFIRMED_SATURDAYS = new Set([
+  '2026-11-07','2026-11-14','2026-11-21','2026-11-28',
+  '2026-12-05','2026-12-12','2026-12-19','2026-12-27',  // 26/12 is a public holiday; 27/12 is Saturday
+]);
+// SAT_APPROVED_UNTIL: all Saturdays up to this date are pre-approved (catches any not individually listed)
+const SAT_APPROVED_UNTIL = '2027-01-01';
 let stockPal    = {...STOCK_PAL};
 let onHoldPal   = {'10L Cask':0,'5L Cask':0,'2L Bottle':0,'600ml 12pk':0,'600ml 6pk':0};
 let availPal    = () => Object.fromEntries(SKUS.map(s=>[s,Math.max(0,(stockPal[s]||0)-(onHoldPal[s]||0))]));
@@ -1870,6 +1879,12 @@ function planWeek(week) {
   const caskDays10 = caskResult.days10;   // physical days Line A&B ran 10L
   const caskDays5  = caskResult.days5;    // physical days Line A&B ran 5L
 
+  // Friday's A&B SKU — Saturday A&B continues this SKU (no changeover). Rob Harris 15/10/2026.
+  const _allCaskDays = caskResult.shifts.map(s => s.day);
+  const _lastCaskDay = _allCaskDays.length > 0 ? Math.max(..._allCaskDays) : -1;
+  const _fridayCaskShift = caskResult.shifts.find(s => s.day === _lastCaskDay);
+  const fridayCaskSku = _fridayCaskShift ? _fridayCaskShift.sku : lineABSku;
+
   const prod10 = hmps.cap + caskProd10;
   const stockEnd10 = s10 + prod10 - d10;
   const stockEnd5  = (avail['5L Cask'] || 0) + caskProd5 - demand['5L Cask'].total;
@@ -2004,7 +2019,9 @@ function planWeek(week) {
     if (s === '10L Cask' && lineBOutageSatNeeded10L) return true;
     return false;
   });
-  const needSat = satMode === 'on' || (satMode === 'auto' && satTriggers.length > 0);
+  // Pre-approved Saturdays always run regardless of trigger (Rob Harris 15/10/2026: approved up to 01/01/2027)
+  const satPreApproved = CONFIRMED_SATURDAYS.has(satDate);
+  const needSat = satMode === 'on' || satPreApproved || (satMode === 'auto' && satTriggers.length > 0);
 
   // Check if Saturday itself is a public holiday — if so, no Saturday production
   const satDate = addDays(week, 5);
@@ -2029,28 +2046,33 @@ function planWeek(week) {
       satLines.push({sku:'10L Cask', label:hmpsSatLabel, tgt:hmpsSatTgt, satAlloc:hmpsSatAlloc, cls:'ep10'});
     }
     
-    // Also run other lines for their triggered SKUs (10L handled by HMPS above)
-    let satSkus = satTriggers.filter(s => s !== '10L Cask');
-    // One Bottle Line only: 2L and 600ml 6pk cannot both run on the same Saturday shift.
-    // If both trigger, run only the SKU with the lower days cover. Rob Harris 28/09/2026.
-    if (satSkus.includes('2L Bottle') && satSkus.includes('600ml 6pk')) {
-      const drop = (coverDays['2L Bottle']||0) <= (coverDays['600ml 6pk']||0) ? '600ml 6pk' : '2L Bottle';
-      satSkus = satSkus.filter(s => s !== drop);
+    // A&B: continue Friday's SKU — no changeover required (Rob Harris 15/10/2026)
+    // "AB is whatever was running the friday of that week so there is no changeover required"
+    if (!caskBothDown) {
+      // Use existing cap*shift variables (lineAOnlyNow + eff already baked in) — avoids duplicate rate formula
+      const satABAlloc = fridayCaskSku === '10L Cask' ? cap10shift : cap5shift;
+      // Raw target (display only) — use destructured pair to avoid repeating the single/dual rate pattern
+      const [_raw5, _raw10] = lineAOnlyNow ? [30, 40] : [59, 80];
+      const tgtABSat   = fridayCaskSku === '10L Cask' ? _raw10 : _raw5;
+      const runLineSat = lineOutNow === 'B' ? 'A' : lineOutNow === 'A' ? 'B' : 'A&B';
+      const satABLabel = fridayCaskSku === '10L Cask'
+        ? `EP Line ${runLineSat} (10L) — Sat`
+        : `EP Line ${runLineSat} (5L) — Sat`;
+      const satABCls = fridayCaskSku === '10L Cask' ? 'ep10' : 'ep5';
+      satStock[fridayCaskSku] = (satStock[fridayCaskSku]||0) + satABAlloc;
+      satLines.push({sku: fridayCaskSku, label: satABLabel, tgt: tgtABSat, satAlloc: satABAlloc, cls: satABCls});
     }
-    satSkus.forEach(sku => {
-      let tgt = 0, label = '', cls = '';
-      if (sku==='5L Cask')   {
-        tgt = lineAOnlyNow ? 30 : 59;
-        const runLine5Sat = lineOutNow === 'B' ? 'A' : lineOutNow === 'A' ? 'B' : 'A&B';
-        const outBadge5   = lineAOnlyNow ? ` 🔴 Pre-build (Line ${lineOutNow} out)` : '';
-        label = lineAOnlyNow
-          ? `EP Line ${runLine5Sat} (5L) — Sat${lineBOutageSatNeeded5L ? outBadge5 : ''}`
-          : `EP Line A&B (5L) — Sat`;
-        cls='as5';
-      }
-      else if(sku==='2L Bottle') { tgt=52;       label='EP Bottle — Sat'; cls='as2'; }
-      else if(sku==='600ml 6pk') { tgt=32;       label='EP Bottle Line (6pk) — Sat'; cls='ep6'; }
-      if(!tgt) return;
+
+    // Bottle line: trigger-based only — one line, lower cover SKU wins. Rob Harris 28/09/2026.
+    let bottleSatSkus = satTriggers.filter(s => s === '2L Bottle' || s === '600ml 6pk');
+    if (bottleSatSkus.includes('2L Bottle') && bottleSatSkus.includes('600ml 6pk')) {
+      const drop = (coverDays['2L Bottle']||0) <= (coverDays['600ml 6pk']||0) ? '600ml 6pk' : '2L Bottle';
+      bottleSatSkus = bottleSatSkus.filter(s => s !== drop);
+    }
+    bottleSatSkus.forEach(sku => {
+      const tgt = sku === '2L Bottle' ? 52 : 32;
+      const label = sku === '2L Bottle' ? 'EP Bottle — Sat' : 'EP Bottle Line (6pk) — Sat';
+      const cls   = sku === '2L Bottle' ? 'as2' : 'ep6';
       const satAlloc = Math.floor(tgt * eff);
       satStock[sku] = (satStock[sku]||0) + satAlloc;
       satLines.push({sku, label, tgt, satAlloc, cls});
