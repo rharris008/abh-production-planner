@@ -107,7 +107,8 @@ describe('H1: FY year derivation', () => {
 
 // ══════════════════════════════════════════════════════════════════════════════
 // H2 — BUDGET_DATA_UPDATED staleness badge
-// Fix: constant + badge renders neutral under 90 days, amber at/over 90 days.
+// Fix: constant + badge renders neutral under 365 days, amber at/over 365 days.
+// Budgets stay in force for 365 days (changed from 90 days — 15/10/2026).
 // ══════════════════════════════════════════════════════════════════════════════
 describe('H2: Budget staleness badge', () => {
 
@@ -116,7 +117,7 @@ describe('H2: Budget staleness badge', () => {
       (new Date(today + 'T00:00:00') - new Date(updatedDate + 'T00:00:00')) / 86400000
     );
   }
-  const STALE_THRESHOLD = 90;
+  const STALE_THRESHOLD = 365;
 
   test('H2 — BUDGET_DATA_UPDATED constant present in source', () => {
     assert.ok(
@@ -125,28 +126,28 @@ describe('H2: Budget staleness badge', () => {
     );
   });
 
-  test('H2 — 89 days since update → not stale (neutral badge)', () => {
-    // 2026-06-22 + 89 days = 2026-09-19
-    const days = daysSince('2026-06-22', '2026-09-19');
-    assert.equal(days, 89);
+  test('H2 — 364 days since update → not stale (neutral badge)', () => {
+    // 2026-06-22 + 364 days = 2027-06-21
+    const days = daysSince('2026-06-22', '2027-06-21');
+    assert.equal(days, 364);
     assert.equal(days < STALE_THRESHOLD, true);
   });
 
-  test('H2 — 90 days since update → stale (amber badge fires)', () => {
-    // 2026-06-22 + 90 days = 2026-09-20
-    const days = daysSince('2026-06-22', '2026-09-20');
-    assert.equal(days, 90);
+  test('H2 — 365 days since update → stale (amber badge fires)', () => {
+    // 2026-06-22 + 365 days = 2027-06-22
+    const days = daysSince('2026-06-22', '2027-06-22');
+    assert.equal(days, 365);
     assert.equal(days >= STALE_THRESHOLD, true);
   });
 
-  test('H2 — 91 days → still stale', () => {
-    assert.equal(daysSince('2026-06-22', '2026-09-21') >= STALE_THRESHOLD, true);
+  test('H2 — 366 days → still stale', () => {
+    assert.equal(daysSince('2026-06-22', '2027-06-23') >= STALE_THRESHOLD, true);
   });
 
-  test('H2 — renderBudget contains _bdgDays >= 90 threshold check', () => {
+  test('H2 — renderBudget contains _bdgDays >= 365 threshold check', () => {
     assert.ok(
-      SRC.includes('_bdgDays >= 90'),
-      'FAIL H2: staleness threshold (_bdgDays >= 90) not found in source'
+      SRC.includes('_bdgDays >= 365'),
+      'FAIL H2: staleness threshold (_bdgDays >= 365) not found in source'
     );
   });
 

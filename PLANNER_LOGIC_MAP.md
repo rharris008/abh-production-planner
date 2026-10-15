@@ -23,7 +23,7 @@ All consumers must reference the constant, never a hardcoded number.
 | ID | Constant | Line | Value | Controls |
 |----|----------|------|-------|----------|
 | C-01 | `STOCK_COVER` | 717 | `{target:5, floor:3}` — UI-editable | Every cover-days threshold and floor-breach alert |
-| C-03 | `BUDGET_DATA_UPDATED` | 683 | `'2026-08-26'` | Budget staleness badge (amber at >= 90 days) |
+| C-03 | `BUDGET_DATA_UPDATED` | 683 | `'2026-08-26'` | Budget staleness badge (amber at >= 365 days — budgets stay in force 1 year; changed from 90 days 15/10/2026) |
 | C-04 | `UPP` | 702 | `{10L:96, 5L:60, 2L:64, 12pk:126, 6pk:252}` | All unit-to-pallet conversions. **Metcash-specific:** Metcash sends individual consumer units. `parseMetcashWB` applies an intermediate shipper conversion (`_mcShip`: 5L/3, 2L/6) before dividing by UPP, giving effective Metcash divisors of 10L÷96, 5L÷180, 2L÷384. Confirmed correct by Jeremy Wheeler 17/08/2026. |
 | C-05 | `SKUS` | 703 | `['10L Cask','5L Cask','2L Bottle','600ml 6pk']` | Canonical SKU list; loop order matters. **600ml 12pk excluded from SKUS 27/08/2026 — not material to the plan. Occasional Amazon runs handled outside the planner. Constants (UPP, STOCK_PAL etc.) retain 12pk keys intentionally.** |
 | C-06 | `ALL_WEEKS` | 685 | IIFE — rolling 18-month horizon from 2026-03-16 | Week selector and all time-indexed lookups |
