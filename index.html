@@ -214,7 +214,7 @@ tr.risk-a td{background:#FEF9F0}
 </head>
 <body>
 
-
+<!-- ══════════════ SECTION: Header Bar ══════════════ -->
 <div id="hdr">
   <div>
     <div class="brand" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Scroll to top" style="cursor:pointer;display:flex;align-items:center;gap:8px;"><img src="abh-logo.png" alt="ABH" style="height:28px;width:auto;"><span>ABH Pureau <span id="buildStamp" style="font-size:9px;opacity:.6;letter-spacing:.5px" title="Build this browser tab is running. If this is older than the latest change, hard reload (Cmd+Shift+R).">v9-supabase</span></span></div>
@@ -244,6 +244,7 @@ tr.risk-a td{background:#FEF9F0}
   
 </div>
 
+<!-- ══════════════ SECTION: Nav Tab Bar ══════════════ -->
 <div id="nav">
   <div id="nav-tabs">
     <div class="tab active" onclick="switchTab('demand',this)">Demand &amp; Stock</div>
@@ -261,10 +262,12 @@ tr.risk-a td{background:#FEF9F0}
   <div id="navFreshness" title="Data freshness — last update per source"></div>
 </div>
 
+<!-- ══════════════ SECTION: Holidays Banner ══════════════ -->
 <div id="navHolidays" title="Who is currently away or leaving within 7 days"></div>
+<!-- ══════════════ SECTION: Main Content Area ══════════════ -->
 <div id="main">
 
-<!-- DEMAND & STOCK -->
+<!-- ══════════════ SECTION: Tab — Demand & Stock ══════════════ -->
 <div id="tab-demand" class="tc active">
   <!-- Front-page stock alerts — RED/AMBER only, facts only. Rendered by renderFrontAlerts(). -->
   <div id="frontAlerts" style="padding:0"></div>
@@ -337,7 +340,7 @@ tr.risk-a td{background:#FEF9F0}
     <div class="tscroll"><table id="rollingTable"></table></div></div>
 </div>
 
-<!-- SHIFT SCHEDULE -->
+<!-- ══════════════ SECTION: Tab — Shift Schedule ══════════════ -->
 <div id="tab-schedule" class="tc">
   <div class="panel">
     <div class="ph navy" id="schedHdr">Shift Schedule</div>
@@ -356,25 +359,25 @@ tr.risk-a td{background:#FEF9F0}
   </div>
 </div>
 
-<!-- HORIZON -->
+<!-- ══════════════ SECTION: Tab — 12-Week Horizon ══════════════ -->
 <div id="tab-horizon" class="tc">
   <div class="panel"><div class="ph navy">12-Week Rolling Horizon — click week to select</div>
     <div class="tscroll"><table id="horizonTable"></table></div></div>
 </div>
 
-<!-- DISPATCH CALENDAR -->
+<!-- ══════════════ SECTION: Tab — Dispatch Calendar ══════════════ -->
 <div id="tab-dispatch" class="tc">
   <div class="panel"><div class="ph red">Dispatch Calendar — Next 21 Days | SOH + planned production | Dispatch-by dates applied</div>
     <div class="tscroll"><table id="dispTable"></table></div></div>
 </div>
 
-<!-- ALERTS -->
+<!-- ══════════════ SECTION: Tab — Alerts ══════════════ -->
 <div id="tab-alerts" class="tc">
   <div class="panel"><div class="ph red">Alerts — Selected Week</div>
     <div style="padding:12px" id="alertsPanel"></div></div>
 </div>
 
-<!-- DATA AUDIT -->
+<!-- ══════════════ SECTION: Tab — Data Audit ══════════════ -->
 <div id="tab-audit" class="tc">
   <div class="panel">
     <div class="ph navy">Data Audit — Demand Quality, Consistency Check, Production Coverage</div>
@@ -382,8 +385,7 @@ tr.risk-a td{background:#FEF9F0}
   </div>
 </div>
 
-<!-- ACTUALS VS PLAN -->
-
+<!-- ══════════════ SECTION: Tab — HACCP & Safety ══════════════ -->
 <div id="tab-haccp" class="tc">
   <div class="panel">
     <div class="ph navy">HACCP &amp; Safety Culture - Action Register - <a href="https://rharris008.github.io/abh-3year-plan/" target="_blank" style="color:inherit;text-decoration:underline;opacity:.9">Linked to 3 Year Plan - $150m Turnover Goal</a>
@@ -393,6 +395,7 @@ tr.risk-a td{background:#FEF9F0}
     <div id="haccpList"></div>
   </div>
 </div>
+<!-- ══════════════ SECTION: Tab — Actuals vs Plan ══════════════ -->
 <div id="tab-actuals" class="tc">
   <div class="panel">
     <div class="ph navy">Upload Actuals — ABH Actual Production Performance Tracker
@@ -449,7 +452,7 @@ tr.risk-a td{background:#FEF9F0}
   </div>
 </div>
 
-<!-- STOCK -->
+<!-- ══════════════ SECTION: Tab — Stock ══════════════ -->
 <div id="tab-stock" class="tc">
   <div class="panel">
     <div class="ph navy">Upload Inventory — NetSuite Inventory Valuation Summary
@@ -497,7 +500,7 @@ tr.risk-a td{background:#FEF9F0}
   </div>
 </div>
 
-<!-- OPEN ORDERS -->
+<!-- ══════════════ SECTION: Tab — Open Orders ══════════════ -->
 <div id="tab-openorders" class="tc">
   <div class="panel">
     <div class="ph navy">Upload Open Sales Orders — NetSuite Export
@@ -540,7 +543,7 @@ tr.risk-a td{background:#FEF9F0}
   </div>
 </div>
 
-<!-- FORECAST UPLOAD -->
+<!-- ══════════════ SECTION: Tab — Forecast Upload ══════════════ -->
 <div id="tab-upload" class="tc">
   <div class="panel">
     <div class="ph blue">Other Customer Demand — Pallets per Week
@@ -577,10 +580,12 @@ tr.risk-a td{background:#FEF9F0}
   </div>
 </div>
 
+<!-- ══════════════ SECTION: Tab — Budget vs Forecast ══════════════ -->
 <div id="tab-budget" class="tc">
   <div id="budgetContent"></div>
 </div>
 
+<!-- ══════════════ SECTION: Tab — Maintenance ══════════════ -->
 <div id="tab-maintenance" class="tc">
   <div class="panel">
     <div class="ph navy" style="display:flex;align-items:center;justify-content:space-between">
