@@ -1101,7 +1101,7 @@ function getAdjustedDemand(week) {
 // The scheduler allocates each shift to whichever SKU (10L or 5L) has the
 // worse stock position vs deliveries due — same priority logic as EP New Line.
 // Changeover has a time cost — minimum 3 days per SKU run enforced. Rob Harris 15/10/2026.
-function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, minDays10=0, minDays5=0, hmpsCovers10L=false, shifts5=2) {
+function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, minDays10=0, minDays5=0, hmpsCovers10L=false, shifts5=2, prevRunSku=null, prevRunDays=0) {
   // During a line outage, only one cask line runs (same single-line capacity regardless of which is down).
   // Base capacities (before efficiency factor): single line: 10L=40, 5L=30; Combined A+B: 10L=80, 5L=59.
   // At default 75% efficiency: single-line 10L=30/shift, 5L=22/shift; combined 10L=60/shift, 5L=44/shift.
@@ -1129,7 +1129,16 @@ function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, mi
   //    In a standard 5-day week (3+3=6 > 5) this effectively prevents any mid-week switch.
   const CASK_MIN_RUN_DAYS = 3;
   const primarySku = weekSkuOverride.has(weekStart) ? weekSkuOverride.get(weekStart) : (hmpsCovers10L ? '5L Cask' : '10L Cask');
-  let currentSku = primarySku;
+  // Cross-week run state: if the previous week's run hasn't met the minimum, continue that SKU.
+  // Otherwise start with the priority SKU. The new SKU's minimum is enforced by carry-over into next week.
+  let currentSku, currentSkuDays;
+  if (prevRunSku && prevRunDays < CASK_MIN_RUN_DAYS) {
+    currentSku = prevRunSku;       // minimum not yet met — must continue
+    currentSkuDays = prevRunDays;  // carry accumulated days from previous week
+  } else {
+    currentSku = primarySku;
+    currentSkuDays = (prevRunSku === primarySku) ? prevRunDays : 0;
+  }
   let skuChangesUsed = 0;
 
   for (let d = 0; d < workDays.length; d++) {
@@ -1145,19 +1154,17 @@ function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, mi
 
     let sku = currentSku;
 
-    // Only switch SKU if forced by min-day constraint AND both run-length constraints satisfied:
-    // - current SKU has already run >= CASK_MIN_RUN_DAYS days (no short runs before changeover)
-    // - remaining days >= CASK_MIN_RUN_DAYS (new SKU gets a sufficient run after changeover)
-    // Rob Harris 15/10/2026: 3-day minimum per SKU run to avoid changeover downtime.
-    const currentSkuDays = currentSku === '10L Cask' ? days10 : days5;
-    if (must5 && sku !== '5L Cask' && skuChangesUsed < 1 && currentSkuDays >= CASK_MIN_RUN_DAYS && daysLeft >= CASK_MIN_RUN_DAYS) {
-      sku = '5L Cask'; skuChangesUsed++; currentSku = sku;
-    } else if (must10 && sku !== '10L Cask' && skuChangesUsed < 1 && currentSkuDays >= CASK_MIN_RUN_DAYS && daysLeft >= CASK_MIN_RUN_DAYS) {
-      sku = '10L Cask'; skuChangesUsed++; currentSku = sku;
+    // Switch allowed once current SKU has met minimum consecutive run (cross-week — no daysLeft gate).
+    // New SKU's minimum is enforced by the carry state into next week. Rob Harris 15/10/2026.
+    if (must5 && sku !== '5L Cask' && skuChangesUsed < 1 && currentSkuDays >= CASK_MIN_RUN_DAYS) {
+      sku = '5L Cask'; skuChangesUsed++; currentSku = sku; currentSkuDays = 0;
+    } else if (must10 && sku !== '10L Cask' && skuChangesUsed < 1 && currentSkuDays >= CASK_MIN_RUN_DAYS) {
+      sku = '10L Cask'; skuChangesUsed++; currentSku = sku; currentSkuDays = 0;
     }
-    // If constraints prevent a switch, stay on current SKU — Saturday will cover the other SKU.
+    // If minimum not yet met, stay on current SKU — new SKU gets Saturday or carries into next week.
 
     if (sku === '10L Cask') days10++; else days5++;
+    currentSkuDays++;  // accumulate consecutive run days (carries across weeks via return value)
 
     // Shifts per day: 10L always 2 (max production when HMPS fallback), 5L uses shifts5 param.
     const shiftsToday = sku === '5L Cask' ? shifts5 : 2;
@@ -1186,7 +1193,8 @@ function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, mi
     s5  -= due5;
   }
 
-  return { shifts, endStock10: Math.round(s10), endStock5: Math.round(s5), days10, days5 };
+  return { shifts, endStock10: Math.round(s10), endStock5: Math.round(s5), days10, days5,
+           endSku: currentSku, endSkuDays: currentSkuDays }; // carry for cross-week 3-day minimum
 }
 
 
@@ -1328,8 +1336,10 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock6, weekIdx, ca
   let days2L  = (carry600 >= TARGET_600_DAYS) ? 0 : (carry2L  || 0);
   let days600 = carry600 || 0;
   // Rob Harris 07/08/2026: max 1 changeover per week on the bottle line.
-  // Min 4-day run per SKU before switching. Emergency (stock < STOCK_COVER.floor) allowed
-  // but only once — once the week's change is used, phase locks for the rest of the week.
+  // Rob Harris 15/10/2026: minimum 3 consecutive days per SKU (cross-week via carry state).
+  // Emergency (stock < STOCK_COVER.floor) still overrides the minimum — stockouts take priority.
+  // But allowed only once — once the week's change is used, phase locks for the rest of the week.
+  const BOTTLE_MIN_RUN_DAYS = 3;
   let weekChangesUsed = 0;
 
   for (let d = 0; d < workDays.length; d++) {
@@ -1359,27 +1369,25 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock6, weekIdx, ca
         phase = '2L Bottle';
         weekChangesUsed++;
 
-      // Priority 2: Normal cycle transitions
+      // Priority 2: Normal cycle transitions (gated by 3-day minimum per run). Rob Harris 15/10/2026.
       } else if (phase === '2L Bottle') {
-        // Leave 2L when: target cover reached OR 4-day cap hit
-        if (c2 >= TARGET_2L_COVER || days2L >= TARGET_2L_DAYS) {
+        // Leave 2L when: target cover reached OR 4-day cap hit — AND minimum run met.
+        if ((c2 >= TARGET_2L_COVER || days2L >= TARGET_2L_DAYS) && days2L >= BOTTLE_MIN_RUN_DAYS) {
           phase = '600ml 6pk';
           days2L = 0;  // 2L cycle complete — fresh counter for next 2L run
           weekChangesUsed++;
         }
       } else if (phase === '600ml 6pk') {
-        if (days600 >= TARGET_600_DAYS) {
+        if (days600 >= TARGET_600_DAYS && days600 >= BOTTLE_MIN_RUN_DAYS) {
           phase = '2L Bottle';         // completed 600ml cycle → back to 2L
           days600 = 0;  // 600ml cycle complete — fresh counter for next 600ml run
           days2L  = 0;  // stale carry from prior 2L run — reset so fresh 2L run starts at 0
           weekChangesUsed++;
-        } else if (weekOpenedWith6pkEmergency && c6 >= STOCK_COVER.floor && c2 < TARGET_2L_COVER) {
-          // 6pk recovered from opening emergency (below STOCK_COVER.floor) — pivot to 2L now.
-          // Don't insist on full cover before letting 2L run.
-          // Without this, 6pk monopolises the line all week and 2L goes unproduced.
+        } else if (weekOpenedWith6pkEmergency && c6 >= STOCK_COVER.floor && c2 < TARGET_2L_COVER && days600 >= BOTTLE_MIN_RUN_DAYS) {
+          // 6pk recovered from opening emergency — pivot to 2L, but only after minimum run.
           // Rob Harris 20/06/2026: NO SKU under floor days; 4 days on 2L is part of the cycle.
           phase = '2L Bottle';
-          weekOpenedWith6pkEmergency = false;  // clear flag — pivot happened
+          weekOpenedWith6pkEmergency = false;
           weekChangesUsed++;
         }
       }
@@ -1711,12 +1719,24 @@ function planWeek(week) {
       confirmedPlan: true,
     };
 
+    // Derive cask run state from last A&B shift in confirmed schedule for cross-week 3-day minimum.
+    const confCaskShifts = confProd.filter(s => (s.sku === '10L Cask' || s.sku === '5L Cask') && !(s.label && s.label.includes('HMPS')));
+    const lastCaskShiftC = confCaskShifts.length > 0 ? confCaskShifts[confCaskShifts.length - 1] : null;
+    let confEndSku = lastCaskShiftC ? lastCaskShiftC.sku : null;
+    // Count consecutive run days for the ending SKU
+    let confEndDays = 0;
+    for (let ci = confCaskShifts.length - 1; ci >= 0; ci--) {
+      if (confCaskShifts[ci].sku === confEndSku && (ci === confCaskShifts.length - 1 || confCaskShifts[ci].date !== confCaskShifts[ci+1].date)) confEndDays++;
+      else if (confCaskShifts[ci].sku !== confEndSku) break;
+    }
+
     if (!planWeekCache[week]) planWeekCache[week] = {};
     planWeekCache[week]._full = resultC;
     planWeekCache[week].closingStock = {...stockEnd};
     // Confirmed schedule bypasses scheduleBottleLine — carry resets so next dynamic week starts clean.
     planWeekCache[week].endDays2L  = 0;
     planWeekCache[week].endDays600 = 0;
+    planWeekCache[week].caskRunState = confEndSku ? { sku: confEndSku, days: confEndDays } : null;
     return resultC;
   }
   // ══ END CONFIRMED SCHEDULE BYPASS ══════════════════════════════════════════
@@ -1874,13 +1894,18 @@ function planWeek(week) {
   // Single-line constraint (Rob Harris 24/07/2026): 5L only runs when BOTH Line A and Line B are up.
   // If one line is down, the surviving line runs 10L only — no 5L regardless of cover gaps.
   const lineABSku = (lineAOnlyNow || caskBothDownNow) ? '10L Cask' : (minDays5Final > minDays10Final ? '5L Cask' : '10L Cask');
+  // Carry A&B run state from previous week so 3-day minimum is enforced across week boundaries.
+  const prevCaskCache = prevWk4Carry ? planWeekCache[prevWk4Carry] : null;
+  const prevCaskSku   = (prevCaskCache && prevCaskCache.caskRunState) ? prevCaskCache.caskRunState.sku  : null;
+  const prevCaskDays  = (prevCaskCache && prevCaskCache.caskRunState) ? prevCaskCache.caskRunState.days : 0;
   const caskResult = scheduleEPCaskLines(
     week, opDays, eff,
     avail['10L Cask'] || 0, avail5,
-    minDays10Final, minDays5Final,   // enforce minimum days for each SKU to reach STOCK_COVER.target
-    lineABSku === '5L Cask',         // hmpsCovers10L: true → primarySku=5L; false → primarySku=10L
-    2                                // always 2 shifts
-  );  // enforce minimum days for each SKU to reach STOCK_COVER.target
+    minDays10Final, minDays5Final,
+    lineABSku === '5L Cask',
+    2,
+    prevCaskSku, prevCaskDays     // cross-week 3-day minimum carry
+  );
   const caskProd10 = caskResult.shifts.filter(s => s.sku === '10L Cask').reduce((a,s) => a + s.pallets, 0);
   const caskProd5  = caskResult.shifts.filter(s => s.sku === '5L Cask' ).reduce((a,s) => a + s.pallets, 0);
   const caskDays10 = caskResult.days10;   // physical days Line A&B ran 10L
@@ -2174,6 +2199,8 @@ function planWeek(week) {
   // Store bottle-line cycle carry so the next week picks up where this week left off.
   planWeekCache[week].endDays2L  = bottleResult.endDays2L  || 0;
   planWeekCache[week].endDays600 = bottleResult.endDays600 || 0;
+  // Store A&B cask run state for cross-week 3-day minimum enforcement. Rob Harris 15/10/2026.
+  planWeekCache[week].caskRunState = { sku: caskResult.endSku, days: caskResult.endSkuDays };
   // Use satStock as closing position when Saturday ran — this is what the next week starts from.
   // Using stockEnd here (pre-Saturday) would understate opening stock for all downstream weeks.
   const cs = result.satStock;
