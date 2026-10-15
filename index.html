@@ -1828,11 +1828,15 @@ function planWeek(week) {
   const pal10perABday  = cap10shift * 2;   // pallets A&B can produce per day on 10L (both shifts)
   const pal5perABday   = cap5shift  * 2;   // pallets A&B can produce per day on 5L (both shifts)
 
-  // No-negative floors (Rob Harris 03/09/2026): neither SKU may close the week negative.
-  // 5L has no HMPS fallback — it gets floor days first. 10L gets floor days from what remains.
-  // If combined floor days exceed opDays, Saturday is flagged as required.
-  const noNegGap5  = Math.max(0, -(projClose5L_noAB));      // 5L pallets short with no A&B
-  const noNegGap10 = Math.max(0, -(projClose10_HMPSonly));  // 10L pallets short even after HMPS
+  // Floor-cover enforcement (Rob Harris 15/10/2026, extends 03/09/2026):
+  // "Hard stop: both no less than STOCK_COVER.floor days." (Rob Harris 02/07/2026)
+  // Previous rule only prevented negative stock — allowed 1.5-day cover breaches when both SKUs
+  // competed for A&B days and 10L target top-up consumed all remaining capacity before 5L reached floor.
+  // Fix: enforce STOCK_COVER.floor (3 days) as the minimum, not zero. 5L gets priority (no HMPS fallback).
+  const floorPal5  = STOCK_COVER.floor * peakDailyD5;
+  const floorPal10 = STOCK_COVER.floor * peakDailyD10;
+  const noNegGap5  = Math.max(0, floorPal5  - projClose5L_noAB);   // pal to reach floor cover (5L)
+  const noNegGap10 = Math.max(0, floorPal10 - projClose10_HMPSonly); // pal to reach floor cover (10L)
   const noNegDays5raw  = pal5perABday  > 0 ? Math.ceil(noNegGap5  / pal5perABday)  : 0;
   const noNegDays10raw = pal10perABday > 0 ? Math.ceil(noNegGap10 / pal10perABday) : 0;
   const noNegDays5Capped  = Math.min(noNegDays5raw, opDays);
@@ -3593,8 +3597,14 @@ function renderSchedule(week, pr) {
     badge.style.cssText = 'background:#27AE60;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:3px;margin-left:8px;letter-spacing:.5px;vertical-align:middle';
     document.getElementById('schedHdr').appendChild(badge);
   }
-  badge.textContent = isConfirmed ? 'CONFIRMED PLAN' : '';
-  badge.style.display = isConfirmed ? 'inline' : 'none';
+  if (isConfirmed) {
+    badge.style.cssText = 'background:#27AE60;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:3px;margin-left:8px;letter-spacing:.5px;vertical-align:middle';
+    badge.textContent = 'CONFIRMED PLAN';
+  } else {
+    badge.style.cssText = 'background:#7F8C8D;color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:3px;margin-left:8px;letter-spacing:.5px;vertical-align:middle';
+    badge.textContent = 'CALCULATED';
+  }
+  badge.style.display = 'inline';
 
   // Lock window badge — shown for unconfirmed weeks within the 14-day lock window
   let lockWindowBadge = document.getElementById('lockWindowBadge');
