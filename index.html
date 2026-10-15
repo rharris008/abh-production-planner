@@ -11,9 +11,12 @@
 <title>ABH Pureau — Production Planner</title>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <style>
+/* ══ CSS VARIABLES ══════════════════════════════════════════════════════════ */
 :root{--navy:#1B2A4A;--red:#C0392B;--amber:#E67E22;--green:#27AE60;--blue:#0E7CCE;--bg:#F2F5F9;--border:#D0D7E3;--muted:#6B7A99;--light:#EEF2F8;--purple:#8E44AD}
+/* ══ BASE & RESET ════════════════════════════════════════════════════════════ */
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--navy);font-size:13px}
+/* ══ HEADER ══════════════════════════════════════════════════════════════════ */
 #hdr{background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:space-between;padding:8px 16px;position:sticky;top:0;z-index:200;box-shadow:0 2px 8px rgba(0,0,0,.3);gap:10px;flex-wrap:wrap}
 #hdr .brand{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#8EB4D8}
 #hdr .title{font-size:16px;font-weight:800;margin:2px 0}
@@ -26,6 +29,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .tog{display:inline-flex;border:1px solid rgba(255,255,255,.3);border-radius:4px;overflow:hidden}
 .tog button{padding:4px 9px;border:none;background:transparent;cursor:pointer;font-size:11px;font-weight:600;color:rgba(255,255,255,.6)}
 .tog button.on{background:rgba(255,255,255,.25);color:#fff}
+/* ══ NAV TABS ════════════════════════════════════════════════════════════════ */
 #nav{background:#fff;border-bottom:2px solid var(--border);display:flex;align-items:stretch;position:sticky;top:var(--nav-top,54px);z-index:199;box-shadow:0 2px 4px rgba(0,0,0,.06)}
 #nav-tabs{display:flex;overflow-x:auto;flex:1;padding-left:16px}
 #navFreshness{display:flex;gap:5px;align-items:center;padding:0 12px;flex-shrink:0;border-left:1px solid var(--border);flex-wrap:wrap}
@@ -46,7 +50,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .ph.green{background:var(--green);color:#fff}
 .ph.amber{background:var(--amber);color:#fff}
 .ph.purple{background:var(--purple);color:#fff}
-/* SKU strips */
+/* ══ SKU STRIPS ══════════════════════════════════════════════════════════════ */
 .sku-strips{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
 .sku-strip{display:grid;grid-template-columns:130px repeat(auto-fit,minmax(90px,1fr));border-radius:6px;overflow:hidden;border:1px solid var(--border)}
 .sku-strip .sku-label{background:var(--navy);color:#fff;display:flex;align-items:center;padding:10px 12px;font-weight:700;font-size:12px}
@@ -62,7 +66,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(
 .ktile.red{background:var(--red)}
 .ktile.amber{background:var(--amber)}
 .ktile.grey{background:var(--muted)}
-/* Tables */
+/* ══ TABLES ══════════════════════════════════════════════════════════════════ */
 table{width:100%;border-collapse:collapse;font-size:12px}
 th{background:var(--navy);color:#fff;padding:7px 10px;text-align:left;font-weight:600;font-size:11px;white-space:nowrap}
 td{padding:6px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
@@ -79,7 +83,8 @@ tr:hover td{background:var(--light)}
 .bb{background:#D6EAFA;color:#0A4D82}
 .bn{background:#E8ECF2;color:var(--muted)}
 .bsat{background:#EAD6FA;color:#4A0E82}
-/* Tracker-tab solid-fill badges — 3-Year Plan standard */
+/* ══ BADGES ══════════════════════════════════════════════════════════════════ */
+/* Tracker-tab solid-fill badges — 3-Year Plan standard (see project CLAUDE.md) */
 .badge-complete{background:var(--green);color:#fff}
 .badge-progress{background:var(--blue);color:#fff}
 .badge-todo{background:#ddd;color:#555}
@@ -99,7 +104,7 @@ tr:hover td{background:var(--light)}
 .c2L{background:#FEF0DC;color:#6B3E00}
 .c12pk{background:#EAD6FA;color:#4A0E82}
 .c6pk{background:#FAD6EA;color:#820E4A}
-/* Upload zones */
+/* ══ UPLOAD ZONES ════════════════════════════════════════════════════════════ */
 .upload-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;padding:12px}
 .drop-zone{border:2px dashed var(--border);border-radius:6px;padding:18px;text-align:center;cursor:pointer;color:var(--muted);transition:.2s;background:#FAFBFD}
 .drop-zone:hover,.drop-zone.drag-over{border-color:var(--blue);background:#EEF5FC;color:var(--blue)}
@@ -108,12 +113,12 @@ tr:hover td{background:var(--light)}
 .drop-zone .dz-sub{font-size:10px;margin-top:2px}
 .drop-zone .dz-status{margin-top:5px;font-size:11px;font-weight:600}
 .dz-loaded{border-color:var(--green)!important;background:#F0FBF4!important}
-/* Other customers grid */
+/* ══ OTHER CUSTOMERS GRID ════════════════════════════════════════════════════ */
 .oc-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;padding:12px}
 .oc-cell label{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;display:block;margin-bottom:3px}
 .oc-cell input{border:1px solid var(--border);border-radius:3px;padding:6px 8px;font-size:13px;font-weight:700;text-align:right;width:100%}
 .oc-cell input:focus{outline:2px solid var(--blue);border-color:var(--blue)}
-/* Day schedule grid */
+/* ══ DAY SCHEDULE GRID ═══════════════════════════════════════════════════════ */
 .sgrid{display:grid;gap:8px}
 .sgrid.d5{grid-template-columns:repeat(5,1fr)}
 .sgrid.d6{grid-template-columns:repeat(6,1fr)}
@@ -136,11 +141,11 @@ tr:hover td{background:var(--light)}
 .sbar{background:#DDD;border-radius:2px;height:4px;margin-top:3px}
 .sbar-f{height:4px;border-radius:2px}
 .no-prod{padding:8px;font-size:11px;color:var(--muted);font-style:italic}
-/* Delivery risk row */
+/* ══ DELIVERY RISK ═══════════════════════════════════════════════════════════ */
 tr.risk-r td{background:#FEF0F0}
 tr.risk-a td{background:#FEF9F0}
 
-/* ── MOBILE / TABLET (added 27/08/2026) ─────────────────────────────────────
+/* ══ MOBILE & TABLET (added 27/08/2026) ═════════════════════════════════════
    Root cause of "can't see the menus on mobile": #hdr is position:sticky and
    wraps into 4-5 rows on a phone, and #nav is pinned at top:var(--nav-top)
    which equals that wrapped header height. The tab bar was therefore parked
@@ -708,6 +713,7 @@ const DAYS   = ['Mon','Tue','Wed','Thu','Fri','Sat'];
 // SKU removed from SKUS, from the bottle-line scheduler, and from all demand/stock/plan views.
 
 // ══ STOCK COVER RULE ══════════════════════════════════════════════════════════
+// see PLANNER_LOGIC_MAP.md § Tier 1 — Config Constants
 // Single source of truth for all cover thresholds (C2 fix — Rob Harris 11/07/2026).
 // target: planning goal achievable at normal shift hours/rates.
 // floor:  hard minimum — breach triggers alert, not auto-action.
@@ -1007,6 +1013,7 @@ const isPastDayShift = () => (new Date().getUTCHours() + 10) % 24 >= 14;
 const wkLabel= w => `${fmtD(w)} - ${fmtD(addDays(w,4))}`;
 
 // ══ DEMAND ═══════════════════════════════════════════════════════════════════
+// see PLANNER_LOGIC_MAP.md § Demand pipeline
 function getDemand(week) {
   const d = COMBINED[week] || {};
   const r = {};
@@ -1070,6 +1077,7 @@ function getAdjustedDemand(week) {
 }
 
 // ══ EP LINE A&B — DAY-LEVEL SCHEDULER ════════════════════════════════════════
+// see PLANNER_LOGIC_MAP.md § Production scheduling
 // Line A and Line B ALWAYS run combined as a single unit — they are never split
 // to run different SKUs simultaneously.
 // Each shift runs either 10L Cask (A+B combined: 80 base/shift = 120 pal/day at 75% eff; Line A only: 40 base = 60/day)
@@ -1164,6 +1172,7 @@ function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, mi
 
 
 // ══ BOTTLE LINE SCHEDULER — 4-day 2L / 6-day 600ml production cycle ══════════
+// see PLANNER_LOGIC_MAP.md § Production scheduling
 // Rules per Rob Harris 20/06/2026:
 // - 4 working days on 2L (target: reach 9 days stock)
 // - 6 working days on 600ml (6pk)
@@ -1408,6 +1417,7 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock6, weekIdx, ca
 }
 
 // ══ FORWARD SIMULATION ═══════════════════════════════════════════════════════
+// see PLANNER_LOGIC_MAP.md § Production scheduling
 // Rolls forward up to LOOKAHEAD_WEEKS from a given week, projecting stock
 // using known weekly capacities (respecting Line B outage). Returns per-week
 // deficits so planWeek can pre-build stock proactively.
@@ -1464,6 +1474,7 @@ function forwardSimulate(fromWeekIdx, openStock, eff) {
 }
 
 // ══ PLANNING ENGINE ══════════════════════════════════════════════════════════
+// see PLANNER_LOGIC_MAP.md § Tier 2 — Canonical Calculation Functions
 function planWeek(week) {
   // Return cached full result if available — prevents redundant recomputation
   // across rolling table rows, horizon renders, etc.
@@ -2137,6 +2148,7 @@ function planWeek(week) {
 }
 
 // ══ CONFIRMED PLAN OVERRIDES ══════════════════════════════════════════════════
+// see PLANNER_LOGIC_MAP.md § Tier 2 — Canonical Calculation Functions
 // When Aaron confirms a plan that differs from the algorithm, add the week here.
 // The Shift Schedule tab will display this plan instead of the algorithm output,
 // with a "CONFIRMED PLAN" badge in the header.
@@ -3859,6 +3871,7 @@ function renderDispatch() {
 // is already visible on the tiles. Anchored to today regardless of week selector.
 // Updates when forecast or stock data changes, not when week selector changes.
 // ══ SHARED ALERT BUILDER ══════════════════════════════════════════════════════
+// see PLANNER_LOGIC_MAP.md § Alerts and display
 // Single source of truth for all alerts.
 // renderAlerts() shows all; renderFrontAlerts() filters to RED only.
 function buildAllAlerts() {
