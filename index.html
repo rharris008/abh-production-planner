@@ -2050,7 +2050,7 @@ function planWeek(week) {
     
     // A&B: continue Friday's SKU — no changeover required (Rob Harris 15/10/2026)
     // "AB is whatever was running the friday of that week so there is no changeover required"
-    if (!caskBothDown) {
+    if (!caskBothDownNow) {
       // Use existing cap*shift variables (lineAOnlyNow + eff already baked in) — avoids duplicate rate formula
       const satABAlloc = fridayCaskSku === '10L Cask' ? cap10shift : cap5shift;
       // Raw target (display only) — use destructured pair to avoid repeating the single/dual rate pattern
