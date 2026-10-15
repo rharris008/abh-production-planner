@@ -52,7 +52,7 @@ Each test maps to a finding from the 11/07/2026 diagnostic audit:
 | Finding | What it guards |
 |---------|---------------|
 | H1 | FY year derived dynamically (not hardcoded 2027) |
-| H2 | BUDGET_DATA_UPDATED badge fires amber at 90 days |
+| H2 | BUDGET_DATA_UPDATED badge fires amber at 365 days |
 | C2 | STOCK_COVER={target:5,floor:3} is sole threshold authority |
 | H3 | renderReplan reads pr.plannedProd — no independent capPerDay formula |
 | H4 | renderStockTable avail/cover from planWeek — no OO double-count |
@@ -135,5 +135,5 @@ This standard lives here (project CLAUDE.md) AND is referenced in the global ABH
 
 - Operational target: 67 pal/shift at 75% utilisation.
 - 2-shift day: 134 pal/day.
-- 3-shift (201/day) DELAYED to 01/09/2026 per Rob 28/06/2026.
+- 3-shift (201/day) NOT YET STARTED — confirmed by Rob 02/10/2026. Date TBD. Do not apply until Rob confirms activation.
 - Do not use 60/shift or 120/day.
