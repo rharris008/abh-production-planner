@@ -1082,3 +1082,33 @@ describe('SM1: Saturday bottle 3-day minimum enforcement', () => {
   });
 
 });
+
+// ── SM2: Confirmed-to-dynamic bottle carry ────────────────────────────────────
+// Rob Harris 16/10/2026 — bug: confirmed schedule bypass reset endDays2L/endDays600 to 0,
+// causing the first dynamic week after a confirmed week to start blind and produce orphan
+// 1-2 day bottle runs. Fix: compute actual end-state from last bottle shifts in confProd,
+// mirroring the cask run-state logic already present.
+describe('SM2: Confirmed-to-dynamic bottle carry', () => {
+
+  test('SM2 — confirmed bypass computes confBotEndSku from last bottle shift (not hard-zero)', () => {
+    assert.ok(
+      SRC.includes('confBotEndSku'),
+      'FAIL SM2: confBotEndSku not found — confirmed bypass still resets endDays to 0 instead of deriving from last bottle shift.'
+    );
+  });
+
+  test('SM2 — confirmed bypass sets endDays600 from confBotEndDays when SKU is 600ml 6pk', () => {
+    assert.ok(
+      SRC.includes("confBotEndSku === '600ml 6pk' ? confBotEndDays : 0"),
+      "FAIL SM2: endDays600 not derived from confBotEndDays — dynamic week after confirmed will start with carry=0 and produce orphan runs."
+    );
+  });
+
+  test('SM2 — confirmed bypass sets endDays2L from confBotEndDays when SKU is 2L Bottle', () => {
+    assert.ok(
+      SRC.includes("confBotEndSku === '2L Bottle'  ? confBotEndDays : 0"),
+      "FAIL SM2: endDays2L not derived from confBotEndDays — dynamic week after confirmed will start with carry=0 and produce orphan runs."
+    );
+  });
+
+});

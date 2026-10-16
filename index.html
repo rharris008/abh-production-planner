@@ -1730,12 +1730,24 @@ function planWeek(week) {
       else if (confCaskShifts[ci].sku !== confEndSku) break;
     }
 
+    // Derive bottle run state from last bottle shift in confirmed schedule — mirrors the cask
+    // run-state logic above (lines 1722-1731). Without this, endDays resets to 0 and the first
+    // dynamic week starts blind, producing orphan 1-2 day runs at the confirmed/dynamic boundary.
+    const confBottleShifts = confProd.filter(s => s.sku === '2L Bottle' || s.sku === '600ml 6pk');
+    const lastBotShiftC    = confBottleShifts.length > 0 ? confBottleShifts[confBottleShifts.length - 1] : null;
+    let confBotEndSku  = lastBotShiftC ? lastBotShiftC.sku : null;
+    let confBotEndDays = 0;
+    for (let bi = confBottleShifts.length - 1; bi >= 0; bi--) {
+      if (confBottleShifts[bi].sku === confBotEndSku &&
+          (bi === confBottleShifts.length - 1 || confBottleShifts[bi].date !== confBottleShifts[bi + 1].date)) confBotEndDays++;
+      else if (confBottleShifts[bi].sku !== confBotEndSku) break;
+    }
+
     if (!planWeekCache[week]) planWeekCache[week] = {};
     planWeekCache[week]._full = resultC;
     planWeekCache[week].closingStock = {...stockEnd};
-    // Confirmed schedule bypasses scheduleBottleLine — carry resets so next dynamic week starts clean.
-    planWeekCache[week].endDays2L  = 0;
-    planWeekCache[week].endDays600 = 0;
+    planWeekCache[week].endDays2L  = confBotEndSku === '2L Bottle'  ? confBotEndDays : 0;
+    planWeekCache[week].endDays600 = confBotEndSku === '600ml 6pk' ? confBotEndDays : 0;
     planWeekCache[week].caskRunState = confEndSku ? { sku: confEndSku, days: confEndDays } : null;
     return resultC;
   }
