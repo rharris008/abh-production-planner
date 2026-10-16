@@ -1053,3 +1053,32 @@ describe('RT1: Runtime execution of scheduler functions', () => {
   });
 
 });
+
+// ── SM1: Saturday 3-day minimum enforcement ──────────────────────────────────
+// Rob Harris 16/10/2026 — bug: Saturday bottle block ignored scheduleBottleLine's
+// 3-day minimum and could suggest a different SKU to Friday's, creating a 1-shift
+// sub-minimum run. Fix: gate on lastBottleSku from bottleResult.shifts.
+describe('SM1: Saturday bottle 3-day minimum enforcement', () => {
+
+  test('SM1 — Saturday bottle block gates on lastBottleSku from bottleResult', () => {
+    assert.ok(
+      SRC.includes('bottleResult.shifts[bottleResult.shifts.length - 1].sku'),
+      'FAIL SM1: lastBottleSku derivation from bottleResult.shifts not found — Saturday block may still bypass 3-day minimum.'
+    );
+  });
+
+  test('SM1 — Saturday bottle filter checks STOCK_COVER.floor as emergency override', () => {
+    assert.ok(
+      SRC.includes('STOCK_COVER.floor') && SRC.includes('lastBottleSku'),
+      'FAIL SM1: STOCK_COVER.floor emergency check missing from Saturday bottle 3-day gate.'
+    );
+  });
+
+  test('SM1 — Saturday bottle guard only runs when bottle line is not down', () => {
+    assert.ok(
+      SRC.includes('!bottleDown && bottleResult.shifts.length > 0'),
+      'FAIL SM1: bottleDown guard missing — Saturday block may throw on empty shifts array when bottle line is down.'
+    );
+  });
+
+});

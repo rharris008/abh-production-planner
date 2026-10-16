@@ -2105,6 +2105,17 @@ function planWeek(week) {
       const drop = (coverDays['2L Bottle']||0) <= (coverDays['600ml 6pk']||0) ? '600ml 6pk' : '2L Bottle';
       bottleSatSkus = bottleSatSkus.filter(s => s !== drop);
     }
+    // 3-day minimum enforcement — Rob Harris 16/10/2026.
+    // Saturday must continue the SKU the bottle line ran on Friday. A switch on Saturday
+    // produces a 1-shift run that violates the 3-day consecutive minimum enforced by
+    // scheduleBottleLine() on weekdays (Mon-Fri). Exception: allow a switch when the
+    // non-running SKU is below STOCK_COVER.floor (genuine emergency, same as weekday logic).
+    if (!bottleDown && bottleResult.shifts.length > 0) {
+      const lastBottleSku = bottleResult.shifts[bottleResult.shifts.length - 1].sku;
+      bottleSatSkus = bottleSatSkus.filter(sku =>
+        sku === lastBottleSku || (coverDays[sku] || 0) < STOCK_COVER.floor
+      );
+    }
     bottleSatSkus.forEach(sku => {
       const tgt = sku === '2L Bottle' ? 52 : 32;
       const label = sku === '2L Bottle' ? 'EP Bottle — Sat' : 'EP Bottle Line (6pk) — Sat';
