@@ -3767,8 +3767,10 @@ function renderSchedule(week, pr) {
   // Build date-indexed schedule map
   const byDate = {};
   sched.forEach(s => {
-    if (!byDate[s.date]) byDate[s.date] = {Day:[], Aft:[]};
-    (s.shift === 'Day' ? byDate[s.date].Day : byDate[s.date].Aft).push(s);
+    if (!byDate[s.date]) byDate[s.date] = {Day:[], Aft:[], Night:[]};
+    if (s.shift === 'Day') byDate[s.date].Day.push(s);
+    else if (s.shift === 'Night') byDate[s.date].Night.push(s);
+    else byDate[s.date].Aft.push(s);
   });
 
   const today = localToday();
@@ -3793,8 +3795,8 @@ function renderSchedule(week, pr) {
     const isHoliday = !isSat && publicHolidays.has(date);
     const isShutdown = !isSat && plannedShutdowns.has(date);
     const isPast = isCurrentWeek && date < today;
-    const dayEntries = byDate[date] || {Day: [], Aft: []};
-    const all = [...dayEntries.Day, ...dayEntries.Aft];
+    const dayEntries = byDate[date] || {Day: [], Aft: [], Night: []};
+    const all = [...dayEntries.Day, ...dayEntries.Aft, ...(dayEntries.Night||[])];
     const totPal = all.reduce((a, s) => a + s.pallets, 0);
 
     if (isHoliday || isShutdown) {
@@ -3851,6 +3853,7 @@ function renderSchedule(week, pr) {
       </div>
       ${buildShift(dayEntries.Day, 'Day')}
       ${buildShift(dayEntries.Aft, 'Afternoon')}
+      ${buildShift(dayEntries.Night, 'Night')}
       ${dueHtml ? `<div style="padding:4px 9px">${dueHtml}</div>` : ''}
       ${all.length === 0 ? '<div class="no-prod">No production</div>' : ''}
     </div>`;
