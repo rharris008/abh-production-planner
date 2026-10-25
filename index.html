@@ -2080,7 +2080,7 @@ function planWeek(week) {
   const satDate = addDays(week, 5);
   // Pre-approved Saturdays always run regardless of trigger (Rob Harris 15/10/2026: approved up to 01/01/2027)
   const satPreApproved = CONFIRMED_SATURDAYS.has(satDate);
-  const needSat = satMode === 'on' || satPreApproved || (!hmpsNightShift && satMode === 'auto' && satTriggers.length > 0);
+  const needSat = satMode === 'on' || satPreApproved || (satMode === 'auto' && satTriggers.length > 0);
   const satIsHoliday = publicHolidays.has(satDate);
 
   const satLines = [];

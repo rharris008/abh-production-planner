@@ -1148,10 +1148,10 @@ describe('NS1: HMPS Night shift mode', () => {
     );
   });
 
-  test('NS1 — Saturday auto-trigger suppressed when hmpsNightShift active', () => {
+  test('NS1 — Saturday auto-trigger NOT blanket-suppressed by hmpsNightShift (cover-days maths decides)', () => {
     assert.ok(
-      SRC.includes('!hmpsNightShift && satMode === \'auto\' && satTriggers.length > 0'),
-      "FAIL NS1: Saturday auto-trigger not gated on hmpsNightShift — Saturday will fire when Night shift is already running."
+      !SRC.includes('!hmpsNightShift && satMode === \'auto\' && satTriggers.length > 0'),
+      "FAIL NS1: Saturday auto-trigger is blanket-suppressed by hmpsNightShift — pre-Christmas buffer Saturdays will be wrongly blocked."
     );
   });
 
