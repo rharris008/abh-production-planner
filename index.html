@@ -353,10 +353,6 @@ tr.risk-a td{background:#FEF9F0}
     </div>
     <div style="padding:12px"><div class="sgrid d5" id="dayGrid"></div></div>
   </div>
-  <div class="panel">
-    <div class="ph blue">Shift Detail <button onclick="exportCSV()" style="background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.3);color:#fff;padding:3px 9px;border-radius:3px;font-size:10px;cursor:pointer">Export CSV</button></div>
-    <div class="tscroll"><table id="shiftTable"></table></div>
-  </div>
 </div>
 
 <!-- ══════════════ SECTION: Tab — 12-Week Horizon ══════════════ -->
@@ -3873,26 +3869,6 @@ function renderSchedule(week, pr) {
     </div>`;
   });
 
-  // Shift detail table
-  let h = `<thead><tr><th>Day</th><th>Date</th><th>Shift</th><th>Line</th><th>SKU</th><th class="num">Pallets</th><th class="num">Max/Shift</th><th class="num">Attainment</th><th>Risk</th></tr></thead><tbody>`;
-  sched.forEach(s => {
-    const maxP = getMaxPal(s);
-    const att = maxP > 0 ? (s.pallets / maxP * 100).toFixed(0) + '%' : '—';
-    const attCls = s.pallets >= maxP * .85 ? 'g' : s.pallets >= maxP * .6 ? 'a' : 'r';
-    const dayName = s.date ? DAYS[new Date(s.date+'T00:00:00').getDay() === 0 ? 6 : new Date(s.date+'T00:00:00').getDay() - 1] : '—';
-    h += `<tr${s.day === 5 ? ' style="background:#F5F0FF"' : ''}>
-      <td>${dayName}${s.day === 5 ? ' <span class="badge bsat">SAT</span>' : ''}</td>
-      <td>${s.date ? fmtD(s.date) : '—'}</td>
-      <td><span class="badge ${s.shift === 'Day' ? 'bb' : 'bn'}">${s.shift}</span></td>
-      <td><strong>${s.label}</strong></td>
-      <td><span class="chip ${CHIP[s.sku]}">${s.sku}</span></td>
-      <td class="num">${fmt(s.pallets)}</td>
-      <td class="num">${fmt(maxP)}</td>
-      <td class="num ${attCls}">${att}</td>
-      <td>${s.riskFlag ? '<span class="badge br">⚠ AT RISK</span>' : ''}</td>
-    </tr>`;
-  });
-  document.getElementById('shiftTable').innerHTML = h + '</tbody>';
 }
 
 // ══ RENDER: HORIZON ═══════════════════════════════════════════════════════════
@@ -7013,15 +6989,6 @@ function renderBudget() {
       ${ytdHtml}
     </div>`;
 }
-function exportCSV(){
-  const pr=planWeek(currentWeek);
-  const sched=buildSchedule(currentWeek,pr);
-  const rows=[['Day','Date','Shift','Line','SKU','Pallets','Target','Attainment','Risk']];
-  sched.forEach(s=>{const d=addDays(currentWeek,s.day);rows.push([DAYS[s.day],fmtD(d),s.shift,s.label,s.sku,s.pallets,s.target,s.target>0?(s.pallets/s.target*100).toFixed(0)+'%':'-',s.riskFlag?'AT RISK':'']);} );
-  const csv=rows.map(r=>r.map(v=>`"${v}"`).join(',')).join('\n');
-  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download=`ABH_Shifts_${currentWeek}.csv`;a.click();
-}
-
 // ══ MAIN UPDATE ═══════════════════════════════════════════════════════════════
 function onWeekChange() {
   currentWeek=document.getElementById('weekSel').value;
