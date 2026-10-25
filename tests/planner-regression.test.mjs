@@ -1163,3 +1163,39 @@ describe('NS1: HMPS Night shift mode', () => {
   });
 
 });
+
+// ── BL1: Bottle line scheduling — cover-based cycle ─────────────────────────
+// Rob Harris 25/10/2026: bottle line cycle rule — run current SKU until cover
+// reaches STOCK_COVER.target (5 days), min 3 consecutive days, then switch.
+// Old hardcoded 9-day 2L target and 6-day 6pk day-cap removed.
+describe('BL1: Bottle line cover-based cycle', () => {
+
+  test('BL1 — no hardcoded TARGET_2L_COVER = 9 (was causing 2L over-allocation)', () => {
+    assert.ok(
+      !SRC.includes('TARGET_2L_COVER = 9'),
+      "FAIL BL1: TARGET_2L_COVER = 9 is still present — 2L will over-produce until 9-day cover, ignoring 5-day target."
+    );
+  });
+
+  test('BL1 — no hardcoded TARGET_600_DAYS day-cap as primary 6pk→2L trigger', () => {
+    assert.ok(
+      !SRC.includes('days600 >= TARGET_600_DAYS'),
+      "FAIL BL1: 6pk→2L transition still gated by fixed day count — must be cover-based."
+    );
+  });
+
+  test('BL1 — 2L→6pk transition uses STOCK_COVER.target', () => {
+    assert.ok(
+      SRC.includes('c2 >= STOCK_COVER.target && days2L >= BOTTLE_MIN_RUN_DAYS'),
+      "FAIL BL1: 2L→6pk transition does not use STOCK_COVER.target — 2L exit condition is wrong."
+    );
+  });
+
+  test('BL1 — 6pk→2L transition uses STOCK_COVER.target', () => {
+    assert.ok(
+      SRC.includes('c6 >= STOCK_COVER.target && days600 >= BOTTLE_MIN_RUN_DAYS'),
+      "FAIL BL1: 6pk→2L transition does not use STOCK_COVER.target — 6pk exit condition is wrong."
+    );
+  });
+
+});
