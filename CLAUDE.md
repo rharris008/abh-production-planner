@@ -41,7 +41,7 @@ npm test
 
 Suite: `tests/planner-regression.test.mjs`
 Framework: Node built-in `node:test` (no install needed, Node 18+).
-Coverage: 78 tests across 11 suites (C2, H1, H2, H3, H4, H5, M6, LM, R1, CS1, CS2, RT1).
+Coverage: 90 tests across 14 suites (C2, H1, H2, H3, H4, H5, M6, LM, R1, CS1, CS2, RT1, SM1, SM2, NS1).
 
 **A failing test blocks the commit.** Fix the root cause — do not modify the test
 to pass around a broken implementation.
@@ -135,5 +135,5 @@ This standard lives here (project CLAUDE.md) AND is referenced in the global ABH
 
 - Operational target: 67 pal/shift at 75% utilisation.
 - 2-shift day: 134 pal/day.
-- 3-shift (201/day) NOT YET STARTED — confirmed by Rob 02/10/2026. Date TBD. Do not apply until Rob confirms activation.
+- 3-shift (201/day) — **NOW ACTIVE.** `hmpsNightShift = true` set by Rob 25/10/2026. Runs permanently until Rob explicitly disables. All capacity calculations now use 3 shifts for HMPS.
 - Do not use 60/shift or 120/day.

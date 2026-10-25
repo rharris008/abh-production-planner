@@ -1112,3 +1112,54 @@ describe('SM2: Confirmed-to-dynamic bottle carry', () => {
   });
 
 });
+
+// ── NS1: HMPS Night Shift ────────────────────────────────────────────────────
+// Rob Harris 25/10/2026: HMPS Night shift active permanently until disabled.
+// Changes: hmpsNightShift flag, 3-shift capacity in all HMPS calc paths,
+//          Saturday auto-trigger suppressed, Night shift alert suppressed.
+describe('NS1: HMPS Night shift mode', () => {
+
+  test('NS1 — hmpsNightShift variable defined', () => {
+    assert.ok(
+      SRC.includes('let hmpsNightShift'),
+      "FAIL NS1: hmpsNightShift not defined — Night shift mode has no controlling flag."
+    );
+  });
+
+  test('NS1 — buildSchedule HMPS adds Night shift entry when hmpsNightShift', () => {
+    assert.ok(
+      SRC.includes("if (hmpsNightShift) {") &&
+      SRC.includes("shift:'Night', label:dayLabel"),
+      "FAIL NS1: buildSchedule does not push Night shift entry — Night shift will not display in day grid."
+    );
+  });
+
+  test('NS1 — forwardSimulate HMPS uses hmpsNightShift for shift count', () => {
+    assert.ok(
+      SRC.includes('hmpsNightShift ? 3 : 2) * fwdOpDays * eff'),
+      "FAIL NS1: forwardSimulate HMPS capacity still uses hardcoded 2 shifts — capacity deficit projections undercount Night shift."
+    );
+  });
+
+  test('NS1 — planWeek hmpsShifts derives from hmpsNightShift', () => {
+    assert.ok(
+      SRC.includes('const hmpsShifts = hmpsNightShift ? 3 : 2'),
+      "FAIL NS1: planWeek hmpsShifts is hardcoded to 2 — planned production underestimates Night shift output."
+    );
+  });
+
+  test('NS1 — Saturday auto-trigger suppressed when hmpsNightShift active', () => {
+    assert.ok(
+      SRC.includes('!hmpsNightShift && satMode === \'auto\' && satTriggers.length > 0'),
+      "FAIL NS1: Saturday auto-trigger not gated on hmpsNightShift — Saturday will fire when Night shift is already running."
+    );
+  });
+
+  test('NS1 — Night shift required alert suppressed when hmpsNightShift active', () => {
+    assert.ok(
+      SRC.includes('nightShiftConsec >= 2 && !nightShiftAlertFired && !hmpsNightShift'),
+      "FAIL NS1: Night shift required alert not suppressed — alert fires even when Night shift is already running."
+    );
+  });
+
+});

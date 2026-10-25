@@ -733,6 +733,7 @@ const STOCK_COVER = {
 // ══ STATE ════════════════════════════════════════════════════════════════════
 let currentWeek = '';
 let hmpsConfig  = 'Dual';
+let hmpsNightShift = true;  // Rob Harris 25/10/2026: HMPS Night shift active — permanent until explicitly disabled
 let lockedWeeksSet = new Set(); // Weeks locked in Supabase locked_weeks — blocks algorithm only; Aaron/Jeremy can still change via email
 let satMode     = 'auto';  // Rob Harris 03/09/2026: default auto so Saturday fires when triggered
 // Pre-approved Saturday dates (Rob Harris 15/10/2026: approved up to 01/01/2027).
@@ -1476,7 +1477,7 @@ function forwardSimulate(fromWeekIdx, openStock, eff) {
     const cap5perShift  = Math.floor((lineAOnly ? 30 : 59) * eff);
     const hmpsTgt = hmpsConfig === 'Dual' ? 90 : 45;
     const fwdOpDays = opDaysInWeek(wk);
-    const capHMPS = Math.floor(hmpsTgt * 2 * fwdOpDays * eff);  // working days × 2 shifts
+    const capHMPS = Math.floor(hmpsTgt * (hmpsNightShift ? 3 : 2) * fwdOpDays * eff);  // working days × shifts (3 when Night shift active)
 
     // Project: assume max production on constrained lines
     // 10L: HMPS full week + EP Line A&B full week at Line A capacity
@@ -1775,7 +1776,7 @@ function planWeek(week) {
   const d10   = demand['10L Cask'].total;
   // HMPS always runs 2 shifts every available working day. No throttle. (Rule per Rob Harris 20/06/2026)
   // Exception: when a Maintenance Calendar entry covers this week, HMPS capacity = 0.
-  const hmpsShifts = 2;
+  const hmpsShifts = hmpsNightShift ? 3 : 2;
   const hmpsTgtLabel = `EP HMPS (${hmpsForceSingle ? 'Single — filler maint.' : hmpsConfig})`;
   const hmpsDown = hmpsOutageForWeek(week);
   // Per-day override: compute HMPS capacity from HMPS_DAY_OVERRIDES if any date in this week is overridden
@@ -1789,12 +1790,12 @@ function planWeek(week) {
       const mode = hmpsConfigForDate(d, week);
       if (mode !== 'down') {
         const dayTgt = mode === 'single' ? 45 : 90;
-        totalCapH += Math.floor(dayTgt * 2 * eff);
+        totalCapH += Math.floor(dayTgt * (hmpsNightShift ? 3 : 2) * eff);
         runDaysH++;
       }
     });
     hmps = { label: hmpsTgtLabel, site: 'EP', sku: '10L Cask',
-      tgt: hmpsTgt, days: runDaysH, shifts: 2, maxDays: 5, cap: totalCapH,
+      tgt: hmpsTgt, days: runDaysH, shifts: hmpsNightShift ? 3 : 2, maxDays: 5, cap: totalCapH,
       util: runDaysH / 5,
       stockEnd: (stockPal['10L Cask']||0) + totalCapH - demand['10L Cask'].total };
   } else {
@@ -2047,7 +2048,7 @@ function planWeek(week) {
       if (!fwkLa) break;  // outage ends before this week
       const fwkDem = getDemand(fwk);
       const fwkOpDays = opDaysInWeek(fwk);
-      const fwkHmps = Math.floor(hmpsTgt * 2 * fwkOpDays * eff);
+      const fwkHmps = Math.floor(hmpsTgt * (hmpsNightShift ? 3 : 2) * fwkOpDays * eff);
       const fwkCap5  = Math.floor(40 * eff) * 2 * fwkOpDays;
       const fwkCap10 = Math.floor(40 * eff) * 2 * fwkOpDays;
       const fwkD5    = fwkDem['5L Cask'].total || 0;
@@ -2079,7 +2080,7 @@ function planWeek(week) {
   const satDate = addDays(week, 5);
   // Pre-approved Saturdays always run regardless of trigger (Rob Harris 15/10/2026: approved up to 01/01/2027)
   const satPreApproved = CONFIRMED_SATURDAYS.has(satDate);
-  const needSat = satMode === 'on' || satPreApproved || (satMode === 'auto' && satTriggers.length > 0);
+  const needSat = satMode === 'on' || satPreApproved || (!hmpsNightShift && satMode === 'auto' && satTriggers.length > 0);
   const satIsHoliday = publicHolidays.has(satDate);
 
   const satLines = [];
@@ -2210,7 +2211,7 @@ function planWeek(week) {
     bottle2LDates,
     cask: {prod10: caskProd10, prod5: caskProd5, days10: caskDays10, days5: caskDays5, shifts: caskResult.shifts,
            endStock10: caskResult.endStock10, endStock5: caskResult.endStock5,
-           shifts5: 2, hmpsShifts: 2},
+           shifts5: 2, hmpsShifts: hmpsNightShift ? 3 : 2},
     ep: {prod6, days6, shifts: bottleResult.shifts.filter(s => s.sku === '600ml 6pk'),
          endStock6: bottleResult.endStock6},
     bottleShifts: bottleResult.shifts,
@@ -3153,6 +3154,11 @@ function buildSchedule(week, pr) {
         const tgtH = Math.floor(dayTgt * effH);
         schedule.push({day:d, date, shift:sh===0?'Day':'Aft', label:dayLabel,
           sku:'10L Cask', pallets:tgtH, target:tgtH, cls:'ep10', site:'EP'});
+      }
+      if (hmpsNightShift) {
+        const tgtN = Math.floor(dayTgt * effH);
+        schedule.push({day:d, date, shift:'Night', label:dayLabel,
+          sku:'10L Cask', pallets:tgtN, target:tgtN, cls:'ep10', site:'EP'});
       }
     });
   }
@@ -4126,7 +4132,7 @@ function buildAllAlerts() {
       if (cov10 < STOCK_COVER.target && cov5 < STOCK_COVER.target && dem10 > 0 && dem5 > 0) {
         if (nightShiftConsec === 0) nightShiftFirstWk = wk;
         nightShiftConsec++;
-        if (nightShiftConsec >= 2 && !nightShiftAlertFired) {
+        if (nightShiftConsec >= 2 && !nightShiftAlertFired && !hmpsNightShift) {
           alerts.push({t:'r', msg:`<strong>⚠ NIGHT SHIFT REQUIRED:</strong> Both 10L Cask and 5L Cask are projected below ${STOCK_COVER.target} days cover for ${nightShiftConsec} consecutive weeks starting w/c ${fmtD(nightShiftFirstWk)}. Capacity cannot be met on day/afternoon shifts alone. Consider starting night shift on EP lines.`});
           nightShiftAlertFired = true;
         }

@@ -23,6 +23,7 @@ All consumers must reference the constant, never a hardcoded number.
 | ID | Constant | Line | Value | Controls |
 |----|----------|------|-------|----------|
 | C-01 | `STOCK_COVER` | 717 | `{target:5, floor:3}` — UI-editable | Every cover-days threshold and floor-breach alert |
+| C-08 | `hmpsNightShift` | ~736 | `true` — set by Rob; disable explicitly to turn off | HMPS shift count (3 when true, 2 when false) in forwardSimulate, planWeek, buildSchedule, Saturday auto-trigger, Night shift required alert. **Active from 25/10/2026 until Rob explicitly disables.** |
 | C-03 | `BUDGET_DATA_UPDATED` | 683 | `'2026-08-26'` | Budget staleness badge (amber at >= 365 days — budgets stay in force 1 year; changed from 90 days 15/10/2026) |
 | C-04 | `UPP` | 702 | `{10L:96, 5L:60, 2L:64, 12pk:126, 6pk:252}` | All unit-to-pallet conversions. **Metcash-specific:** Metcash sends individual consumer units. `parseMetcashWB` applies an intermediate shipper conversion (`_mcShip`: 5L/3, 2L/6) before dividing by UPP, giving effective Metcash divisors of 10L÷96, 5L÷180, 2L÷384. Confirmed correct by Jeremy Wheeler 17/08/2026. |
 | C-05 | `SKUS` | 703 | `['10L Cask','5L Cask','2L Bottle','600ml 6pk']` | Canonical SKU list; loop order matters. **600ml 12pk excluded from SKUS 27/08/2026 — not material to the plan. Occasional Amazon runs handled outside the planner. Constants (UPP, STOCK_PAL etc.) retain 12pk keys intentionally.** |
@@ -133,4 +134,4 @@ Do not hardcode a year. Do not add a separate constant for this — the formula 
 
 ---
 
-*Last updated: 16/10/2026 — F-12 planWeek: Saturday bottle 3-day minimum constraint documented (SM1 finding, Rob Harris 16/10/2026).*
+*Last updated: 25/10/2026 — C-08 hmpsNightShift: HMPS Night shift mode activated permanently (Rob Harris 25/10/2026). Saturday auto-trigger suppressed; Night shift required alert suppressed; buildSchedule now generates Night shift entries for all dynamic HMPS weeks.*
