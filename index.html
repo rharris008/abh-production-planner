@@ -3102,6 +3102,11 @@ function buildSchedule(week, pr) {
         } else if (lineAOnlyCS) {
           label = `EP Line ${runLineCS} only (${is10L ? '10L' : '5L'})`;
           pallets = Math.floor((is10L ? 40 : 30) * eff);
+        } else if (s.label.includes(' only ')) {
+          // Production-split week (not maintenance-driven): respect the stored label.
+          // Use single-line capacity — 40 pal/shift for 10L, 30 for 5L.
+          label = s.label;
+          pallets = Math.floor((is10L ? 40 : 30) * eff);
         } else {
           label = is10L ? 'EP Line A&B (10L)' : 'EP Line A&B (5L)';
           // Derive capacity from the NORMALISED label, not the stored one.
