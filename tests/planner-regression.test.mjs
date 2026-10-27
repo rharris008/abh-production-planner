@@ -1199,3 +1199,34 @@ describe('BL1: Bottle line cover-based cycle', () => {
   });
 
 });
+
+// ── PS1: Production-split label preservation in buildSchedule confirmed path ──
+// Bug found 28/10/2026: buildSchedule was forcibly relabelling 'EP Line A only' /
+// 'EP Line B only' back to 'EP Line A&B' whenever no maintenance outage existed,
+// making production-split weeks (where the split is a deliberate production decision
+// rather than maintenance-driven) display incorrectly. Fix: respect stored 'only'
+// labels and apply single-line pallet capacity.
+describe('PS1: Production-split label preservation', () => {
+
+  test('PS1 — buildSchedule confirmed path has production-split label guard', () => {
+    assert.ok(
+      SRC.includes("s.label.includes(' only ')"),
+      "FAIL PS1: buildSchedule confirmed path missing production-split guard — 'only' labels will be overridden back to A&B."
+    );
+  });
+
+  test('PS1 — production-split branch preserves stored label', () => {
+    assert.ok(
+      SRC.includes("label = s.label;") && SRC.includes("s.label.includes(' only ')"),
+      "FAIL PS1: production-split branch does not preserve stored label (label = s.label missing)."
+    );
+  });
+
+  test('PS1 — production-split branch uses single-line pallet capacity', () => {
+    assert.ok(
+      SRC.includes("pallets = Math.floor((is10L ? 40 : 30) * eff)"),
+      "FAIL PS1: single-line pallet capacity formula missing — production-split shifts will show wrong pallet count."
+    );
+  });
+
+});
