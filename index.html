@@ -1679,6 +1679,7 @@ function planWeek(week) {
     prebuildAlertC.sort((a,b)=>a.weeksAway-b.weeksAway);
 
     const satTriggersC = SKUS.filter(s => {
+      if (s === '5L Cask') return false;  // 5L never triggers Saturday — loss-making. Rob Harris 28/10/2026.
       const effD = demand[s].total > 0 ? demand[s].total : (thisWkOOC[s]||0);
       return (displayCoverDaysC[s]||0) < STOCK_COVER.floor && effD > 0;
     });
@@ -1702,7 +1703,7 @@ function planWeek(week) {
         shifts: [...cask5C.map(s=>({...s,riskFlag:false})), ...cask10C.map(s=>({...s,riskFlag:false}))],
         endStock10: stockEnd['10L Cask'],
         endStock5:  stockEnd['5L Cask'],
-        shifts5: 2, hmpsShifts: 2
+        shifts5: 2, hmpsShifts: hmpsNightShift ? 3 : 2
       },
       ep: {
         prod6: ep6Pal,
@@ -2061,12 +2062,13 @@ function planWeek(week) {
   }
 
   const satTriggers = SKUS.filter(s => {
+    // 5L is loss-making on Saturday — never schedule it. Night shift covers any 5L gap. Rob Harris 28/10/2026.
+    if (s === '5L Cask') return false;
     // Use this week's open orders as fallback demand signal when no forecast is loaded
     const effectiveDemand = demand[s].total > 0 ? demand[s].total : (thisWkOO[s] || 0);
     // Saturday fires when weekday production can't reach target cover (5 days). Rob Harris 15/10/2026:
     // previously checked < floor (3 days) which suppressed Saturday after the floor fix was applied.
     if ((coverDays[s]||0) < STOCK_COVER.target || midWeekAtRisk.has(s)) return effectiveDemand > 0;
-    if (s === '5L Cask'  && (fwd5short || lineBOutageSatNeeded5L || satRequiredNoNeg)) return true;
     if (s === '10L Cask' && lineBOutageSatNeeded10L) return true;
     return false;
   });
@@ -2097,9 +2099,9 @@ function planWeek(week) {
       satLines.push({sku:'10L Cask', label:hmpsSatLabel, tgt:hmpsSatTgt, satAlloc:hmpsSatAlloc, cls:'ep10'});
     }
     
-    // A&B: continue Friday's SKU — no changeover required (Rob Harris 15/10/2026)
-    // "AB is whatever was running the friday of that week so there is no changeover required"
-    if (!caskBothDownNow) {
+    // A&B: continue Friday's SKU — no changeover required (Rob Harris 15/10/2026).
+    // Exception: 5L Cask never runs on Saturday — loss-making. If Friday was 5L, skip the cask line. Rob Harris 28/10/2026.
+    if (!caskBothDownNow && fridayCaskSku !== '5L Cask') {
       // Use existing cap*shift variables (lineAOnlyNow + eff already baked in) — avoids duplicate rate formula
       const satABAlloc = fridayCaskSku === '10L Cask' ? cap10shift : cap5shift;
       // Raw target (display only) — use destructured pair to avoid repeating the single/dual rate pattern
