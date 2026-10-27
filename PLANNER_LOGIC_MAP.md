@@ -134,4 +134,4 @@ Do not hardcode a year. Do not add a separate constant for this — the formula 
 
 ---
 
-*Last updated: 25/10/2026 — C-08 hmpsNightShift: HMPS Night shift mode activated permanently (Rob Harris 25/10/2026). Saturday auto-trigger suppressed; Night shift required alert suppressed; buildSchedule now generates Night shift entries for all dynamic HMPS weeks.*
+*Last updated: 28/10/2026 — 5L Saturday block: Rob Harris 28/10/2026. 5L Cask is loss-making on Saturday and must never be scheduled. Two enforcement points: (1) `satTriggers` filter (dynamic planWeek, ~line 2063) now short-circuits `false` for '5L Cask' — a 5L shortage cannot trigger a Saturday shift; Night shift covers the gap. (2) Saturday cask-line scheduling (dynamic planWeek, ~line 2100) skips the EP Line A&B block when `fridayCaskSku === '5L Cask'` — even if Saturday runs for another SKU, 5L cask does not run. Also applied to `satTriggersC` (confirmed planWeek path, ~line 1681). Night shift display fix: confirmed planWeek path now returns `hmpsShifts: hmpsNightShift ? 3 : 2` (was hardcoded 2).*
