@@ -3046,6 +3046,49 @@ const CONFIRMED_SCHEDULES = {
     {day:4,date:'2026-11-06',shift:'Aft',label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:24,target:32,cls:'ep6',site:'EP'},
     {day:4,date:'2026-11-06',shift:'Night',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
   ],
+  '2026-11-09': [
+    // w/c 09/11/2026: HMPS maintenance — Filler 1 + Filler 2 serviced 09/11, Filler 2 returns 12/11 (Rob Harris 28/10/2026)
+    // Mon 09/11: Both HMPS fillers down for service — no HMPS. Cask + Bottle Day/Aft only.
+    {day:0,date:'2026-11-09',shift:'Day',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
+    {day:0,date:'2026-11-09',shift:'Day',label:'EP Bottle Line (2L)',sku:'2L Bottle',pallets:24,target:32,cls:'as2',site:'EP'},
+    {day:0,date:'2026-11-09',shift:'Aft',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
+    {day:0,date:'2026-11-09',shift:'Aft',label:'EP Bottle Line (2L)',sku:'2L Bottle',pallets:24,target:32,cls:'as2',site:'EP'},
+    // Tue 10/11: HMPS Single (Filler 1 only, 33 pal/shift) Day/Aft/Night + Cask + Bottle 2L
+    {day:1,date:'2026-11-10',shift:'Day',label:'EP HMPS (Single)',sku:'10L Cask',pallets:33,target:45,cls:'ep10',site:'EP'},
+    {day:1,date:'2026-11-10',shift:'Day',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
+    {day:1,date:'2026-11-10',shift:'Day',label:'EP Bottle Line (2L)',sku:'2L Bottle',pallets:39,target:52,cls:'as2',site:'EP'},
+    {day:1,date:'2026-11-10',shift:'Aft',label:'EP HMPS (Single)',sku:'10L Cask',pallets:33,target:45,cls:'ep10',site:'EP'},
+    {day:1,date:'2026-11-10',shift:'Aft',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
+    {day:1,date:'2026-11-10',shift:'Aft',label:'EP Bottle Line (2L)',sku:'2L Bottle',pallets:39,target:52,cls:'as2',site:'EP'},
+    {day:1,date:'2026-11-10',shift:'Night',label:'EP HMPS (Single)',sku:'10L Cask',pallets:33,target:45,cls:'ep10',site:'EP'},
+    // Wed 11/11: same as Tue — HMPS Single + Cask + Bottle 2L
+    {day:2,date:'2026-11-11',shift:'Day',label:'EP HMPS (Single)',sku:'10L Cask',pallets:33,target:45,cls:'ep10',site:'EP'},
+    {day:2,date:'2026-11-11',shift:'Day',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
+    {day:2,date:'2026-11-11',shift:'Day',label:'EP Bottle Line (2L)',sku:'2L Bottle',pallets:39,target:52,cls:'as2',site:'EP'},
+    {day:2,date:'2026-11-11',shift:'Aft',label:'EP HMPS (Single)',sku:'10L Cask',pallets:33,target:45,cls:'ep10',site:'EP'},
+    {day:2,date:'2026-11-11',shift:'Aft',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
+    {day:2,date:'2026-11-11',shift:'Aft',label:'EP Bottle Line (2L)',sku:'2L Bottle',pallets:39,target:52,cls:'as2',site:'EP'},
+    {day:2,date:'2026-11-11',shift:'Night',label:'EP HMPS (Single)',sku:'10L Cask',pallets:33,target:45,cls:'ep10',site:'EP'},
+    // Thu 12/11: Both fillers back — HMPS Dual (67 pal/shift) + Cask + transition Bottle to 6pk Aft
+    {day:3,date:'2026-11-12',shift:'Day',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
+    {day:3,date:'2026-11-12',shift:'Day',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
+    {day:3,date:'2026-11-12',shift:'Day',label:'EP Bottle Line (2L)',sku:'2L Bottle',pallets:24,target:32,cls:'as2',site:'EP'},
+    {day:3,date:'2026-11-12',shift:'Aft',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
+    {day:3,date:'2026-11-12',shift:'Aft',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
+    {day:3,date:'2026-11-12',shift:'Aft',label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:24,target:32,cls:'ep6',site:'EP'},
+    {day:3,date:'2026-11-12',shift:'Night',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
+    // Fri 13/11: HMPS Dual + Cask + Bottle 6pk + Night
+    {day:4,date:'2026-11-13',shift:'Day',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
+    {day:4,date:'2026-11-13',shift:'Day',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
+    {day:4,date:'2026-11-13',shift:'Day',label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:24,target:32,cls:'ep6',site:'EP'},
+    {day:4,date:'2026-11-13',shift:'Aft',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
+    {day:4,date:'2026-11-13',shift:'Aft',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
+    {day:4,date:'2026-11-13',shift:'Aft',label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:24,target:32,cls:'ep6',site:'EP'},
+    {day:4,date:'2026-11-13',shift:'Night',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
+    // Sat 14/11: HMPS Dual + Cask A&B (in CONFIRMED_SATURDAYS — pre-approved)
+    {day:5,date:'2026-11-14',shift:'Day',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
+    {day:5,date:'2026-11-14',shift:'Aft',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
+  ],
 };
 
 // ── 14-day lock window policy (Rob Harris 29/07/2026) ─────────────────────
