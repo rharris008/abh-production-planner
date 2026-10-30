@@ -2996,10 +2996,6 @@ const CONFIRMED_SCHEDULES = {
     {day:4,date:'2026-10-30',shift:'Aft',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
     {day:4,date:'2026-10-30',shift:'Aft',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
     {day:4,date:'2026-10-30',shift:'Aft',label:'EP Bottle Line (2L)',sku:'2L Bottle',pallets:39,target:52,cls:'as2',site:'EP'},
-    {day:5,date:'2026-10-31',shift:'Day',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:5,date:'2026-10-31',shift:'Day',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
-    {day:5,date:'2026-10-31',shift:'Aft',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:5,date:'2026-10-31',shift:'Aft',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
   ],
   '2026-11-02': [
     // w/c 02/11/2026: Full week plan (Aaron Mattin 21/10/2026 — confirmed Rob Harris 22/10/2026 via email reply to Nike proposal)
@@ -3048,17 +3044,17 @@ const CONFIRMED_SCHEDULES = {
   ],
   '2026-11-09': [
     // w/c 09/11/2026: HMPS maintenance — Filler 1 + Filler 2 serviced 09/11, Filler 2 returns 12/11 (Rob Harris 28/10/2026)
-    // Mon 09/11: Both HMPS fillers down for service — no HMPS. Cask + Bottle Day/Aft only.
-    {day:0,date:'2026-11-09',shift:'Day',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
+    // Mon 09/11: Both HMPS fillers down for service — no HMPS. AB line covers 5L stock shortfall. Bottle Day/Aft only.
+    {day:0,date:'2026-11-09',shift:'Day',label:'EP Line A&B (5L)',sku:'5L Cask',pallets:44,target:59,cls:'ep5',site:'EP'},
     {day:0,date:'2026-11-09',shift:'Day',label:'EP Bottle Line (2L)',sku:'2L Bottle',pallets:24,target:32,cls:'as2',site:'EP'},
-    {day:0,date:'2026-11-09',shift:'Aft',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
+    {day:0,date:'2026-11-09',shift:'Aft',label:'EP Line A&B (5L)',sku:'5L Cask',pallets:44,target:59,cls:'ep5',site:'EP'},
     {day:0,date:'2026-11-09',shift:'Aft',label:'EP Bottle Line (2L)',sku:'2L Bottle',pallets:24,target:32,cls:'as2',site:'EP'},
-    // Tue 10/11: HMPS Single (Filler 1 only, 33 pal/shift) Day/Aft/Night + Cask + Bottle 2L
+    // Tue 10/11: HMPS Single (Filler 1 only, 33 pal/shift) covers 10L. AB line continues 5L. Day/Aft/Night.
     {day:1,date:'2026-11-10',shift:'Day',label:'EP HMPS (Single)',sku:'10L Cask',pallets:33,target:45,cls:'ep10',site:'EP'},
-    {day:1,date:'2026-11-10',shift:'Day',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
+    {day:1,date:'2026-11-10',shift:'Day',label:'EP Line A&B (5L)',sku:'5L Cask',pallets:44,target:59,cls:'ep5',site:'EP'},
     {day:1,date:'2026-11-10',shift:'Day',label:'EP Bottle Line (2L)',sku:'2L Bottle',pallets:39,target:52,cls:'as2',site:'EP'},
     {day:1,date:'2026-11-10',shift:'Aft',label:'EP HMPS (Single)',sku:'10L Cask',pallets:33,target:45,cls:'ep10',site:'EP'},
-    {day:1,date:'2026-11-10',shift:'Aft',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
+    {day:1,date:'2026-11-10',shift:'Aft',label:'EP Line A&B (5L)',sku:'5L Cask',pallets:44,target:59,cls:'ep5',site:'EP'},
     {day:1,date:'2026-11-10',shift:'Aft',label:'EP Bottle Line (2L)',sku:'2L Bottle',pallets:39,target:52,cls:'as2',site:'EP'},
     {day:1,date:'2026-11-10',shift:'Night',label:'EP HMPS (Single)',sku:'10L Cask',pallets:33,target:45,cls:'ep10',site:'EP'},
     // Wed 11/11: same as Tue — HMPS Single + Cask + Bottle 2L
@@ -3089,6 +3085,12 @@ const CONFIRMED_SCHEDULES = {
     {day:5,date:'2026-11-14',shift:'Day',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
     {day:5,date:'2026-11-14',shift:'Aft',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
   ],
+};
+
+// ── Maintenance / schedule notes displayed as banners in the shift grid ───
+// Keys: YYYY-MM-DD (date string). Value shown as amber banner in that day's column.
+const CONFIRMED_NOTES = {
+  '2026-11-09': 'HMPS maintenance — both fillers in service. No HMPS output today.',
 };
 
 // ── 14-day lock window policy (Rob Harris 29/07/2026) ─────────────────────
@@ -3906,11 +3908,13 @@ function renderSchedule(week, pr) {
         📦 ${fmt(pal)} pal <span class="chip ${CHIP[sku]}">${sku}</span> due
       </div>`).join('');
 
+    const schedNote = CONFIRMED_NOTES[date] || null;
     grid.innerHTML += `<div class="sday">
       <div class="sdh${isSat ? ' sat' : ''}">
         <span>${fmtD(date)}${isSat ? ' <span class="badge bsat">SAT</span>' : ''}</span>
         <span class="dtot">${totPal ? fmt(totPal) + ' pal' : ''}</span>
       </div>
+      ${schedNote ? `<div style="background:#FEF3CD;color:#7D5A00;font-size:10px;font-weight:600;padding:5px 9px;border-left:3px solid var(--amber);margin:0">⚠ ${schedNote}</div>` : ''}
       ${buildShift(dayEntries.Day, 'Day')}
       ${buildShift(dayEntries.Aft, 'Afternoon')}
       ${buildShift(dayEntries.Night, 'Night')}
