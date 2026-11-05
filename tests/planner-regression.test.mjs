@@ -1230,3 +1230,47 @@ describe('PS1: Production-split label preservation', () => {
   });
 
 });
+
+// ── CF1: Coles compound forward-fill growth curve (Rob Harris 05/11/2026) ─────
+// Coles projected demand must grow 5% WoW from Nov 2026 through Jan 2027,
+// then decline 5% WoW through Feb–Mar 2027. WW/Metcash use flat seasonalFactor.
+// Bug: prior implementation applied a flat 1.05 multiplier to every projected
+// week, so Coles demand was stuck at lastLive × 1.05 for the entire horizon.
+describe('CF1: Coles compound demand growth curve', () => {
+
+  test('CF1 — colesCompound running factor declared before Coles forward-fill loop', () => {
+    assert.ok(
+      SRC.includes("let colesCompound = 1.0;"),
+      "FAIL CF1: colesCompound running factor missing — Coles will not compound growth WoW."
+    );
+  });
+
+  test('CF1 — Nov 2026 triggers 1.05 growth for Coles', () => {
+    assert.ok(
+      SRC.includes("(mo === 11 || mo === 12) && yr === 2026) colesCompound *= 1.05"),
+      "FAIL CF1: Nov/Dec 2026 compound growth step missing for Coles."
+    );
+  });
+
+  test('CF1 — Jan 2027 triggers 1.05 growth for Coles', () => {
+    assert.ok(
+      SRC.includes("mo === 1 && yr === 2027) colesCompound *= 1.05"),
+      "FAIL CF1: Jan 2027 compound growth step missing for Coles."
+    );
+  });
+
+  test('CF1 — Feb/Mar 2027 triggers 0.95 decline for Coles', () => {
+    assert.ok(
+      SRC.includes("(mo === 2 || mo === 3) && yr === 2027) colesCompound *= 0.95"),
+      "FAIL CF1: Feb/Mar 2027 compound decline step missing for Coles."
+    );
+  });
+
+  test('CF1 — WW and Metcash still use seasonalFactor (flat uplift unchanged)', () => {
+    assert.ok(
+      SRC.includes("factor = seasonalFactor(wk);"),
+      "FAIL CF1: WW/Metcash no longer calling seasonalFactor — flat seasonal uplift removed."
+    );
+  });
+
+});

@@ -6191,8 +6191,9 @@ function parseColes(wb,fname) {
 }
 
 // Returns the seasonal demand multiplier for a given week Monday (YYYY-MM-DD).
-// October through February (peak summer demand): +5%.
+// October through February (peak summer demand): +5% (flat uplift).
 // March through September: hold constant.
+// Used for WW and Metcash forward-fill only. Coles uses compound growth in forwardFillDemand.
 function seasonalFactor(weekDate) {
   const month = parseInt(weekDate.substring(5, 7));
   return (month >= 10 || month <= 2) ? 1.05 : 1.00;
@@ -6276,10 +6277,23 @@ function forwardFillDemand() {
     const lastVals = {};
     SKUS.forEach(s => { lastVals[s] = COMBINED[lastLiveWk]?.[s]?.[ch] || 0; });
 
-    // Forward-fill from the week after last live data through to the horizon
+    // Forward-fill from the week after last live data through to the horizon.
+    // Coles: 5% WoW compound growth Nov–Jan 2027, 5% WoW decline Feb–Mar 2027. (Rob Harris 05/11/2026)
+    // WW/Metcash: flat seasonal uplift via seasonalFactor() (unchanged).
+    let colesCompound = 1.0;
     for (let i = lastLiveIdx + 1; i <= endIdx; i++) {
       const wk = ALL_WEEKS[i];
-      const factor = seasonalFactor(wk);
+      let factor;
+      if (ch === 'coles') {
+        const yr = parseInt(wk.substring(0, 4));
+        const mo = parseInt(wk.substring(5, 7));
+        if ((mo === 11 || mo === 12) && yr === 2026) colesCompound *= 1.05;
+        else if (mo === 1 && yr === 2027) colesCompound *= 1.05;
+        else if ((mo === 2 || mo === 3) && yr === 2027) colesCompound *= 0.95;
+        factor = colesCompound;
+      } else {
+        factor = seasonalFactor(wk);
+      }
       if (!COMBINED[wk]) COMBINED[wk] = {};
       SKUS.forEach(s => {
         if (!COMBINED[wk][s]) COMBINED[wk][s] = { ww: 0, coles: 0, metcash: 0, total: 0 };
