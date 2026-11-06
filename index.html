@@ -736,12 +736,10 @@ let satMode     = 'auto';  // Rob Harris 03/09/2026: default auto so Saturday fi
 // HMPS always runs Dual 10L. A&B runs the same SKU as Friday (no changeover).
 // Saturday 01/11 is already in CONFIRMED_SCHEDULES for w/c 26/10.
 const CONFIRMED_SATURDAYS = new Set([
-  // Nov Saturdays removed — night shift (from 02/11/2026) replaces weekend capacity (Rob Harris 05/11/2026)
-  '2026-12-05','2026-12-12','2026-12-19',
-  // 2026-12-27 removed — factory closure 23 Dec–3 Jan
+  // All Saturdays removed — night shift (from 02/11/2026) covers capacity; Dec risk to be assessed (Rob Harris 06/11/2026)
 ]);
-// SAT_APPROVED_UNTIL: all Saturdays up to this date are pre-approved (catches any not individually listed)
-const SAT_APPROVED_UNTIL = '2026-12-20';  // last approved Sat is 19/12; factory closed 23 Dec–3 Jan
+// SAT_APPROVED_UNTIL: no Saturdays approved (Rob Harris 06/11/2026)
+const SAT_APPROVED_UNTIL = '2026-11-01';
 let stockPal    = {...STOCK_PAL};
 let onHoldPal   = {'10L Cask':0,'5L Cask':0,'2L Bottle':0,'600ml 12pk':0,'600ml 6pk':0};
 let availPal    = () => Object.fromEntries(SKUS.map(s=>[s,Math.max(0,(stockPal[s]||0)-(onHoldPal[s]||0))]));
