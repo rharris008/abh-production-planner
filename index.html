@@ -1381,10 +1381,17 @@ function scheduleBottleLine(weekStart, eff, openStock2L, openStock6, weekIdx, ca
         }
       } else if (phase === '600ml 6pk') {
         if (c6 >= STOCK_COVER.target && days600 >= BOTTLE_MIN_RUN_DAYS) {
-          phase = '2L Bottle';
-          days600 = 0;
-          days2L  = 0;
-          weekChangesUsed++;
+          // Lookahead guard: only switch to 2L if running 2L for all remaining days
+          // would still leave 6pk at or above target by week end. (Rob Harris 08/11/2026)
+          const daysLeft   = workDays.length - d;
+          const dailyCons6 = due6 + fcDep['600ml 6pk'];
+          const proj6pkEow = cov('600ml 6pk', Math.max(0, s6 - dailyCons6 * daysLeft));
+          if (proj6pkEow >= STOCK_COVER.target) {
+            phase = '2L Bottle';
+            days600 = 0;
+            days2L  = 0;
+            weekChangesUsed++;
+          }
         } else if (weekOpenedWith6pkEmergency && c6 >= STOCK_COVER.floor && c2 < STOCK_COVER.target && days600 >= BOTTLE_MIN_RUN_DAYS) {
           // 6pk recovered from emergency — pivot to 2L if 2L needs attention (Rob Harris 20/06/2026)
           phase = '2L Bottle';
