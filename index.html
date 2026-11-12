@@ -750,11 +750,13 @@ let publicHolidays = new Set();  // Set of 'YYYY-MM-DD' strings — loaded from 
 let publicHolidayNames = {};      // map of 'YYYY-MM-DD' -> holiday name
 // Planned shutdowns: hardcoded non-production days not subject to Supabase override
 const plannedShutdowns = new Map([
-  // Factory closure: 29 Dec 2026 – 3 Jan 2027 (working days not already covered by public holidays)
+  // Factory closure: 29 Dec 2026 – 2 Jan 2027 (working days + Saturday 2 Jan, not already covered by public holidays)
   // 23/12 and 24/12 removed — factory running per Rob Harris 12/11/2026 (see CONFIRMED_SCHEDULES '2026-12-21')
+  // 1 Jan = New Year's Day (public holiday, handled separately)
   ['2026-12-29','Factory Closure'],
   ['2026-12-30','Factory Closure'],
   ['2026-12-31','Factory Closure'],
+  ['2027-01-02','Factory Closure'],  // Saturday — blocked per Rob Harris 12/11/2026
 ]);
 // Week SKU overrides: force Line A&B to a specific SKU for a given week (Mon date → '10L Cask' | '5L Cask')
 const weekSkuOverride = new Map([
@@ -2129,7 +2131,7 @@ function planWeek(week) {
   // Pre-approved Saturdays always run regardless of trigger (Rob Harris 15/10/2026: approved up to 01/01/2027)
   const satPreApproved = CONFIRMED_SATURDAYS.has(satDate);
   const needSat = satMode === 'on' || satPreApproved || (satMode === 'auto' && satTriggers.length > 0);
-  const satIsHoliday = publicHolidays.has(satDate);
+  const satIsHoliday = publicHolidays.has(satDate) || plannedShutdowns.has(satDate);
 
   const satLines = [];
   const satStock = {...stockEnd};
