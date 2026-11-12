@@ -1274,3 +1274,54 @@ describe('CF1: Coles compound demand growth curve', () => {
   });
 
 });
+
+// ── ST1: SKU Transition Split Days (Rob Harris 12/11/2026) ────────────────────
+// When cask lines switch between 10L and 5L, the transition day shows a split:
+// Line A stays on old SKU, Line B starts new SKU (both at single-line capacity).
+// buildSchedule algorithmic path must render splitLine entries with correct labels.
+describe('ST1: Cask line SKU transition split days', () => {
+
+  test('ST1 — scheduleEPCaskLines contains splitLine A marker', () => {
+    assert.ok(
+      SRC.includes("splitLine: 'A'"),
+      "FAIL ST1: scheduleEPCaskLines missing splitLine:'A' — transition split not implemented."
+    );
+  });
+
+  test('ST1 — scheduleEPCaskLines contains splitLine B marker', () => {
+    assert.ok(
+      SRC.includes("splitLine: 'B'"),
+      "FAIL ST1: scheduleEPCaskLines missing splitLine:'B' — transition split not implemented."
+    );
+  });
+
+  test('ST1 — buildSchedule algorithmic path handles splitLine A', () => {
+    assert.ok(
+      SRC.includes("s.splitLine === 'A'") && SRC.includes("EP Line A only"),
+      "FAIL ST1: buildSchedule missing splitLine A branch — transition day will not render Line A label."
+    );
+  });
+
+  test('ST1 — buildSchedule algorithmic path handles splitLine B', () => {
+    assert.ok(
+      SRC.includes("s.splitLine === 'B'") && SRC.includes("EP Line B only"),
+      "FAIL ST1: buildSchedule missing splitLine B branch — transition day will not render Line B label."
+    );
+  });
+
+  test('ST1 — single-line capacities used for split shifts (40 and 30)', () => {
+    assert.ok(
+      SRC.includes('Math.floor(40 * eff)') && SRC.includes('Math.floor(30 * eff)'),
+      "FAIL ST1: single-line capacity formulas missing from transition split logic."
+    );
+  });
+
+  test('ST1 — logic map documents the transition split behaviour', () => {
+    const map = readFileSync(new URL('../PLANNER_LOGIC_MAP.md', import.meta.url), 'utf8');
+    assert.ok(
+      map.includes('transition split') && map.includes('splitLine'),
+      "FAIL ST1: PLANNER_LOGIC_MAP.md missing transition split documentation."
+    );
+  });
+
+});

@@ -1093,8 +1093,9 @@ function getAdjustedDemand(week) {
 
 // ══ EP LINE A&B — DAY-LEVEL SCHEDULER ════════════════════════════════════════
 // see PLANNER_LOGIC_MAP.md § Production scheduling
-// Line A and Line B ALWAYS run combined as a single unit — they are never split
-// to run different SKUs simultaneously.
+// Line A and Line B normally run combined as a single unit.
+// Exception: on the SKU changeover day, Line A stays on the old SKU and Line B starts
+// the new SKU (both at single-line capacity). See transition split logic at end of function.
 // Each shift runs either 10L Cask (A+B combined: 80 base/shift = 120 pal/day at 75% eff; Line A only: 40 base = 60/day)
 // or 5L Cask (A+B combined: 59 base/shift = 88 pal/day at 75% eff; Line A only: 30 base = 45/day).
 // BOM operational targets confirmed by Rob Harris 14/09/2026: 10L A&B=80 (60 at 75%), 5L A&B=59 (44 at 75%).
@@ -1192,6 +1193,58 @@ function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, mi
     // Consume today's deliveries at end of day
     s10 -= due10;
     s5  -= due5;
+  }
+
+  // ── SKU Transition Split Days (Rob Harris 12/11/2026) ──────────────────────
+  // When cask lines switch between 10L and 5L, the transition day runs split:
+  // Line A stays on old SKU, Line B starts new SKU (both at single-line capacity).
+  // Intra-week:  split day = last day of old SKU (day before new SKU starts)
+  // Cross-week:  split day = first day of this week (if week starts with a different SKU from prevRunSku)
+  {
+    let transDate = null, transFrom = null, transTo = null;
+    // Cross-week transition: first day of this week differs from previous week's ending SKU
+    const firstShiftSku = shifts.length ? shifts[0].sku : null;
+    if (prevRunSku && firstShiftSku && prevRunSku !== firstShiftSku && shifts.length) {
+      transDate = shifts[0].date;
+      transFrom = prevRunSku;
+      transTo   = firstShiftSku;
+    }
+    // Intra-week transition: scan for first date where SKU changes (split day = previous date)
+    if (!transDate) {
+      let pd = null, ps = null;
+      for (const sh of shifts) {
+        if (sh.date !== pd) {
+          if (ps && sh.sku !== ps) { transDate = pd; transFrom = ps; transTo = sh.sku; break; }
+          pd = sh.date; ps = sh.sku;
+        }
+      }
+    }
+
+    if (transDate && transFrom && transTo) {
+      const tgtA = transFrom === '10L Cask' ? Math.floor(40 * eff) : Math.floor(30 * eff); // Line A single-line
+      const tgtB = transTo   === '10L Cask' ? Math.floor(40 * eff) : Math.floor(30 * eff); // Line B single-line
+      const tgtOld = transFrom === '10L Cask' ? tgt10 : tgt5; // what was planned on that day (combined)
+      const nSplitShifts = shifts.filter(sh => sh.date === transDate).length;
+      // Adjust running stock totals: transition day produces less of transFrom, adds transTo
+      const deltaOld = (tgtA - tgtOld) * nSplitShifts; // negative (single < combined)
+      const deltaNew = tgtB * nSplitShifts;
+      if (transFrom === '10L Cask') { s10 += deltaOld; s5 += deltaNew; }
+      else                          { s5  += deltaOld; s10 += deltaNew; }
+      // Replace transition day entries with split Line A + Line B pairs
+      const finalShifts = [];
+      for (const sh of shifts) {
+        if (sh.date === transDate) {
+          finalShifts.push({...sh, sku: transFrom, pallets: tgtA, target: tgtA,
+            cls: transFrom === '10L Cask' ? 'ep10' : 'ep5', splitLine: 'A'});
+          finalShifts.push({...sh, sku: transTo,   pallets: tgtB, target: tgtB,
+            cls: transTo   === '10L Cask' ? 'ep10' : 'ep5', splitLine: 'B'});
+        } else {
+          finalShifts.push(sh);
+        }
+      }
+      return { shifts: finalShifts, endStock10: Math.round(s10), endStock5: Math.round(s5),
+               days10, days5, endSku: currentSku, endSkuDays: currentSkuDays };
+    }
   }
 
   return { shifts, endStock10: Math.round(s10), endStock5: Math.round(s5), days10, days5,
@@ -3293,16 +3346,26 @@ function buildSchedule(week, pr) {
   // EP Line A&B: use the day-level scheduler output
   const {single: lineAOnlyWeek, out: lineOutWeek} = lineOutageForWeek(week);
   const runLineWeek = lineOutWeek === 'B' ? 'A' : lineOutWeek === 'A' ? 'B' : 'A&B';
-  cask.shifts.forEach(s => schedule.push({
-    day:s.day, date:s.date, shift:s.shift,
-    label: s.sku === '10L Cask'
-      ? (lineAOnlyWeek ? `EP Line ${runLineWeek} only (10L)` : 'EP Line A&B (10L)')
-      : (lineAOnlyWeek ? `EP Line ${runLineWeek} only (5L)`  : 'EP Line A&B (5L)'),
-    sku:s.sku, pallets:s.pallets, target:s.target,
-    cls: s.sku === '10L Cask' ? 'ep10' : 'ep5',
-    site:'EP', riskFlag:s.riskFlag,
-    stockAfter10:s.stockAfter10, stockAfter5:s.stockAfter5
-  }));
+  cask.shifts.forEach(s => {
+    const skuTag = s.sku === '10L Cask' ? '10L' : '5L';
+    let label;
+    if (s.splitLine === 'A') {
+      label = `EP Line A only (${skuTag})`;
+    } else if (s.splitLine === 'B') {
+      label = `EP Line B only (${skuTag})`;
+    } else if (lineAOnlyWeek) {
+      label = `EP Line ${runLineWeek} only (${skuTag})`;
+    } else {
+      label = `EP Line A&B (${skuTag})`;
+    }
+    schedule.push({
+      day:s.day, date:s.date, shift:s.shift, label,
+      sku:s.sku, pallets:s.pallets, target:s.target,
+      cls: s.sku === '10L Cask' ? 'ep10' : 'ep5',
+      site:'EP', riskFlag:s.riskFlag,
+      stockAfter10:s.stockAfter10, stockAfter5:s.stockAfter5
+    });
+  });
 
   // Bottle Line: unified 2L / 600ml cycle — use bottleShifts from planner result
   const bottleShifts = pr.bottleShifts || [];
