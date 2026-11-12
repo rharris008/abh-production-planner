@@ -750,9 +750,8 @@ let publicHolidays = new Set();  // Set of 'YYYY-MM-DD' strings — loaded from 
 let publicHolidayNames = {};      // map of 'YYYY-MM-DD' -> holiday name
 // Planned shutdowns: hardcoded non-production days not subject to Supabase override
 const plannedShutdowns = new Map([
-  // Factory closure: 23 Dec 2026 – 3 Jan 2027 (working days not already covered by public holidays)
-  ['2026-12-23','Factory Closure'],
-  ['2026-12-24','Factory Closure'],
+  // Factory closure: 29 Dec 2026 – 3 Jan 2027 (working days not already covered by public holidays)
+  // 23/12 and 24/12 removed — factory running per Rob Harris 12/11/2026 (see CONFIRMED_SCHEDULES '2026-12-21')
   ['2026-12-29','Factory Closure'],
   ['2026-12-30','Factory Closure'],
   ['2026-12-31','Factory Closure'],
@@ -3116,10 +3115,12 @@ const CONFIRMED_SCHEDULES = {
     {day:2,date:'2026-11-18',shift:'Aft',label:'EP Bottle Line (2L)',sku:'2L Bottle',pallets:39,target:52,cls:'as2',site:'EP'},
     {day:2,date:'2026-11-18',shift:'Night',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
     {day:3,date:'2026-11-19',shift:'Day',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:3,date:'2026-11-19',shift:'Day',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
+    {day:3,date:'2026-11-19',shift:'Day',label:'EP Line A only (10L)',sku:'10L Cask',pallets:30,target:45,cls:'ep10',site:'EP'},
+    {day:3,date:'2026-11-19',shift:'Day',label:'EP Line B only (5L)',sku:'5L Cask',pallets:22,target:30,cls:'ep5',site:'EP'},
     {day:3,date:'2026-11-19',shift:'Day',label:'EP Bottle Line (2L)',sku:'2L Bottle',pallets:39,target:52,cls:'as2',site:'EP'},
     {day:3,date:'2026-11-19',shift:'Aft',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:3,date:'2026-11-19',shift:'Aft',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
+    {day:3,date:'2026-11-19',shift:'Aft',label:'EP Line A only (10L)',sku:'10L Cask',pallets:30,target:45,cls:'ep10',site:'EP'},
+    {day:3,date:'2026-11-19',shift:'Aft',label:'EP Line B only (5L)',sku:'5L Cask',pallets:22,target:30,cls:'ep5',site:'EP'},
     {day:3,date:'2026-11-19',shift:'Aft',label:'EP Bottle Line (2L)',sku:'2L Bottle',pallets:39,target:52,cls:'as2',site:'EP'},
     {day:3,date:'2026-11-19',shift:'Night',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
     {day:4,date:'2026-11-20',shift:'Day',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
@@ -3129,6 +3130,40 @@ const CONFIRMED_SCHEDULES = {
     {day:4,date:'2026-11-20',shift:'Aft',label:'EP Line A&B (5L)',sku:'5L Cask',pallets:44,target:59,cls:'ep5',site:'EP'},
     {day:4,date:'2026-11-20',shift:'Aft',label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:24,target:32,cls:'ep6',site:'EP'},
     {day:4,date:'2026-11-20',shift:'Night',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
+  ],
+
+  '2026-12-21': [
+    // w/c 21/12/2026: Pre-Christmas run. 23/12 full shifts, 24/12 Day only. 25/12 Christmas Day — no entries.
+    // Template (Mon–Wed): HMPS Dual 10L + A&B 10L + Bottle 6pk. Adjust SKUs at 2-week lock window if stock cover differs.
+    // Mon 21/12: standard
+    {day:0,date:'2026-12-21',shift:'Day',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
+    {day:0,date:'2026-12-21',shift:'Day',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
+    {day:0,date:'2026-12-21',shift:'Day',label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:24,target:32,cls:'ep6',site:'EP'},
+    {day:0,date:'2026-12-21',shift:'Aft',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
+    {day:0,date:'2026-12-21',shift:'Aft',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
+    {day:0,date:'2026-12-21',shift:'Aft',label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:24,target:32,cls:'ep6',site:'EP'},
+    {day:0,date:'2026-12-21',shift:'Night',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
+    // Tue 22/12: standard
+    {day:1,date:'2026-12-22',shift:'Day',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
+    {day:1,date:'2026-12-22',shift:'Day',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
+    {day:1,date:'2026-12-22',shift:'Day',label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:24,target:32,cls:'ep6',site:'EP'},
+    {day:1,date:'2026-12-22',shift:'Aft',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
+    {day:1,date:'2026-12-22',shift:'Aft',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
+    {day:1,date:'2026-12-22',shift:'Aft',label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:24,target:32,cls:'ep6',site:'EP'},
+    {day:1,date:'2026-12-22',shift:'Night',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
+    // Wed 23/12: full shifts — factory running (Rob Harris 12/11/2026)
+    {day:2,date:'2026-12-23',shift:'Day',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
+    {day:2,date:'2026-12-23',shift:'Day',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
+    {day:2,date:'2026-12-23',shift:'Day',label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:24,target:32,cls:'ep6',site:'EP'},
+    {day:2,date:'2026-12-23',shift:'Aft',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
+    {day:2,date:'2026-12-23',shift:'Aft',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
+    {day:2,date:'2026-12-23',shift:'Aft',label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:24,target:32,cls:'ep6',site:'EP'},
+    {day:2,date:'2026-12-23',shift:'Night',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
+    // Thu 24/12: Day shift only (Rob Harris 12/11/2026)
+    {day:3,date:'2026-12-24',shift:'Day',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
+    {day:3,date:'2026-12-24',shift:'Day',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
+    {day:3,date:'2026-12-24',shift:'Day',label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:24,target:32,cls:'ep6',site:'EP'},
+    // Fri 25/12: Christmas Day — no production
   ],
 };
 
