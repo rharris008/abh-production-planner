@@ -1316,6 +1316,20 @@ describe('ST1: Cask line SKU transition split days', () => {
     );
   });
 
+  test('ST1 — cross-week split stored in planWeekCache as caskFirstDaySku', () => {
+    assert.ok(
+      SRC.includes('caskFirstDaySku'),
+      "FAIL ST1: planWeekCache.caskFirstDaySku not stored — cross-week look-ahead will not work."
+    );
+  });
+
+  test('ST1 — buildSchedule algorithmic path uses cross-week look-ahead (cwSplitDate)', () => {
+    assert.ok(
+      SRC.includes('cwSplitDate') && SRC.includes('caskFirstDaySku'),
+      "FAIL ST1: buildSchedule missing cross-week split look-ahead — Friday splits will not appear."
+    );
+  });
+
   test('ST1 — logic map documents the transition split behaviour', () => {
     const map = readFileSync(new URL('../PLANNER_LOGIC_MAP.md', import.meta.url), 'utf8');
     assert.ok(

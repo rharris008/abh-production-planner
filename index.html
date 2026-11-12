@@ -1202,15 +1202,9 @@ function scheduleEPCaskLines(weekStart, opDays, eff, openStock10, openStock5, mi
   // Cross-week:  split day = first day of this week (if week starts with a different SKU from prevRunSku)
   {
     let transDate = null, transFrom = null, transTo = null;
-    // Cross-week transition: first day of this week differs from previous week's ending SKU
-    const firstShiftSku = shifts.length ? shifts[0].sku : null;
-    if (prevRunSku && firstShiftSku && prevRunSku !== firstShiftSku && shifts.length) {
-      transDate = shifts[0].date;
-      transFrom = prevRunSku;
-      transTo   = firstShiftSku;
-    }
-    // Intra-week transition: scan for first date where SKU changes (split day = previous date)
-    if (!transDate) {
+    // Intra-week transition: scan for first date where SKU changes (split day = previous date).
+    // Cross-week transitions (last day of previous week) are handled by buildSchedule via look-ahead.
+    {
       let pd = null, ps = null;
       for (const sh of shifts) {
         if (sh.date !== pd) {
@@ -2288,6 +2282,8 @@ function planWeek(week) {
   planWeekCache[week].endDays600 = bottleResult.endDays600 || 0;
   // Store A&B cask run state for cross-week 3-day minimum enforcement. Rob Harris 15/10/2026.
   planWeekCache[week].caskRunState = { sku: caskResult.endSku, days: caskResult.endSkuDays };
+  // Store first day's cask SKU so buildSchedule can detect cross-week split needed on previous week's Friday.
+  planWeekCache[week].caskFirstDaySku = caskResult.shifts.length ? caskResult.shifts[0].sku : null;
   // Use satStock as closing position when Saturday ran — this is what the next week starts from.
   // Using stockEnd here (pre-Saturday) would understate opening stock for all downstream weeks.
   const cs = result.satStock;
@@ -3346,7 +3342,46 @@ function buildSchedule(week, pr) {
   // EP Line A&B: use the day-level scheduler output
   const {single: lineAOnlyWeek, out: lineOutWeek} = lineOutageForWeek(week);
   const runLineWeek = lineOutWeek === 'B' ? 'A' : lineOutWeek === 'A' ? 'B' : 'A&B';
+
+  // Cross-week split: if next algorithmic week starts with a different SKU, the last
+  // working day of this week becomes the split day (Line A: old SKU, Line B: new SKU).
+  // This places the transition on the Thursday/Friday before the full changeover.
+  let cwSplitDate = null, cwFromSku = null, cwToSku = null;
+  if (!CONFIRMED_SCHEDULES[week] && cask.shifts.length) {
+    const weekIdx = ALL_WEEKS.indexOf(week);
+    const nextWeek = weekIdx >= 0 && weekIdx + 1 < ALL_WEEKS.length ? ALL_WEEKS[weekIdx + 1] : null;
+    if (nextWeek && !CONFIRMED_SCHEDULES[nextWeek]) {
+      const nextPr = planWeek(nextWeek);
+      const nextFirstSku = planWeekCache[nextWeek] && planWeekCache[nextWeek].caskFirstDaySku;
+      const nonSplitShifts = cask.shifts.filter(s => !s.splitLine);
+      if (nonSplitShifts.length && nextFirstSku) {
+        const lastShift = nonSplitShifts[nonSplitShifts.length - 1];
+        if (lastShift.sku !== nextFirstSku) {
+          cwSplitDate = lastShift.date;
+          cwFromSku   = lastShift.sku;
+          cwToSku     = nextFirstSku;
+        }
+      }
+    }
+  }
+
   cask.shifts.forEach(s => {
+    // Cross-week split takes precedence on the last day of this week
+    if (cwSplitDate && s.date === cwSplitDate && !s.splitLine) {
+      const tgtA = Math.floor((cwFromSku === '10L Cask' ? 40 : 30) * eff);
+      const tgtB = Math.floor((cwToSku   === '10L Cask' ? 40 : 30) * eff);
+      const tagA = cwFromSku === '10L Cask' ? '10L' : '5L';
+      const tagB = cwToSku   === '10L Cask' ? '10L' : '5L';
+      schedule.push({day:s.day, date:s.date, shift:s.shift,
+        label: `EP Line A only (${tagA})`, sku: cwFromSku, pallets: tgtA, target: tgtA,
+        cls: cwFromSku === '10L Cask' ? 'ep10' : 'ep5', site:'EP', riskFlag:s.riskFlag,
+        stockAfter10:s.stockAfter10, stockAfter5:s.stockAfter5});
+      schedule.push({day:s.day, date:s.date, shift:s.shift,
+        label: `EP Line B only (${tagB})`, sku: cwToSku,   pallets: tgtB, target: tgtB,
+        cls: cwToSku   === '10L Cask' ? 'ep10' : 'ep5', site:'EP', riskFlag:s.riskFlag,
+        stockAfter10:s.stockAfter10, stockAfter5:s.stockAfter5});
+      return;
+    }
     const skuTag = s.sku === '10L Cask' ? '10L' : '5L';
     let label;
     if (s.splitLine === 'A') {
