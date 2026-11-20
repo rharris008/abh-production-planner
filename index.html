@@ -351,6 +351,7 @@ tr.risk-a td{background:#FEF9F0}
 
       <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;background:#E91E8C;border-radius:2px;display:inline-block"></span>EP New (6pk)</span>
     </div>
+    <div id="schedToolbar" style="padding:6px 12px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-height:36px"></div>
     <div style="padding:12px"><div class="sgrid d5" id="dayGrid"></div></div>
   </div>
 </div>
@@ -731,6 +732,7 @@ let currentWeek = '';
 let hmpsConfig  = 'Dual';
 let hmpsNightShift = true;  // Rob Harris 25/10/2026: HMPS Night shift active — permanent until explicitly disabled
 let lockedWeeksSet = new Set(); // Weeks locked in Supabase locked_weeks — blocks algorithm only; Aaron/Jeremy can still change via email
+let sbPlanData = {}; // week_start -> rows from production_plan_daily (populated by sbPull; drives buildSchedule for locked weeks)
 let satMode     = 'auto';  // Rob Harris 03/09/2026: default auto so Saturday fires when triggered
 // Pre-approved Saturday dates (Rob Harris 15/10/2026: approved up to 01/01/2027).
 // HMPS always runs Dual 10L. A&B runs the same SKU as Friday (no changeover).
@@ -3355,11 +3357,15 @@ function buildSchedule(week, pr) {
   // Confirmed plan override — Aaron's plan defines the line/SKU structure.
   // Pallet counts are re-derived from max capacity × current efficiency so
   // the shift card numerator updates when the user changes the efficiency selector.
-  if (CONFIRMED_SCHEDULES[week]) {
+  // Source: CONFIRMED_SCHEDULES (hardcoded) OR sbPlanData (Supabase-locked via edit modal).
+  const _sbLockedRows = !CONFIRMED_SCHEDULES[week] && lockedWeeksSet.has(week) && sbPlanData[week]?.length
+    ? sbPlanData[week].map(r => sbPlanRowToSched(r, week))
+    : null;
+  if (CONFIRMED_SCHEDULES[week] || _sbLockedRows) {
     const eff = getEff();
     const {single: lineAOnlyCS, out: lineOutCS, bothDown: caskBothDownCS} = lineOutageForWeek(week);
     const runLineCS = lineOutCS === 'B' ? 'A' : lineOutCS === 'A' ? 'B' : 'A&B';
-    return CONFIRMED_SCHEDULES[week].map(s => {
+    return (CONFIRMED_SCHEDULES[week] || _sbLockedRows).map(s => {
       const isCaskLine = s.label === 'EP Line A&B (10L)' || s.label === 'EP Line A&B (5L)' ||
                          s.label === 'EP Line A only (10L)' || s.label === 'EP Line A only (5L)' ||
                          s.label === 'EP Line B only (10L)' || s.label === 'EP Line B only (5L)';
@@ -3442,10 +3448,11 @@ function buildSchedule(week, pr) {
   // working day of this week becomes the split day (Line A: old SKU, Line B: new SKU).
   // This places the transition on the Thursday/Friday before the full changeover.
   let cwSplitDate = null, cwFromSku = null, cwToSku = null;
-  if (!CONFIRMED_SCHEDULES[week] && cask.shifts.length) {
+  const _cwIsConfOrLocked = w => !!CONFIRMED_SCHEDULES[w] || (lockedWeeksSet.has(w) && !!(sbPlanData[w]?.length));
+  if (!_cwIsConfOrLocked(week) && cask.shifts.length) {
     const weekIdx = ALL_WEEKS.indexOf(week);
     const nextWeek = weekIdx >= 0 && weekIdx + 1 < ALL_WEEKS.length ? ALL_WEEKS[weekIdx + 1] : null;
-    if (nextWeek && !CONFIRMED_SCHEDULES[nextWeek]) {
+    if (nextWeek && !_cwIsConfOrLocked(nextWeek)) {
       const nextPr = planWeek(nextWeek);
       const nextFirstSku = planWeekCache[nextWeek] && planWeekCache[nextWeek].caskFirstDaySku;
       const nonSplitShifts = cask.shifts.filter(s => !s.splitLine);
@@ -4046,12 +4053,36 @@ function getMaxPal(s) {
   if (s.sku === '5L Cask')  return lbl.includes('A&B') ? 59 : 30;
   if (s.sku === '2L Bottle')   return 52;
   if (s.sku === '600ml 6pk')   return 32;
+  if (s.sku === '600ml 12pk')  return 34;
   return s.target; // safe fallback
+}
+
+function clsForEntry(sku, label) {
+  if (label && label.includes('HMPS')) return 'ep10';
+  if (sku === '10L Cask')   return 'ep10';
+  if (sku === '5L Cask')    return 'ep5';
+  if (sku === '2L Bottle')  return 'as2';
+  if (sku === '600ml 6pk')  return 'ep6';
+  if (sku === '600ml 12pk') return 'ep12';
+  return 'ep10';
+}
+
+function sbPlanRowToSched(r, week) {
+  const weekMs = new Date(week + 'T00:00:00').getTime();
+  const dateMs = new Date(r.plan_date + 'T00:00:00').getTime();
+  return {
+    day: Math.round((dateMs - weekMs) / 86400000),
+    date: r.plan_date, shift: r.shift,
+    label: r.line, sku: r.sku,
+    pallets: r.planned_pallets, target: r.target_pallets,
+    cls: clsForEntry(r.sku, r.line), site: 'EP',
+    maxPal: r.target_pallets
+  };
 }
 
 function renderSchedule(week, pr) {
   const {satUsed} = pr;
-  const isConfirmed = !!CONFIRMED_SCHEDULES[week];
+  const isConfirmed = !!CONFIRMED_SCHEDULES[week] || (lockedWeeksSet.has(week) && !!(sbPlanData[week]?.length));
   const sched = buildSchedule(week, pr);
   document.getElementById('schedHdr').childNodes[0].textContent=`Shift Schedule — ${wkLabel(week)}  `;
   // Show/hide confirmed plan badge
@@ -4096,6 +4127,21 @@ function renderSchedule(week, pr) {
   const isLocked = lockedWeeksSet.has(week);
   lockedBadge.textContent = isLocked ? 'LOCKED' : '';
   lockedBadge.style.display = isLocked ? 'inline' : 'none';
+
+  // ── Edit Plan toolbar ──────────────────────────────────────────────────────
+  const toolbar = document.getElementById('schedToolbar');
+  if (toolbar) {
+    const isFutureWeek = week >= monOf(localToday());
+    if (isFutureWeek) {
+      const btnStyle = 'padding:5px 14px;border:none;border-radius:3px;cursor:pointer;font-size:10pt;font-weight:700';
+      toolbar.innerHTML = isLocked
+        ? `<button onclick="openPlanEditModal('${week}')" style="${btnStyle};background:#1B2A4A;color:#fff">✎ Edit Plan</button>
+           <button onclick="unlockWeek('${week}')" style="${btnStyle};background:#7F8C8D;color:#fff;font-weight:400">Unlock Week</button>`
+        : `<button onclick="openPlanEditModal('${week}')" style="${btnStyle};background:#1B2A4A;color:#fff">✎ Edit &amp; Lock Plan</button>`;
+    } else {
+      toolbar.innerHTML = '';
+    }
+  }
 
   const grid = document.getElementById('dayGrid');
 
@@ -4208,7 +4254,7 @@ function renderHorizon() {
     const pr=planWeek(w);
     const isCW=w===currentWeek;
     const anyShort=Object.values(pr.finalShortfall).some(v=>v>0.5);
-    const isConf=!!CONFIRMED_SCHEDULES[w];
+    const isConf=!!CONFIRMED_SCHEDULES[w] || (lockedWeeksSet.has(w) && !!(sbPlanData[w]?.length));
     const inLW=isInLockWindow(w);
     const planBadge=isConf
       ?'<span class="badge bg">CONFIRMED</span>'
@@ -7938,6 +7984,23 @@ async function sbPull() {
       console.warn('[sbPull] locked_weeks fetch failed:', e.message);
     }
 
+    // Pull upcoming production_plan_daily rows so edit-modal-locked weeks
+    // drive buildSchedule() instead of the auto-scheduler.
+    try {
+      const rPlan = await sbFetch(
+        `production_plan_daily?plan_date=gte.${localToday()}&select=week_start,plan_date,line,sku,shift,planned_pallets,target_pallets&order=week_start,plan_date,shift&limit=5000`
+      );
+      if (rPlan && rPlan.length) {
+        sbPlanData = {};
+        rPlan.forEach(r => {
+          if (!sbPlanData[r.week_start]) sbPlanData[r.week_start] = [];
+          sbPlanData[r.week_start].push(r);
+        });
+      }
+    } catch(e) {
+      console.warn('[sbPull] production_plan_daily fetch failed:', e.message);
+    }
+
     if (loaded.length) {
       rebuildData();
       renderRmStock();
@@ -8725,7 +8788,225 @@ window.addEventListener('load', function() {
   setTimeout(() => sbPull(), 800);
 });
 
+/* ════ PLAN EDIT MODAL ════ */
+let planEditWeek = null;
+let planEditRows = []; // [{date, line, sku, shift, planned_pallets, target_pallets}]
+
+const LINE_TO_SKU = {
+  'EP HMPS (Dual)':                    '10L Cask',
+  'EP HMPS (Single — filler maint.)': '10L Cask',
+  'EP Line A&B (10L)':                 '10L Cask',
+  'EP Line A&B (5L)':                  '5L Cask',
+  'EP Line A only (10L)':              '10L Cask',
+  'EP Line A only (5L)':               '5L Cask',
+  'EP Line B only (10L)':              '10L Cask',
+  'EP Line B only (5L)':               '5L Cask',
+  'EP Bottle Line (2L)':               '2L Bottle',
+  'EP Bottle Line (6pk)':              '600ml 6pk',
+  'EP Bottle Line (12pk)':             '600ml 12pk',
+};
+
+function openPlanEditModal(week) {
+  planEditWeek = week;
+  document.getElementById('planEditTitle').textContent = 'Edit Production Plan — w/c ' + wkLabel(week);
+
+  // Seed from Supabase rows if present, else from auto-scheduler
+  if (sbPlanData[week] && sbPlanData[week].length) {
+    planEditRows = sbPlanData[week].map(r => ({
+      date: r.plan_date, line: r.line, sku: r.sku, shift: r.shift,
+      planned_pallets: r.planned_pallets, target_pallets: r.target_pallets
+    }));
+  } else {
+    const sched = buildSchedule(week, planWeek(week));
+    planEditRows = sched
+      .filter(s => s.sku && s.sku !== 'Maintenance')
+      .map(s => ({
+        date: s.date, line: s.label, sku: s.sku, shift: s.shift,
+        planned_pallets: s.pallets, target_pallets: getMaxPal(s)
+      }));
+  }
+
+  // Populate date selector Mon-Sat
+  const dateSel = document.getElementById('addEntryDate');
+  dateSel.innerHTML = '';
+  const days = ['Mon','Tue','Wed','Thu','Fri','Sat'];
+  for (let d = 0; d < 6; d++) {
+    const dt = addDays(week, d);
+    const o = document.createElement('option');
+    o.value = dt; o.textContent = days[d] + ' ' + fmtD(dt);
+    dateSel.appendChild(o);
+  }
+
+  // Unlock button visibility
+  const unlockBtn = document.getElementById('planEditUnlockBtn');
+  if (unlockBtn) {
+    unlockBtn.style.display = lockedWeeksSet.has(week) ? 'inline-block' : 'none';
+  }
+
+  renderPlanEditRows();
+  onAddLineChange();
+  document.getElementById('planEditModal').style.display = 'flex';
+}
+
+function renderPlanEditRows() {
+  const container = document.getElementById('planEditRowsContainer');
+  if (!planEditRows.length) {
+    container.innerHTML = '<p style="color:#999;font-size:10pt;text-align:center;padding:16px 0">No shifts yet — add lines below.</p>';
+    return;
+  }
+  const byDate = {};
+  planEditRows.forEach((r, idx) => { if (!byDate[r.date]) byDate[r.date] = []; byDate[r.date].push({...r, _idx: idx}); });
+  const shiftColour = s => s === 'Day' ? '#1B2A4A' : s === 'Aft' ? '#7D5A00' : '#5C3A8A';
+  const dotColour = (sku, label) => {
+    const c = clsForEntry(sku, label);
+    return c === 'ep10' ? '#C0392B' : c === 'ep5' ? '#2980B9' : c === 'as2' ? '#27AE60' : c === 'ep6' ? '#E91E8C' : '#8E44AD';
+  };
+  let html = '';
+  Object.keys(byDate).sort().forEach(date => {
+    html += `<div style="margin-bottom:14px"><div style="font-weight:700;font-size:10pt;color:#1B2A4A;padding:4px 0;border-bottom:2px solid #1B2A4A;margin-bottom:6px">${fmtD(date)}</div><table style="width:100%;border-collapse:collapse;font-size:10pt"><thead><tr style="background:#F4F7FB"><th style="padding:5px 8px;text-align:left">Line</th><th style="padding:5px 8px;text-align:left">SKU</th><th style="padding:5px 8px;text-align:center">Shift</th><th style="padding:5px 8px;text-align:center">Pals</th><th style="padding:5px 4px"></th></tr></thead><tbody>`;
+    byDate[date].forEach(r => {
+      html += `<tr style="border-bottom:1px solid #f0f0f0"><td style="padding:5px 8px"><span style="display:inline-block;width:8px;height:8px;background:${dotColour(r.sku,r.line)};border-radius:50%;margin-right:5px"></span>${r.line}</td><td style="padding:5px 8px;color:#555">${r.sku}</td><td style="padding:5px 8px;text-align:center"><span style="background:${shiftColour(r.shift)};color:#fff;padding:2px 7px;border-radius:3px;font-size:9pt">${r.shift}</span></td><td style="padding:5px 8px;text-align:center;font-weight:700">${r.planned_pallets}</td><td style="padding:5px 4px;text-align:right"><button onclick="planEditDeleteRow(${r._idx})" style="background:#C0392B;color:#fff;border:none;border-radius:3px;padding:2px 8px;cursor:pointer;font-size:9pt" title="Remove this shift">×</button></td></tr>`;
+    });
+    html += '</tbody></table></div>';
+  });
+  container.innerHTML = html;
+}
+
+function planEditDeleteRow(idx) {
+  planEditRows.splice(idx, 1);
+  renderPlanEditRows();
+}
+
+function onAddLineChange() {
+  const line = document.getElementById('addEntryLine').value;
+  const sku  = LINE_TO_SKU[line] || '10L Cask';
+  const pals = getMaxPal({label: line, sku});
+  document.getElementById('addEntrySku').textContent  = sku;
+  document.getElementById('addEntryPals').textContent = pals;
+}
+
+function planEditAddRow() {
+  const date  = document.getElementById('addEntryDate').value;
+  const line  = document.getElementById('addEntryLine').value;
+  const shift = document.getElementById('addEntryShift').value;
+  const sku   = LINE_TO_SKU[line] || '10L Cask';
+  const tgt   = getMaxPal({label: line, sku});
+  if (planEditRows.some(r => r.date === date && r.line === line && r.shift === shift)) {
+    alert(line + ' ' + shift + ' on ' + fmtD(date) + ' already exists.');
+    return;
+  }
+  planEditRows.push({ date, line, sku, shift, planned_pallets: tgt, target_pallets: tgt });
+  const ord = {Day:0, Aft:1, Night:2};
+  planEditRows.sort((a, b) => a.date.localeCompare(b.date) || (ord[a.shift]||0) - (ord[b.shift]||0));
+  renderPlanEditRows();
+}
+
+async function savePlanModal() {
+  const week = planEditWeek;
+  if (!week) return;
+  const btn = document.getElementById('planEditSaveBtn');
+  btn.textContent = 'Saving…'; btn.disabled = true;
+  try {
+    // Audit: read prev rows
+    const prevRes = await sbFetchTimeout(`${SB_URL}/rest/v1/production_plan_daily?week_start=eq.${week}&select=plan_date,line,sku,shift,planned_pallets`, {headers: sbHeaders()}, SB_TIMEOUT_MS);
+    const prevRows = prevRes.ok ? await prevRes.json() : [];
+    const prevMap = {};
+    prevRows.forEach(r => { prevMap[r.plan_date + '|' + r.line + '|' + r.shift] = r.planned_pallets; });
+
+    // Replace all rows for this week
+    await sbFetchTimeout(`${SB_URL}/rest/v1/production_plan_daily?week_start=eq.${week}`, {method:'DELETE', headers: sbHeaders()}, SB_TIMEOUT_MS);
+    const rows = planEditRows.map(r => ({week_start: week, plan_date: r.date, line: r.line, sku: r.sku, shift: r.shift, planned_pallets: r.planned_pallets, target_pallets: r.target_pallets}));
+    if (rows.length) {
+      const res = await sbFetchTimeout(`${SB_URL}/rest/v1/production_plan_daily`, {method:'POST', headers:{...sbHeaders(),'Prefer':'return=minimal'}, body: JSON.stringify(rows)}, SB_TIMEOUT_MS);
+      if (!res.ok) { const err = await res.text(); throw new Error(err); }
+    }
+
+    // Audit log
+    const lockedAt = new Date().toISOString();
+    const auditRows = rows.map(r => ({locked_at: lockedAt, week_start: r.week_start, plan_date: r.plan_date, line: r.line, sku: r.sku, shift: r.shift, new_pallets: r.planned_pallets, prev_pallets: prevMap[r.plan_date+'|'+r.line+'|'+r.shift] ?? null}));
+    if (auditRows.length) {
+      await sbFetchTimeout(`${SB_URL}/rest/v1/production_plan_audit_log`, {method:'POST', headers:{...sbHeaders(),'Prefer':'return=minimal'}, body: JSON.stringify(auditRows)}, SB_TIMEOUT_MS).catch(e => console.warn('Audit log non-fatal:', e.message));
+    }
+
+    // Lock the week
+    await sbFetchTimeout(`${SB_URL}/rest/v1/locked_weeks`, {method:'POST', headers:{...sbHeaders(),'Prefer':'return=minimal,resolution=merge-duplicates'}, body: JSON.stringify({week_start: week, locked_by: 'planner-edit-modal'})}, SB_TIMEOUT_MS).catch(e => console.warn('locked_weeks non-fatal:', e.message));
+
+    // Update local state
+    sbPlanData[week] = rows.map(r => ({week_start: r.week_start, plan_date: r.plan_date, line: r.line, sku: r.sku, shift: r.shift, planned_pallets: r.planned_pallets, target_pallets: r.target_pallets}));
+    lockedWeeksSet.add(week);
+
+    document.getElementById('planEditModal').style.display = 'none';
+    rebuildData();
+    renderSchedule(week, planWeek(week));
+    sbStatus('✓ Plan saved and locked for w/c ' + week + ' — ' + rows.length + ' shifts', 'ok');
+  } catch(e) {
+    sbStatus('⚠ Save failed: ' + e.message, 'err');
+    alert('Save failed:\n' + e.message);
+  } finally {
+    btn.textContent = 'Save & Lock'; btn.disabled = false;
+  }
+}
+
+async function unlockWeek(week) {
+  if (!confirm('Unlock w/c ' + wkLabel(week) + '?\n\nThe auto-scheduler will take over for this week.')) return;
+  try {
+    await sbFetchTimeout(`${SB_URL}/rest/v1/locked_weeks?week_start=eq.${week}`, {method:'DELETE', headers: sbHeaders()}, SB_TIMEOUT_MS);
+    lockedWeeksSet.delete(week);
+    delete sbPlanData[week];
+    document.getElementById('planEditModal').style.display = 'none';
+    rebuildData();
+    renderSchedule(week, planWeek(week));
+    sbStatus('✓ w/c ' + week + ' unlocked — auto-scheduler active', 'ok');
+  } catch(e) {
+    sbStatus('⚠ Unlock failed: ' + e.message, 'err');
+    alert('Unlock failed:\n' + e.message);
+  }
+}
+
 </script>
+
+<!-- ══════════════ SECTION: Plan Edit Modal ══════════════ -->
+<div id="planEditModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);align-items:flex-start;justify-content:center;padding:4vh 0" onclick="if(event.target===this)this.style.display='none'">
+  <div style="background:#fff;width:min(880px,96vw);max-height:90vh;overflow:hidden;border-radius:6px;box-shadow:0 8px 32px rgba(0,0,0,0.35);display:flex;flex-direction:column">
+    <div style="background:#1B2A4A;color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
+      <span id="planEditTitle" style="font-weight:700;font-size:13pt">Edit Production Plan</span>
+      <button onclick="document.getElementById('planEditModal').style.display='none'" style="background:rgba(255,255,255,0.15);border:none;color:#fff;width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:14px">&#x2715;</button>
+    </div>
+    <div style="padding:16px;overflow-y:auto;flex:1">
+      <div id="planEditRowsContainer"></div>
+      <div style="margin-top:16px;padding:12px 14px;background:#F4F7FB;border:1px solid #d0dae8;border-radius:4px">
+        <div style="font-weight:700;font-size:10pt;color:#1B2A4A;margin-bottom:8px">+ Add Line</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <select id="addEntryDate" style="padding:5px 8px;font-size:10pt;border:1px solid #ccc;border-radius:3px"></select>
+          <select id="addEntryLine" onchange="onAddLineChange()" style="padding:5px 8px;font-size:10pt;border:1px solid #ccc;border-radius:3px">
+            <option>EP HMPS (Dual)</option>
+            <option>EP HMPS (Single &#x2014; filler maint.)</option>
+            <option>EP Line A&amp;B (10L)</option>
+            <option>EP Line A&amp;B (5L)</option>
+            <option>EP Line A only (10L)</option>
+            <option>EP Line A only (5L)</option>
+            <option>EP Line B only (10L)</option>
+            <option>EP Line B only (5L)</option>
+            <option>EP Bottle Line (2L)</option>
+            <option>EP Bottle Line (6pk)</option>
+            <option>EP Bottle Line (12pk)</option>
+          </select>
+          <select id="addEntryShift" style="padding:5px 8px;font-size:10pt;border:1px solid #ccc;border-radius:3px">
+            <option>Day</option><option>Aft</option><option>Night</option>
+          </select>
+          <span style="font-size:10pt;color:#555">SKU: <strong id="addEntrySku">10L Cask</strong> &nbsp; Max: <strong id="addEntryPals">90</strong> pal</span>
+          <button onclick="planEditAddRow()" style="padding:5px 14px;background:#1B2A4A;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:10pt">Add</button>
+        </div>
+      </div>
+    </div>
+    <div style="padding:12px 16px;border-top:1px solid #e0e0e0;display:flex;gap:8px;justify-content:flex-end;flex-shrink:0;flex-wrap:wrap">
+      <button id="planEditUnlockBtn" onclick="unlockWeek(planEditWeek)" style="padding:7px 16px;background:#7F8C8D;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:10pt;display:none">Unlock Week</button>
+      <button onclick="document.getElementById('planEditModal').style.display='none'" style="padding:7px 16px;background:#BDC3C7;color:#333;border:none;border-radius:3px;cursor:pointer;font-size:10pt">Cancel</button>
+      <button id="planEditSaveBtn" onclick="savePlanModal()" style="padding:7px 20px;background:#27AE60;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:10pt;font-weight:700">Save &amp; Lock</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
 
