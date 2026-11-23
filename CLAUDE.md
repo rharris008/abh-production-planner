@@ -137,3 +137,36 @@ This standard lives here (project CLAUDE.md) AND is referenced in the global ABH
 - 2-shift day: 134 pal/day.
 - 3-shift (201/day) — **NOW ACTIVE.** `hmpsNightShift = true` set by Rob 25/10/2026. Runs permanently until Rob explicitly disables. All capacity calculations now use 3 shifts for HMPS.
 - Do not use 60/shift or 120/day.
+
+## Production Plan Lock Rule
+
+Once Aaron's production plan email is applied to `CONFIRMED_SCHEDULES`, the week is immediately locked in Supabase `locked_weeks`. No code fix, algorithm, re-seed, or Nike-initiated change may overwrite a locked week. Aaron and Jeremy can always change a locked week — the lock only blocks automated/algorithm changes.
+
+- `plan_change_applier.py` does NOT block authorised senders on locked weeks. Aaron's emails apply immediately and re-lock the week.
+- Aaron's email IS the lock instruction — no button, no separate confirmation.
+- To unlock: Rob deletes the row from `locked_weeks` in Supabase. Only Rob can unlock.
+- When writing any parser fix or code change that touches `CONFIRMED_SCHEDULES` data rows for a specific week, check `locked_weeks` first.
+- Supabase table: `locked_weeks` (week_start DATE PK, locked_at TIMESTAMPTZ, locked_by TEXT) — project yxaebxkkclbjezffmerw.
+
+Rob, 18/09/2026: "once Aaron locks it, it is locked — there is no algorithm override — that has been a rule for months."
+
+## Planner is Single Source of Truth
+
+The planner at rharris008.github.io/abh-production-planner is THE single source of truth for all production schedules. Any script reading the production schedule must use the live planner, not rebuild from raw Supabase data.
+
+- Use `get_planner_schedule_live()` in `aaron_production_thursday.py` — Playwright renders the live JS runtime.
+- Fallback chain (Playwright fails): CONFIRMED_SCHEDULES then Supabase production_plan_daily.
+- Do NOT re-implement the planner algorithm in Python. It depends on live NS stock and a complex multi-source algorithm.
+- Do NOT read Supabase `production_plan_daily` alone — gets stale data, misses mid-week SKU switches.
+
+Rob, 01/10/2026: "you should not be trying to re build the output for the email — the planner is the single source of the truth."
+
+## W12 Anchor Carry-Back Rule
+
+Any correction to `W12_ANCHOR` values in a one-off build script MUST also be applied to `ABH_ProdVsSales_CC_Prompt_v4.md` in the same session.
+
+- Correct NS date: dateTo=2026-03-20 (W12 Friday close). NOT March 21 (Saturday = W13 start).
+- Run NS Report 752 with subsidiaryId=2 at dateTo=2026-03-20 to re-verify any anchor value.
+- SOH comparison must query NS at fri.isoformat() (W{current} Friday close), NOT today.isoformat().
+
+Why: 18/10/2026, W12 anchors corrected in build script but CC prompt not updated. W43 built with wrong anchors, causing 84% reported SOH variance.
