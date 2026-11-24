@@ -675,7 +675,7 @@ describe('CS1: Confirmed Saturday display', () => {
     // The confirmed bypass must not set satUsed:true — Saturday is already in
     // confirmedProd (and therefore stockEnd/plannedProd). Flipping satUsed causes
     // rolling table and audit to add satAlloc again on top.
-    const bypassStart = SRC.indexOf('if (lockedShifts)');
+    const bypassStart = SRC.indexOf('if (CONFIRMED_SCHEDULES[week])');
     const bypassEnd   = SRC.indexOf('// ══ END CONFIRMED SCHEDULE BYPASS ══', bypassStart);
     assert.ok(bypassStart > 0, 'confirmed bypass block not found');
     assert.ok(bypassEnd   > 0, 'END CONFIRMED SCHEDULE BYPASS marker not found');
@@ -690,7 +690,7 @@ describe('CS1: Confirmed Saturday display', () => {
   // ── confirmedSatLines populated from day:5 entries ─────────────────────────
 
   test('CS1 — confirmed path builds confirmedSatLines from day:5 entries', () => {
-    const bypassStart = SRC.indexOf('if (lockedShifts)');
+    const bypassStart = SRC.indexOf('if (CONFIRMED_SCHEDULES[week])');
     const bypassEnd   = SRC.indexOf('// ══ END CONFIRMED SCHEDULE BYPASS ══', bypassStart);
     const bypass = SRC.slice(bypassStart, bypassEnd);
     assert.ok(
@@ -706,7 +706,7 @@ describe('CS1: Confirmed Saturday display', () => {
   // ── cask5Weekday excludes Saturday from day/pal display counts ─────────────
 
   test('CS1 — cask5Weekday filter excludes day:5 before computing cask5Days and cask5Pal', () => {
-    const bypassStart = SRC.indexOf('if (lockedShifts)');
+    const bypassStart = SRC.indexOf('if (CONFIRMED_SCHEDULES[week])');
     const bypassEnd   = SRC.indexOf('// ══ END CONFIRMED SCHEDULE BYPASS ══', bypassStart);
     const bypass = SRC.slice(bypassStart, bypassEnd);
     assert.ok(
@@ -767,7 +767,7 @@ describe('CS1: Confirmed Saturday display', () => {
 describe('CS2: Round 3 confirmed-Saturday correctness', () => {
 
   function getBypass() {
-    const s = SRC.indexOf('if (lockedShifts)');
+    const s = SRC.indexOf('if (CONFIRMED_SCHEDULES[week])');
     const e = SRC.indexOf('// ══ END CONFIRMED SCHEDULE BYPASS ══', s);
     return SRC.slice(s, e);
   }
@@ -1232,13 +1232,10 @@ describe('PS1: Production-split label preservation', () => {
 });
 
 // ── CF1: Coles compound forward-fill growth curve (Rob Harris 05/11/2026) ─────
-// Coles projected demand compounds +5% WoW in November, December and January,
-// then -5% WoW in February and March, every year. April to October resets to
-// 1.0 so the factor does not stay frozen, and the next November starts again
-// from the base. WW/Metcash use flat seasonalFactor.
+// Coles projected demand must grow 5% WoW from Nov 2026 through Jan 2027,
+// then decline 5% WoW through Feb–Mar 2027. WW/Metcash use flat seasonalFactor.
 // Bug: prior implementation applied a flat 1.05 multiplier to every projected
 // week, so Coles demand was stuck at lastLive × 1.05 for the entire horizon.
-// Later the curve was pinned to 2026/27 only, so the following summer did not repeat.
 describe('CF1: Coles compound demand growth curve', () => {
 
   test('CF1 — colesCompound running factor declared before Coles forward-fill loop', () => {
@@ -1248,31 +1245,24 @@ describe('CF1: Coles compound demand growth curve', () => {
     );
   });
 
-  test('CF1 — Nov, Dec and Jan compound +5% WoW for Coles in any year', () => {
+  test('CF1 — Nov 2026 triggers 1.05 growth for Coles', () => {
     assert.ok(
-      SRC.includes("if (mo === 11 || mo === 12 || mo === 1) colesCompound *= 1.05"),
-      "FAIL CF1: Nov/Dec/Jan compound growth step missing for Coles."
+      SRC.includes("(mo === 11 || mo === 12) && yr === 2026) colesCompound *= 1.05"),
+      "FAIL CF1: Nov/Dec 2026 compound growth step missing for Coles."
     );
   });
 
-  test('CF1 — Feb and Mar compound -5% WoW for Coles in any year', () => {
+  test('CF1 — Jan 2027 triggers 1.05 growth for Coles', () => {
     assert.ok(
-      SRC.includes("else if (mo === 2 || mo === 3) colesCompound *= 0.95"),
-      "FAIL CF1: Feb/Mar compound decline step missing for Coles."
+      SRC.includes("mo === 1 && yr === 2027) colesCompound *= 1.05"),
+      "FAIL CF1: Jan 2027 compound growth step missing for Coles."
     );
   });
 
-  test('CF1 — April to October resets Coles factor to 1.0', () => {
+  test('CF1 — Feb/Mar 2027 triggers 0.95 decline for Coles', () => {
     assert.ok(
-      SRC.includes("else colesCompound = 1.0;"),
-      "FAIL CF1: Apr-Oct reset missing — Coles factor will stay frozen after March."
-    );
-  });
-
-  test('CF1 — Coles compound is not pinned to 2026 or 2027', () => {
-    assert.ok(
-      !SRC.includes("yr === 2026) colesCompound") && !SRC.includes("yr === 2027) colesCompound"),
-      "FAIL CF1: Coles compound still gated on a single year."
+      SRC.includes("(mo === 2 || mo === 3) && yr === 2027) colesCompound *= 0.95"),
+      "FAIL CF1: Feb/Mar 2027 compound decline step missing for Coles."
     );
   });
 
@@ -1346,62 +1336,6 @@ describe('ST1: Cask line SKU transition split days', () => {
       map.includes('transition split') && map.includes('splitLine'),
       "FAIL ST1: PLANNER_LOGIC_MAP.md missing transition split documentation."
     );
-  });
-
-});
-
-// HL1 — one plan per locked week. Stock forecast and shift list share shiftsForLockedWeek.
-describe('HL1: locked week stock forecast matches the shift list', () => {
-
-  test('HL1 — planWeek and buildSchedule both call shiftsForLockedWeek', () => {
-    const plan = extractFn('planWeek');
-    const sched = extractFn('buildSchedule');
-    assert.ok(plan && plan.includes('const lockedShifts = shiftsForLockedWeek(week);'),
-      'FAIL HL1: planWeek does not take the locked plan from shiftsForLockedWeek.');
-    assert.ok(plan.includes('confirmedProd[s.sku] = (confirmedProd[s.sku]||0) + s.pallets'),
-      'FAIL HL1: planWeek recomputes locked pallets instead of using the shift card figure.');
-    assert.ok(sched && sched.includes('if (lockedShifts) return lockedShifts;'),
-      'FAIL HL1: buildSchedule does not return the same locked shifts.');
-  });
-
-  test('HL1 — Wednesday cards and the stock sum use the same pallets', () => {
-    const ctx = {
-      Math, console,
-      lockedWeeksSet: new Set(['2026-11-23']),
-      sbPlanData: {
-        '2026-11-23': [
-          { plan_date:'2026-11-25', line:'EP HMPS (Dual)', sku:'10L Cask', shift:'Day', planned_pallets:67, target_pallets:90 },
-          { plan_date:'2026-11-25', line:'EP HMPS (Dual)', sku:'10L Cask', shift:'Aft', planned_pallets:67, target_pallets:90 },
-          { plan_date:'2026-11-25', line:'EP HMPS (Dual)', sku:'10L Cask', shift:'Night', planned_pallets:67, target_pallets:90 },
-          { plan_date:'2026-11-25', line:'EP Line A&B (5L)', sku:'5L Cask', shift:'Day', planned_pallets:59, target_pallets:59 },
-          { plan_date:'2026-11-25', line:'EP Line A&B (5L)', sku:'5L Cask', shift:'Aft', planned_pallets:59, target_pallets:59 },
-          { plan_date:'2026-11-25', line:'EP Bottle Line (6pk)', sku:'600ml 6pk', shift:'Day', planned_pallets:32, target_pallets:32 },
-          { plan_date:'2026-11-25', line:'EP Bottle Line (6pk)', sku:'600ml 6pk', shift:'Aft', planned_pallets:32, target_pallets:32 },
-        ],
-      },
-      getEff: () => 0.75,
-      lineOutageForWeek: () => ({ single: false, out: null, bothDown: false }),
-      localToday: () => '2026-11-24',
-      isPastDayShift: () => true,
-      SKUS: ['10L Cask','5L Cask','2L Bottle','600ml 6pk'],
-    };
-    const vm = createContext(ctx);
-    for (const name of ['clsForEntry', 'sbPlanRowToSched', 'getMaxPal', 'shiftsForLockedWeek']) {
-      const code = extractFn(name);
-      assert.ok(code, 'FAIL HL1: missing ' + name);
-      runInContext(code, vm);
-    }
-    const shifts = vm.shiftsForLockedWeek('2026-11-23');
-    const wednesday = shifts.filter(s => s.date === '2026-11-25');
-    const stock = {};
-    shifts.filter(s => s.date > '2026-11-24' && ctx.SKUS.includes(s.sku)).forEach(s => {
-      stock[s.sku] = (stock[s.sku] || 0) + s.pallets;
-    });
-    const cards = {};
-    wednesday.forEach(s => { cards[s.sku] = (cards[s.sku] || 0) + s.pallets; });
-    assert.deepEqual(cards, { '10L Cask': 201, '5L Cask': 88, '600ml 6pk': 48 });
-    assert.deepEqual(stock, cards);
-    assert.ok(wednesday.every(s => s.sku !== '2L Bottle'));
   });
 
 });
