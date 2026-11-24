@@ -1752,7 +1752,7 @@ function planWeek(week) {
       },
       bottle2LDates: new Set(bot2LC.map(s=>s.date)),
       cask: {
-        prod10: hmpsConfPal + cask10ABPal,
+        prod10: cask10ABPal,
         prod5:  cask5Pal,
         days10: cask10ABDays,
         days5:  cask5Days,
@@ -3236,82 +3236,6 @@ const CONFIRMED_SCHEDULES = {
     {day:5,date:'2026-11-28',shift:'Aft',  label:'EP HMPS (Dual)',       sku:'10L Cask',  pallets:67,target:90,cls:'ep10',site:'EP'},
   ],
 
-  '2026-12-21': [
-    // w/c 21/12/2026: Pre-Christmas run. 23/12 full shifts, 24/12 Day only. 25/12 Christmas Day — no entries.
-    // Template (Mon–Wed): HMPS Dual 10L + A&B 10L + Bottle 6pk. Adjust SKUs at 2-week lock window if stock cover differs.
-    // Mon 21/12: standard
-    {day:0,date:'2026-12-21',shift:'Day',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:0,date:'2026-12-21',shift:'Day',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
-    {day:0,date:'2026-12-21',shift:'Day',label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:24,target:32,cls:'ep6',site:'EP'},
-    {day:0,date:'2026-12-21',shift:'Aft',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:0,date:'2026-12-21',shift:'Aft',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
-    {day:0,date:'2026-12-21',shift:'Aft',label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:24,target:32,cls:'ep6',site:'EP'},
-    {day:0,date:'2026-12-21',shift:'Night',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
-    // Tue 22/12: standard
-    {day:1,date:'2026-12-22',shift:'Day',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:1,date:'2026-12-22',shift:'Day',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
-    {day:1,date:'2026-12-22',shift:'Day',label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:24,target:32,cls:'ep6',site:'EP'},
-    {day:1,date:'2026-12-22',shift:'Aft',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:1,date:'2026-12-22',shift:'Aft',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
-    {day:1,date:'2026-12-22',shift:'Aft',label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:24,target:32,cls:'ep6',site:'EP'},
-    {day:1,date:'2026-12-22',shift:'Night',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
-    // Wed 23/12: full shifts — factory running (Rob Harris 12/11/2026)
-    {day:2,date:'2026-12-23',shift:'Day',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:2,date:'2026-12-23',shift:'Day',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
-    {day:2,date:'2026-12-23',shift:'Day',label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:24,target:32,cls:'ep6',site:'EP'},
-    {day:2,date:'2026-12-23',shift:'Aft',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:2,date:'2026-12-23',shift:'Aft',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
-    {day:2,date:'2026-12-23',shift:'Aft',label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:24,target:32,cls:'ep6',site:'EP'},
-    {day:2,date:'2026-12-23',shift:'Night',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
-    // Thu 24/12: Day shift only (Rob Harris 12/11/2026)
-    {day:3,date:'2026-12-24',shift:'Day',label:'EP HMPS (Dual)',sku:'10L Cask',pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:3,date:'2026-12-24',shift:'Day',label:'EP Line A&B (10L)',sku:'10L Cask',pallets:60,target:80,cls:'ep10',site:'EP'},
-    {day:3,date:'2026-12-24',shift:'Day',label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:24,target:32,cls:'ep6',site:'EP'},
-    // Fri 25/12: Christmas Day — no production
-  ],
-  '2027-03-15': [
-    // Full week reinstated — HMPS added (was missing from algorithm), Cask+Bottle restored (Rob Harris 17/11/2026)
-    // Mon 15/03
-    {day:0,date:'2027-03-15',shift:'Day',  label:'EP HMPS (Dual)',      sku:'10L Cask', pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:0,date:'2027-03-15',shift:'Aft',  label:'EP HMPS (Dual)',      sku:'10L Cask', pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:0,date:'2027-03-15',shift:'Night',label:'EP HMPS (Dual)',      sku:'10L Cask', pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:0,date:'2027-03-15',shift:'Day',  label:'EP Line A&B (5L)',    sku:'5L Cask',  pallets:44,target:59,cls:'ep5', site:'EP'},
-    {day:0,date:'2027-03-15',shift:'Aft',  label:'EP Line A&B (5L)',    sku:'5L Cask',  pallets:44,target:59,cls:'ep5', site:'EP'},
-    {day:0,date:'2027-03-15',shift:'Day',  label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:24,target:32,cls:'ep6', site:'EP'},
-    {day:0,date:'2027-03-15',shift:'Aft',  label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:24,target:32,cls:'ep6', site:'EP'},
-    // Tue 16/03
-    {day:1,date:'2027-03-16',shift:'Day',  label:'EP HMPS (Dual)',      sku:'10L Cask', pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:1,date:'2027-03-16',shift:'Aft',  label:'EP HMPS (Dual)',      sku:'10L Cask', pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:1,date:'2027-03-16',shift:'Night',label:'EP HMPS (Dual)',      sku:'10L Cask', pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:1,date:'2027-03-16',shift:'Day',  label:'EP Line A&B (5L)',    sku:'5L Cask',  pallets:44,target:59,cls:'ep5', site:'EP'},
-    {day:1,date:'2027-03-16',shift:'Aft',  label:'EP Line A&B (5L)',    sku:'5L Cask',  pallets:44,target:59,cls:'ep5', site:'EP'},
-    {day:1,date:'2027-03-16',shift:'Day',  label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:24,target:32,cls:'ep6', site:'EP'},
-    {day:1,date:'2027-03-16',shift:'Aft',  label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:24,target:32,cls:'ep6', site:'EP'},
-    // Wed 17/03
-    {day:2,date:'2027-03-17',shift:'Day',  label:'EP HMPS (Dual)',      sku:'10L Cask', pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:2,date:'2027-03-17',shift:'Aft',  label:'EP HMPS (Dual)',      sku:'10L Cask', pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:2,date:'2027-03-17',shift:'Night',label:'EP HMPS (Dual)',      sku:'10L Cask', pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:2,date:'2027-03-17',shift:'Day',  label:'EP Line A&B (5L)',    sku:'5L Cask',  pallets:44,target:59,cls:'ep5', site:'EP'},
-    {day:2,date:'2027-03-17',shift:'Aft',  label:'EP Line A&B (5L)',    sku:'5L Cask',  pallets:44,target:59,cls:'ep5', site:'EP'},
-    {day:2,date:'2027-03-17',shift:'Day',  label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:24,target:32,cls:'ep6', site:'EP'},
-    {day:2,date:'2027-03-17',shift:'Aft',  label:'EP Bottle Line (6pk)',sku:'600ml 6pk',pallets:24,target:32,cls:'ep6', site:'EP'},
-    // Thu 18/03
-    {day:3,date:'2027-03-18',shift:'Day',  label:'EP HMPS (Dual)',      sku:'10L Cask', pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:3,date:'2027-03-18',shift:'Aft',  label:'EP HMPS (Dual)',      sku:'10L Cask', pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:3,date:'2027-03-18',shift:'Night',label:'EP HMPS (Dual)',      sku:'10L Cask', pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:3,date:'2027-03-18',shift:'Day',  label:'EP Line A&B (5L)',    sku:'5L Cask',  pallets:44,target:59,cls:'ep5', site:'EP'},
-    {day:3,date:'2027-03-18',shift:'Aft',  label:'EP Line A&B (5L)',    sku:'5L Cask',  pallets:44,target:59,cls:'ep5', site:'EP'},
-    {day:3,date:'2027-03-18',shift:'Day',  label:'EP Bottle Line (2L)', sku:'2L Bottle',pallets:39,target:52,cls:'as2', site:'EP'},
-    {day:3,date:'2027-03-18',shift:'Aft',  label:'EP Bottle Line (2L)', sku:'2L Bottle',pallets:39,target:52,cls:'as2', site:'EP'},
-    // Fri 19/03
-    {day:4,date:'2027-03-19',shift:'Day',  label:'EP HMPS (Dual)',      sku:'10L Cask', pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:4,date:'2027-03-19',shift:'Aft',  label:'EP HMPS (Dual)',      sku:'10L Cask', pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:4,date:'2027-03-19',shift:'Night',label:'EP HMPS (Dual)',      sku:'10L Cask', pallets:67,target:90,cls:'ep10',site:'EP'},
-    {day:4,date:'2027-03-19',shift:'Day',  label:'EP Line A&B (5L)',    sku:'5L Cask',  pallets:44,target:59,cls:'ep5', site:'EP'},
-    {day:4,date:'2027-03-19',shift:'Aft',  label:'EP Line A&B (5L)',    sku:'5L Cask',  pallets:44,target:59,cls:'ep5', site:'EP'},
-    {day:4,date:'2027-03-19',shift:'Day',  label:'EP Bottle Line (2L)', sku:'2L Bottle',pallets:39,target:52,cls:'as2', site:'EP'},
-    {day:4,date:'2027-03-19',shift:'Aft',  label:'EP Bottle Line (2L)', sku:'2L Bottle',pallets:39,target:52,cls:'as2', site:'EP'},
-  ],
 };
 
 // ── Maintenance / schedule notes displayed as banners in the shift grid ───
@@ -3848,8 +3772,7 @@ function renderRollingTable(pr) {
       maxProd = {'10L Cask':0,'5L Cask':0,'2L Bottle':0,'600ml 6pk':0};
     } else if (isThisWeek) {
       // Current week: use plannedProd — consistent across confirmed and non-confirmed schedule paths.
-      // cask.prod10 + lines.hmps.cap would double-count HMPS in confirmed-schedule weeks because
-      // cask.prod10 already includes HMPS in that path.
+      // Use plannedProd. On a confirmed week the production table's 10L cask row is the cask line only.
       maxProd = {
         '10L Cask':   pr0?.plannedProd?.['10L Cask']   ?? 0,
         '5L Cask':    pr0?.plannedProd?.['5L Cask']    ?? 0,
@@ -4601,15 +4524,9 @@ function buildAllAlerts() {
       '2L Bottle':   Math.floor(52 * eff),
       '600ml 6pk':   Math.floor(32 * eff),
     };
-    // Night shift extension: 2 hours extra = 2/7.5 of a full shift per line
-    const nightShiftFrac = 2 / 7.5;
-    // Saturday: single shift on EP lines only (HMPS never runs Saturday)
-    const satSkuMap = {
-      '5L Cask':    Math.floor(59 * eff),    // EP Line A&B dual — 1 shift
-      '2L Bottle':  Math.floor(52 * eff),    // Bottle line — 1 shift
-      '600ml 6pk':  Math.floor(32 * eff),    // EP New Line — 1 shift
-      '10L Cask':   Math.floor(80 * eff),    // EP Line A&B dual only (HMPS not available Sat)
-    };
+    // One full HMPS shift at the plan rate (90 or 45, times efficiency). At 75% dual this is 67.
+    // Night shift is that full shift. Saturday HMPS is not part of normal catch-up capacity.
+    const hmpsOneShift = Math.floor(hmpsTgt * eff);
 
     // Collect forward breach info per SKU — only earliest breach per SKU
     const forwardBreaches = [];
@@ -4636,7 +4553,9 @@ function buildAllAlerts() {
 
           // Days remaining in current week to build that stock
           const remDays   = remainingOpDaysInWeek(ALL_WEEKS[todayIdx]);
-          const normalCap = remDays * (normalPalPerShift[sku] || 0) * 2; // 2 shifts
+          // Weekday capacity only. Saturday is not included.
+          let normalCap = remDays * (normalPalPerShift[sku] || 0) * 2; // day + afternoon
+          if (sku === '10L Cask' && hmpsNightShift) normalCap += hmpsOneShift * remDays;
 
           // Cover trajectory: collect this week + next 4 weeks
           const trajectory = [];
@@ -4652,14 +4571,10 @@ function buildAllAlerts() {
           const extraFromNormal = Math.min(extraPal, normalCap);
           const unavoidable     = extraFromNormal < extraPal;
 
-          // Night shift option: 2h extension per remaining shift pair = nightShiftFrac × palPerShift × 2 × remDays
-          const nightPal  = Math.floor((normalPalPerShift[sku] || 0) * nightShiftFrac * remDays);
-          const satPal    = satSkuMap[sku] || 0;  // one Saturday single shift
-
           forwardBreaches.push({
             sku, breachWk: fwk, weeksAhead: i, projCover: cov, extraPal,
             trajectory: trajectory.join(' → '), remDays, normalCap, unavoidable,
-            nightPal, satPal, dailyDem
+            hmpsOneShift, dailyDem
           });
         }
       });
@@ -4690,19 +4605,22 @@ function buildAllAlerts() {
 
       // ── Part B: Escalation options (when unavoidable or no days left) ────────
       if (b.unavoidable || b.remDays <= 0) {
-        const opt1 = b.nightPal > 0
-          ? `Option 1 — Night shift extension (lower cost): 2 extra hours per shift pair × ${b.remDays} day${b.remDays!==1?'s':''} = approx <strong>${fmt(b.nightPal)} pal</strong>.`
-          : `Option 1 — Night shift extension: insufficient remaining days to calculate.`;
-
-        const opt2Note = b.sku === '10L Cask'
-          ? `Option 2 — Saturday run (higher cost): EP Line A&B only (HMPS does not run Saturday) = approx <strong>${fmt(b.satPal)} pal</strong> per Saturday shift. Note: a weekday night shift is the preferred route for 10L.`
-          : `Option 2 — Saturday run (higher cost): EP lines single shift = approx <strong>${fmt(b.satPal)} pal</strong>. HMPS does not run Saturday.`;
+        const nightPal = b.hmpsOneShift * b.remDays;
+        const opt1 = b.sku !== '10L Cask'
+          ? `Night shift is a full HMPS shift of 10-litre only, about ${fmt(b.hmpsOneShift)} pal per shift. It does not make ${b.sku}.`
+          : hmpsNightShift
+            ? `Night shift is already in the plan as a full third HMPS shift, about ${fmt(b.hmpsOneShift)} pal per night (${fmt(nightPal)} pal over ${b.remDays} remaining day${b.remDays!==1?'s':''}). It is not a 2-hour extension.`
+            : b.remDays > 0
+              ? `Add a full HMPS night shift at the plan rate: about ${fmt(b.hmpsOneShift)} pal per remaining day (${fmt(nightPal)} pal).`
+              : `No production days remain to add a night shift.`;
+        const opt2 = b.sku === '10L Cask'
+          ? `Saturday is not counted as normal capacity. One HMPS Saturday shift would add about ${fmt(b.hmpsOneShift)} pal of 10-litre. That Saturday shift needs Rob's authorisation.`
+          : `Saturday is not counted as normal capacity. A Saturday shift needs Rob's authorisation.`;
 
         alerts.push({t: 'r',
-          msg: `<strong>⚠ Escalation required — ${b.sku}:</strong> Normal rate production this week cannot prevent the w/c ${fmtD(b.breachWk)} floor breach. Two options (do NOT auto-action — review with Aaron):<br>`
+          msg: `<strong>Escalation required, ${b.sku}:</strong> Weekday capacity this week cannot prevent the floor breach in w/c ${fmtD(b.breachWk)}.<br>`
              + `&nbsp;&nbsp;${opt1}<br>`
-             + `&nbsp;&nbsp;${opt2Note}<br>`
-             + `&nbsp;&nbsp;Build stock earlier in the horizon at normal rates if next week allows.`
+             + `&nbsp;&nbsp;${opt2}`
         });
       }
     });
