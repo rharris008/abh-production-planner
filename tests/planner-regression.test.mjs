@@ -675,7 +675,7 @@ describe('CS1: Confirmed Saturday display', () => {
     // The confirmed bypass must not set satUsed:true — Saturday is already in
     // confirmedProd (and therefore stockEnd/plannedProd). Flipping satUsed causes
     // rolling table and audit to add satAlloc again on top.
-    const bypassStart = SRC.indexOf('if (CONFIRMED_SCHEDULES[week])');
+    const bypassStart = SRC.indexOf('if (lockedShifts)');
     const bypassEnd   = SRC.indexOf('// ══ END CONFIRMED SCHEDULE BYPASS ══', bypassStart);
     assert.ok(bypassStart > 0, 'confirmed bypass block not found');
     assert.ok(bypassEnd   > 0, 'END CONFIRMED SCHEDULE BYPASS marker not found');
@@ -690,7 +690,7 @@ describe('CS1: Confirmed Saturday display', () => {
   // ── confirmedSatLines populated from day:5 entries ─────────────────────────
 
   test('CS1 — confirmed path builds confirmedSatLines from day:5 entries', () => {
-    const bypassStart = SRC.indexOf('if (CONFIRMED_SCHEDULES[week])');
+    const bypassStart = SRC.indexOf('if (lockedShifts)');
     const bypassEnd   = SRC.indexOf('// ══ END CONFIRMED SCHEDULE BYPASS ══', bypassStart);
     const bypass = SRC.slice(bypassStart, bypassEnd);
     assert.ok(
@@ -706,7 +706,7 @@ describe('CS1: Confirmed Saturday display', () => {
   // ── cask5Weekday excludes Saturday from day/pal display counts ─────────────
 
   test('CS1 — cask5Weekday filter excludes day:5 before computing cask5Days and cask5Pal', () => {
-    const bypassStart = SRC.indexOf('if (CONFIRMED_SCHEDULES[week])');
+    const bypassStart = SRC.indexOf('if (lockedShifts)');
     const bypassEnd   = SRC.indexOf('// ══ END CONFIRMED SCHEDULE BYPASS ══', bypassStart);
     const bypass = SRC.slice(bypassStart, bypassEnd);
     assert.ok(
@@ -767,7 +767,7 @@ describe('CS1: Confirmed Saturday display', () => {
 describe('CS2: Round 3 confirmed-Saturday correctness', () => {
 
   function getBypass() {
-    const s = SRC.indexOf('if (CONFIRMED_SCHEDULES[week])');
+    const s = SRC.indexOf('if (lockedShifts)');
     const e = SRC.indexOf('// ══ END CONFIRMED SCHEDULE BYPASS ══', s);
     return SRC.slice(s, e);
   }
@@ -1346,6 +1346,62 @@ describe('ST1: Cask line SKU transition split days', () => {
       map.includes('transition split') && map.includes('splitLine'),
       "FAIL ST1: PLANNER_LOGIC_MAP.md missing transition split documentation."
     );
+  });
+
+});
+
+// HL1 — one plan per locked week. Stock forecast and shift list share shiftsForLockedWeek.
+describe('HL1: locked week stock forecast matches the shift list', () => {
+
+  test('HL1 — planWeek and buildSchedule both call shiftsForLockedWeek', () => {
+    const plan = extractFn('planWeek');
+    const sched = extractFn('buildSchedule');
+    assert.ok(plan && plan.includes('const lockedShifts = shiftsForLockedWeek(week);'),
+      'FAIL HL1: planWeek does not take the locked plan from shiftsForLockedWeek.');
+    assert.ok(plan.includes('confirmedProd[s.sku] = (confirmedProd[s.sku]||0) + s.pallets'),
+      'FAIL HL1: planWeek recomputes locked pallets instead of using the shift card figure.');
+    assert.ok(sched && sched.includes('if (lockedShifts) return lockedShifts;'),
+      'FAIL HL1: buildSchedule does not return the same locked shifts.');
+  });
+
+  test('HL1 — Wednesday cards and the stock sum use the same pallets', () => {
+    const ctx = {
+      Math, console,
+      lockedWeeksSet: new Set(['2026-11-23']),
+      sbPlanData: {
+        '2026-11-23': [
+          { plan_date:'2026-11-25', line:'EP HMPS (Dual)', sku:'10L Cask', shift:'Day', planned_pallets:67, target_pallets:90 },
+          { plan_date:'2026-11-25', line:'EP HMPS (Dual)', sku:'10L Cask', shift:'Aft', planned_pallets:67, target_pallets:90 },
+          { plan_date:'2026-11-25', line:'EP HMPS (Dual)', sku:'10L Cask', shift:'Night', planned_pallets:67, target_pallets:90 },
+          { plan_date:'2026-11-25', line:'EP Line A&B (5L)', sku:'5L Cask', shift:'Day', planned_pallets:59, target_pallets:59 },
+          { plan_date:'2026-11-25', line:'EP Line A&B (5L)', sku:'5L Cask', shift:'Aft', planned_pallets:59, target_pallets:59 },
+          { plan_date:'2026-11-25', line:'EP Bottle Line (6pk)', sku:'600ml 6pk', shift:'Day', planned_pallets:32, target_pallets:32 },
+          { plan_date:'2026-11-25', line:'EP Bottle Line (6pk)', sku:'600ml 6pk', shift:'Aft', planned_pallets:32, target_pallets:32 },
+        ],
+      },
+      getEff: () => 0.75,
+      lineOutageForWeek: () => ({ single: false, out: null, bothDown: false }),
+      localToday: () => '2026-11-24',
+      isPastDayShift: () => true,
+      SKUS: ['10L Cask','5L Cask','2L Bottle','600ml 6pk'],
+    };
+    const vm = createContext(ctx);
+    for (const name of ['clsForEntry', 'sbPlanRowToSched', 'getMaxPal', 'shiftsForLockedWeek']) {
+      const code = extractFn(name);
+      assert.ok(code, 'FAIL HL1: missing ' + name);
+      runInContext(code, vm);
+    }
+    const shifts = vm.shiftsForLockedWeek('2026-11-23');
+    const wednesday = shifts.filter(s => s.date === '2026-11-25');
+    const stock = {};
+    shifts.filter(s => s.date > '2026-11-24' && ctx.SKUS.includes(s.sku)).forEach(s => {
+      stock[s.sku] = (stock[s.sku] || 0) + s.pallets;
+    });
+    const cards = {};
+    wednesday.forEach(s => { cards[s.sku] = (cards[s.sku] || 0) + s.pallets; });
+    assert.deepEqual(cards, { '10L Cask': 201, '5L Cask': 88, '600ml 6pk': 48 });
+    assert.deepEqual(stock, cards);
+    assert.ok(wednesday.every(s => s.sku !== '2L Bottle'));
   });
 
 });
