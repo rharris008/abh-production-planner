@@ -1,0 +1,253 @@
+{
+  "locked_weeks": [
+    {
+      "week_start": "2027-03-15",
+      "locked_at": "2026-11-17T00:21:40.411167+00:00",
+      "locked_by": "plan-email:Rob Harris"
+    }
+  ],
+  "production_plan_daily": [
+    {
+      "id": 1281,
+      "week_start": "2027-03-15",
+      "plan_date": "2027-03-15",
+      "line": "EP Bottle Line (6pk)",
+      "sku": "600ml 6pk",
+      "shift": "Aft",
+      "planned_pallets": 24,
+      "target_pallets": 32,
+      "created_at": "2026-11-17T00:17:50.795813+00:00"
+    },
+    {
+      "id": 1280,
+      "week_start": "2027-03-15",
+      "plan_date": "2027-03-15",
+      "line": "EP Bottle Line (6pk)",
+      "sku": "600ml 6pk",
+      "shift": "Day",
+      "planned_pallets": 24,
+      "target_pallets": 32,
+      "created_at": "2026-11-17T00:17:50.795813+00:00"
+    },
+    {
+      "id": 1393,
+      "week_start": "2027-03-15",
+      "plan_date": "2027-03-15",
+      "line": "EP HMPS (Dual)",
+      "sku": "10L Cask",
+      "shift": "Aft",
+      "planned_pallets": 67,
+      "target_pallets": 90,
+      "created_at": "2026-11-17T00:21:40.154651+00:00"
+    },
+    {
+      "id": 1392,
+      "week_start": "2027-03-15",
+      "plan_date": "2027-03-15",
+      "line": "EP HMPS (Dual)",
+      "sku": "10L Cask",
+      "shift": "Day",
+      "planned_pallets": 67,
+      "target_pallets": 90,
+      "created_at": "2026-11-17T00:21:39.933548+00:00"
+    },
+    {
+      "id": 1271,
+      "week_start": "2027-03-15",
+      "plan_date": "2027-03-15",
+      "line": "EP Line B only (5L)",
+      "sku": "5L Cask",
+      "shift": "Aft",
+      "planned_pallets": 22,
+      "target_pallets": 30,
+      "created_at": "2026-11-17T00:17:50.795813+00:00"
+    },
+    {
+      "id": 1270,
+      "week_start": "2027-03-15",
+      "plan_date": "2027-03-15",
+      "line": "EP Line B only (5L)",
+      "sku": "5L Cask",
+      "shift": "Day",
+      "planned_pallets": 22,
+      "target_pallets": 30,
+      "created_at": "2026-11-17T00:17:50.795813+00:00"
+    },
+    {
+      "id": 1283,
+      "week_start": "2027-03-15",
+      "plan_date": "2027-03-16",
+      "line": "EP Bottle Line (6pk)",
+      "sku": "600ml 6pk",
+      "shift": "Aft",
+      "planned_pallets": 24,
+      "target_pallets": 32,
+      "created_at": "2026-11-17T00:17:50.795813+00:00"
+    },
+    {
+      "id": 1282,
+      "week_start": "2027-03-15",
+      "plan_date": "2027-03-16",
+      "line": "EP Bottle Line (6pk)",
+      "sku": "600ml 6pk",
+      "shift": "Day",
+      "planned_pallets": 24,
+      "target_pallets": 32,
+      "created_at": "2026-11-17T00:17:50.795813+00:00"
+    },
+    {
+      "id": 1273,
+      "week_start": "2027-03-15",
+      "plan_date": "2027-03-16",
+      "line": "EP Line B only (5L)",
+      "sku": "5L Cask",
+      "shift": "Aft",
+      "planned_pallets": 22,
+      "target_pallets": 30,
+      "created_at": "2026-11-17T00:17:50.795813+00:00"
+    },
+    {
+      "id": 1272,
+      "week_start": "2027-03-15",
+      "plan_date": "2027-03-16",
+      "line": "EP Line B only (5L)",
+      "sku": "5L Cask",
+      "shift": "Day",
+      "planned_pallets": 22,
+      "target_pallets": 30,
+      "created_at": "2026-11-17T00:17:50.795813+00:00"
+    },
+    {
+      "id": 1285,
+      "week_start": "2027-03-15",
+      "plan_date": "2027-03-17",
+      "line": "EP Bottle Line (6pk)",
+      "sku": "600ml 6pk",
+      "shift": "Aft",
+      "planned_pallets": 24,
+      "target_pallets": 32,
+      "created_at": "2026-11-17T00:17:50.795813+00:00"
+    },
+    {
+      "id": 1284,
+      "week_start": "2027-03-15",
+      "plan_date": "2027-03-17",
+      "line": "EP Bottle Line (6pk)",
+      "sku": "600ml 6pk",
+      "shift": "Day",
+      "planned_pallets": 24,
+      "target_pallets": 32,
+      "created_at": "2026-11-17T00:17:50.795813+00:00"
+    },
+    {
+      "id": 1275,
+      "week_start": "2027-03-15",
+      "plan_date": "2027-03-17",
+      "line": "EP Line B only (5L)",
+      "sku": "5L Cask",
+      "shift": "Aft",
+      "planned_pallets": 22,
+      "target_pallets": 30,
+      "created_at": "2026-11-17T00:17:50.795813+00:00"
+    },
+    {
+      "id": 1274,
+      "week_start": "2027-03-15",
+      "plan_date": "2027-03-17",
+      "line": "EP Line B only (5L)",
+      "sku": "5L Cask",
+      "shift": "Day",
+      "planned_pallets": 22,
+      "target_pallets": 30,
+      "created_at": "2026-11-17T00:17:50.795813+00:00"
+    },
+    {
+      "id": 1287,
+      "week_start": "2027-03-15",
+      "plan_date": "2027-03-18",
+      "line": "EP Bottle Line (2L)",
+      "sku": "2L Bottle",
+      "shift": "Aft",
+      "planned_pallets": 39,
+      "target_pallets": 52,
+      "created_at": "2026-11-17T00:17:50.795813+00:00"
+    },
+    {
+      "id": 1286,
+      "week_start": "2027-03-15",
+      "plan_date": "2027-03-18",
+      "line": "EP Bottle Line (2L)",
+      "sku": "2L Bottle",
+      "shift": "Day",
+      "planned_pallets": 39,
+      "target_pallets": 52,
+      "created_at": "2026-11-17T00:17:50.795813+00:00"
+    },
+    {
+      "id": 1277,
+      "week_start": "2027-03-15",
+      "plan_date": "2027-03-18",
+      "line": "EP Line B only (5L)",
+      "sku": "5L Cask",
+      "shift": "Aft",
+      "planned_pallets": 22,
+      "target_pallets": 30,
+      "created_at": "2026-11-17T00:17:50.795813+00:00"
+    },
+    {
+      "id": 1276,
+      "week_start": "2027-03-15",
+      "plan_date": "2027-03-18",
+      "line": "EP Line B only (5L)",
+      "sku": "5L Cask",
+      "shift": "Day",
+      "planned_pallets": 22,
+      "target_pallets": 30,
+      "created_at": "2026-11-17T00:17:50.795813+00:00"
+    },
+    {
+      "id": 1289,
+      "week_start": "2027-03-15",
+      "plan_date": "2027-03-19",
+      "line": "EP Bottle Line (2L)",
+      "sku": "2L Bottle",
+      "shift": "Aft",
+      "planned_pallets": 39,
+      "target_pallets": 52,
+      "created_at": "2026-11-17T00:17:50.795813+00:00"
+    },
+    {
+      "id": 1288,
+      "week_start": "2027-03-15",
+      "plan_date": "2027-03-19",
+      "line": "EP Bottle Line (2L)",
+      "sku": "2L Bottle",
+      "shift": "Day",
+      "planned_pallets": 39,
+      "target_pallets": 52,
+      "created_at": "2026-11-17T00:17:50.795813+00:00"
+    },
+    {
+      "id": 1279,
+      "week_start": "2027-03-15",
+      "plan_date": "2027-03-19",
+      "line": "EP Line B only (5L)",
+      "sku": "5L Cask",
+      "shift": "Aft",
+      "planned_pallets": 22,
+      "target_pallets": 30,
+      "created_at": "2026-11-17T00:17:50.795813+00:00"
+    },
+    {
+      "id": 1278,
+      "week_start": "2027-03-15",
+      "plan_date": "2027-03-19",
+      "line": "EP Line B only (5L)",
+      "sku": "5L Cask",
+      "shift": "Day",
+      "planned_pallets": 22,
+      "target_pallets": 30,
+      "created_at": "2026-11-17T00:17:50.795813+00:00"
+    }
+  ]
+}
