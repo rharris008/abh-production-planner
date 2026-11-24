@@ -1541,8 +1541,9 @@ function forwardSimulate(fromWeekIdx, openStock, eff) {
     const fwdDays10 = Math.round(fwdOpDays * d10 / totalEPDem);
     const fwdDays5  = fwdOpDays - fwdDays10;
     const maxProd = {
-      '10L Cask':    capHMPS + Math.floor(cap10perShift * 2 * fwdDays10 * eff),
-      '5L Cask':     Math.floor(cap5perShift * 2 * fwdDays5 * eff),
+      // cap10perShift and cap5perShift already include eff. Do not multiply by eff again.
+      '10L Cask':    capHMPS + Math.floor(cap10perShift * 2 * fwdDays10),
+      '5L Cask':     Math.floor(cap5perShift * 2 * fwdDays5),
       '2L Bottle':   Math.floor(52 * 2 * fwdOpDays * eff),
       '600ml 6pk':   Math.floor(32 * 2 * fwdOpDays * eff),
     };
